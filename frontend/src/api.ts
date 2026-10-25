@@ -37,7 +37,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export type AuthResponse = { token: string; user: User }
 export const login = (email: string, password: string) => api<AuthResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
-export const register = (name: string, email: string, password: string) => api<AuthResponse>('/api/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) })
+export const register = (name: string, email: string, password: string, plan: PricingPlanId = 'community') => api<AuthResponse>('/api/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, plan }) })
 export const firebaseLogin = (id_token: string, display_name?: string) =>
   api<AuthResponse>('/api/auth/firebase', { method: 'POST', body: JSON.stringify({ id_token, display_name }) })
 export async function logout() { try { await api('/api/auth/logout', { method: 'POST' }) } finally { clearSessionToken() } }

@@ -200,7 +200,7 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
     else:
         is_admin = (not IS_PRODUCTION) and (db.query(User).count() == 0)
     user = User(name=payload.name.strip(), email=email, is_workspace_admin=is_admin,
-                password_hash=hash_password(payload.password))
+                password_hash=hash_password(payload.password), plan=payload.plan)
     db.add(user)
     db.commit()
     ensure_personal_group(db, user)

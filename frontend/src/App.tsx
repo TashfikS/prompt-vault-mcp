@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AUTH_EXPIRED_EVENT, completeOnboarding, getAllProposals, getGroups, getMe, getPrompts, getSessionToken, getUsers, logout } from './api'
-import type { Group, PromptItem, PromptProposalItem, User } from './types'
+import type { Group, PricingPlanId, PromptItem, PromptProposalItem, User } from './types'
 import Navbar from './components/Navbar'
 import type { Page } from './components/Navbar'
 import PromptDashboard from './components/PromptDashboard'
@@ -29,10 +29,22 @@ export default function App() {
   const mcpMode = params.get('mcp_mode') === '1'
   const isInitialPricingRoute =
     params.get('page') === 'pricing' || params.get('pricing') === '1' || window.location.pathname === '/pricing'
+  const isDirectAuth =
+    params.get('auth') === 'login' ||
+    params.get('auth') === 'register' ||
+    params.get('login') === '1' ||
+    window.location.pathname === '/login' ||
+    window.location.pathname === '/register'
+  const initialAuthMode: 'login' | 'register' =
+    params.get('auth') === 'register' || window.location.pathname === '/register' ? 'register' : 'login'
+  const initialPlanParam = (params.get('plan') as PricingPlanId) || 'community'
 
   const [users, setUsers] = useState<User[]>([])
   const [activeUser, setActiveUser] = useState<User | null>(null)
   const [authState, setAuthState] = useState<'checking' | 'signed-out' | 'signed-in'>(getSessionToken() ? 'checking' : 'signed-out')
+  const [unauthView, setUnauthView] = useState<'pricing' | 'auth'>(isDirectAuth ? 'auth' : 'pricing')
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(initialAuthMode)
+  const [selectedSignupPlan, setSelectedSignupPlan] = useState<PricingPlanId>(initialPlanParam)
   const [prompts, setPrompts] = useState<PromptItem[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [proposals, setProposals] = useState<PromptProposalItem[]>([])
@@ -89,6 +101,7 @@ export default function App() {
     setPricingOpen(false)
     setTourOpen(false)
     setPage('prompts')
+    setUnauthView('pricing')
     setError('')
   }, [])
 
@@ -143,6 +156,7 @@ export default function App() {
   async function signOut() {
     await logout().catch(() => undefined)
     resetWorkspace()
+    setUnauthView('pricing')
     setAuthState('signed-out')
   }
 
@@ -202,16 +216,36 @@ export default function App() {
           </div>
         </div>
       ) : authState === 'signed-out' ? (
-        <>
-          <LoginPage
-            onAuthenticated={() => {
-              setAuthState('checking')
-              void loadSession()
+        unauthView === 'pricing' ? (
+          <PricingPage
+            activeUser={null}
+            onSignIn={() => {
+              setAuthMode('login')
+              setUnauthView('auth')
             }}
-            onOpenPricing={() => setPricingPageOpen(true)}
+            onSelectPlan={tierId => {
+              setSelectedSignupPlan(tierId)
+              setAuthMode('register')
+              setUnauthView('auth')
+            }}
+            onContactSales={() => {
+              window.location.href = 'mailto:sales@prompthold.com?subject=PromptHold%20Enterprise%20Inquiry'
+            }}
           />
-          <FeedbackWidget activeUser={null} />
-        </>
+        ) : (
+          <>
+            <LoginPage
+              initialMode={authMode}
+              selectedPlan={selectedSignupPlan}
+              onAuthenticated={() => {
+                setAuthState('checking')
+                void loadSession()
+              }}
+              onOpenPricing={() => setUnauthView('pricing')}
+            />
+            <FeedbackWidget activeUser={null} />
+          </>
+        )
       ) : (
         <div className="min-h-screen bg-[#f6f7f9] text-slate-900 dark:bg-zinc-950 dark:text-zinc-100 lg:pl-64">
           <Navbar

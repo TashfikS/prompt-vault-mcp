@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Braces, GitBranch, LogIn, PlugZap, ShieldCheck, Sparkles, UserPlus } from 'lucide-react'
+import { ArrowLeft, Braces, GitBranch, LogIn, PlugZap, ShieldCheck, Sparkles, UserPlus } from 'lucide-react'
 import { login, register, setSessionToken } from '../api'
+import type { PricingPlanId } from '../types'
 import { Logo, PromptText } from './ui/Brand'
 import RoleBadge from './ui/RoleBadge'
 import type { AccessKind } from './ui/RoleBadge'
@@ -19,11 +20,15 @@ const DEMO_ACCOUNTS: { name: string; email: string; role: AccessKind; context: s
 export default function LoginPage({
   onAuthenticated,
   onOpenPricing,
+  initialMode = 'login',
+  selectedPlan = 'community',
 }: {
   onAuthenticated: () => void
   onOpenPricing?: () => void
+  initialMode?: Mode
+  selectedPlan?: PricingPlanId
 }) {
-  const [mode, setMode] = useState<Mode>('login')
+  const [mode, setMode] = useState<Mode>(initialMode)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -51,7 +56,7 @@ export default function LoginPage({
         const res = await login(email, password)
         setSessionToken(res.token)
       } else {
-        const res = await register(name, email, password)
+        const res = await register(name, email, password, selectedPlan)
         setSessionToken(res.token)
       }
       onAuthenticated()
@@ -152,6 +157,17 @@ export default function LoginPage({
           </div>
 
           <div className="card p-7 sm:p-8">
+            {onOpenPricing && (
+              <button
+                type="button"
+                onClick={onOpenPricing}
+                className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition hover:text-brand-700 dark:text-zinc-400 dark:hover:text-brand-300"
+              >
+                <ArrowLeft size={13} />
+                <span>Back to Plans &amp; Pricing</span>
+              </button>
+            )}
+
             <div className="flex items-center justify-between gap-2">
               <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-zinc-50">
                 {mode === 'login' ? 'Sign in to PromptHold' : 'Create your account'}
@@ -162,6 +178,26 @@ export default function LoginPage({
                 ? 'Enter your workspace credentials to access your personal and team spaces.'
                 : 'You’ll get a private Personal space right away, and can create or join team groups.'}
             </p>
+
+            {mode === 'register' && (
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-brand-200 bg-brand-50/70 px-3.5 py-2.5 text-xs dark:border-brand-900/50 dark:bg-brand-950/40">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} className="text-brand-600 dark:text-brand-400" />
+                  <span className="text-slate-700 dark:text-zinc-300">
+                    Selected Plan: <strong className="font-semibold uppercase tracking-wide text-brand-900 dark:text-brand-200">{selectedPlan}</strong>
+                  </span>
+                </div>
+                {onOpenPricing && (
+                  <button
+                    type="button"
+                    onClick={onOpenPricing}
+                    className="font-medium text-brand-700 hover:underline dark:text-brand-400"
+                  >
+                    Change
+                  </button>
+                )}
+              </div>
+            )}
 
             <form onSubmit={e => void submit(e)} className="mt-6 space-y-4">
               {mode === 'register' && (

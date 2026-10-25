@@ -107,9 +107,18 @@ type Props = {
   onBackToApp?: () => void
   onPlanUpdated?: (newPlan: PricingPlanId) => void
   onContactSales?: () => void
+  onSignIn?: () => void
+  onSelectPlan?: (tierId: PricingPlanId) => void
 }
 
-export default function PricingPage({ activeUser, onBackToApp, onPlanUpdated, onContactSales }: Props) {
+export default function PricingPage({
+  activeUser,
+  onBackToApp,
+  onPlanUpdated,
+  onContactSales,
+  onSignIn,
+  onSelectPlan,
+}: Props) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [pricing, setPricing] = useState<PricingResponse | null>(null)
   const [loadingTier, setLoadingTier] = useState<PricingPlanId | null>(null)
@@ -134,14 +143,18 @@ export default function PricingPage({ activeUser, onBackToApp, onPlanUpdated, on
   const tiers = pricing?.tiers || FALLBACK_TIERS
 
   async function handleSelectPlan(tierId: PricingPlanId) {
-    if (tierId === currentPlan) return
+    if (activeUser && tierId === currentPlan) return
     if (tierId === 'enterprise') {
       onContactSales?.()
       return
     }
 
     if (!activeUser) {
-      window.location.href = '/'
+      if (onSelectPlan) {
+        onSelectPlan(tierId)
+      } else {
+        window.location.href = `/?auth=register&plan=${tierId}`
+      }
       return
     }
 
@@ -169,15 +182,27 @@ export default function PricingPage({ activeUser, onBackToApp, onPlanUpdated, on
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <ThemeToggleButton />
-            {onBackToApp ? (
-              <button type="button" onClick={onBackToApp} className="btn-secondary btn-sm flex items-center gap-1.5">
-                <ArrowLeft size={14} />
-                <span>Dashboard</span>
+            {activeUser ? (
+              onBackToApp ? (
+                <button type="button" onClick={onBackToApp} className="btn-secondary btn-sm flex items-center gap-1.5">
+                  <ArrowLeft size={14} />
+                  <span>Dashboard</span>
+                </button>
+              ) : (
+                <a href="/" className="btn-secondary btn-sm flex items-center gap-1.5">
+                  <ArrowLeft size={14} />
+                  <span>Open Workspace</span>
+                </a>
+              )
+            ) : onSignIn ? (
+              <button type="button" onClick={onSignIn} className="btn-primary btn-sm flex items-center gap-1.5 shadow-2xs">
+                <span>Sign In</span>
+                <ArrowRight size={14} />
               </button>
             ) : (
-              <a href="/" className="btn-secondary btn-sm flex items-center gap-1.5">
-                <ArrowLeft size={14} />
-                <span>Open Workspace</span>
+              <a href="/?auth=login" className="btn-primary btn-sm flex items-center gap-1.5 shadow-2xs">
+                <span>Sign In</span>
+                <ArrowRight size={14} />
               </a>
             )}
           </div>

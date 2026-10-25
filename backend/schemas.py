@@ -10,6 +10,7 @@ class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str = Field(min_length=8, max_length=200)
+    plan: Literal["community", "pro", "team", "enterprise"] = "community"
 
     @field_validator("password")
     @classmethod
