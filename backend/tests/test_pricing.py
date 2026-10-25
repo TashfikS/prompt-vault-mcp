@@ -99,3 +99,71 @@ async def test_prompt_quota_enforced(client: AsyncClient, db: Session, test_user
         },
     )
     assert res2.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_group_quota_enforced(client: AsyncClient, db: Session, test_users_and_groups):
+    """Verify that community users can create up to 1 team group, and need Team plan for more."""
+    fixtures = test_users_and_groups
+    member = fixtures["member"]
+    tokens = fixtures["tokens"]
+    headers = {"Authorization": f"Bearer {tokens['member']}"}
+
+    member.plan = "community"
+    db.commit()
+
+    # First team group created by member succeeds
+    res1 = await client.post(
+        "/api/groups",
+        headers=headers,
+        json={"name": "Member Group Alpha", "description": "First group"},
+    )
+    assert res1.status_code == 201
+
+    # Second team group creation fails with 403 quota reached
+    res2 = await client.post(
+        "/api/groups",
+        headers=headers,
+        json={"name": "Member Group Beta", "description": "Second group"},
+    )
+    assert res2.status_code == 403
+    assert "team group(s) on the Community plan" in res2.json()["detail"]
+
+    # Upgrade to Team plan and retry -> succeeds!
+    await client.patch("/api/me/plan", headers=headers, json={"plan": "team"})
+    res3 = await client.post(
+        "/api/groups",
+        headers=headers,
+        json={"name": "Member Group Beta", "description": "Second group"},
+    )
+    assert res3.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_duplicate_prompt_quota_enforced(client: AsyncClient, db: Session, test_users_and_groups):
+    """Verify that duplicating a prompt checks the prompt quota."""
+    fixtures = test_users_and_groups
+    member = fixtures["member"]
+    tokens = fixtures["tokens"]
+    team_group = fixtures["team_group"]
+    team_prompt = fixtures["team_prompt"]
+    headers = {"Authorization": f"Bearer {tokens['member']}"}
+
+    member.plan = "community"
+    db.commit()
+
+    # Pre-populate prompts up to limit of 20
+    existing = db.query(Prompt).filter(Prompt.created_by == member.id, Prompt.is_archived.is_(False)).count()
+    for i in range(20 - existing):
+        db.add(Prompt(group_id=team_group.id, title=f"Cap {i}", current_version_number=1, created_by=member.id))
+    db.commit()
+
+    # Duplicating should now fail with 403 quota reached
+    res = await client.post(
+        f"/api/prompts/{team_prompt.id}/duplicate",
+        headers=headers,
+        json={"target_group_id": team_group.id, "mode": "copy"},
+    )
+    assert res.status_code == 403
+    assert "Prompt limit reached" in res.json()["detail"]
+

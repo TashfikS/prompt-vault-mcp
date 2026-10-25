@@ -421,6 +421,20 @@ def _check_version_quota(db: Session, user: User, prompt: Prompt) -> None:
         )
 
 
+def _check_group_quota(db: Session, user: User) -> None:
+    if user.is_workspace_admin:
+        return
+    user_plan = getattr(user, "plan", "community") or "community"
+    plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
+    max_groups = plan_info.get("max_groups", 1)
+    created_team_groups = db.query(Group).filter(Group.created_by == user.id, Group.personal_owner_id.is_(None)).count()
+    if created_team_groups >= max_groups:
+        raise HTTPException(
+            status_code=403,
+            detail=f"You have reached your limit of {max_groups} team group(s) on the {plan_info['name']} plan. Please upgrade to Team for more spaces.",
+        )
+
+
 def _create_prompt(db: Session, user: User, group_id: str, title: str, content: str,
                    description: str = "", change_note: str = "Initial creation", source_filename: str | None = None) -> Prompt:
     safe_title = (title.strip() or "Untitled prompt")[:240]
@@ -706,6 +720,7 @@ def update_group_settings(group_id: str, payload: GroupSettingsUpdate, request: 
 def create_group(payload: GroupCreate, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
     """Any signed-in user may create a group. The creator leads it, unless a Workspace Admin picks another leader."""
     _require_web_session(user)
+    _check_group_quota(db, user)
     name = payload.name.strip()
     if not name or name.lower().startswith("personal"):
         raise HTTPException(status_code=400, detail="Please choose a different group name.")
@@ -927,6 +942,7 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                         db.flush()
                         proposed.append(proposal.id)
                     else:
+                        _check_version_quota(db, user, target)
                         max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=target.id).scalar() or 0
                         target.current_version_number = max_ver + 1
                         variables_list = extract_variables(text)
@@ -958,6 +974,7 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                         set_cached_active_version_uuid(target.id, new_ver.id)
                         updated.append(target.id)
                 else:
+                    _check_prompt_quota(db, user, group_id, 1)
                     prompt = _create_prompt(db, user, group_id, Path(filename).stem, text,
                                             change_note=safe_change_note, source_filename=filename)
                     created.append(prompt.id)
@@ -977,6 +994,7 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                         raise HTTPException(status_code=400, detail=f"Every row in {filename} needs title and content fields.")
                     if len(row["content"]) > 100_000:
                         raise HTTPException(status_code=400, detail=f"A prompt in {filename} exceeds 100,000 characters.")
+                    _check_prompt_quota(db, user, group_id, 1)
                     prompt = _create_prompt(db, user, group_id, str(row["title"]), row["content"],
                                             str(row.get("description", "")), safe_change_note, filename)
                     created.append(prompt.id)
@@ -994,6 +1012,7 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                         continue
                     if len(normalized["content"]) > 100_000:
                         raise HTTPException(status_code=400, detail=f"A row in {filename} exceeds 100,000 characters.")
+                    _check_prompt_quota(db, user, group_id, 1)
                     prompt = _create_prompt(db, user, group_id, normalized["title"], normalized["content"],
                                             normalized.get("description", ""), safe_change_note, filename)
                     created.append(prompt.id)
@@ -1182,6 +1201,8 @@ def duplicate_or_move_prompt_route(
         )
     if not active_version:
         raise HTTPException(status_code=400, detail="Source prompt has no content to duplicate.")
+
+    _check_prompt_quota(db, user, payload.target_group_id, 1)
 
     if payload.title and payload.title.strip():
         new_title = payload.title.strip()[:240]

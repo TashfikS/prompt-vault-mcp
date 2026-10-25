@@ -193,6 +193,15 @@ def save_prompt_version_from_chat(api_key: str, prompt_id: str, new_content: str
                 "change_note": proposal.change_note,
                 "message": "Submitted as a proposal awaiting approval.",
             }
+        if not user.is_workspace_admin:
+            from main import PLAN_LIMITS_MAP
+            user_plan = getattr(user, "plan", "community") or "community"
+            plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
+            max_versions = plan_info.get("max_versions_per_prompt", 10)
+            max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
+            if max_ver >= max_versions:
+                raise ValueError(f"This prompt has reached the maximum of {max_versions} versions on the {plan_info['name']} plan.")
+
         max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
         prompt.current_version_number = max_ver + 1
         prompt.updated_at = datetime.utcnow()
@@ -272,6 +281,15 @@ def duplicate_or_move_prompt(api_key: str, prompt_id: str, target_group_id: str,
         prompt_title = new_title.strip()[:240] if new_title.strip() else (
             f"{prompt.title} (Copy)"[:240] if prompt.group_id == target_group.id else prompt.title[:240]
         )
+        if not user.is_workspace_admin:
+            from main import PLAN_LIMITS_MAP
+            user_plan = getattr(user, "plan", "community") or "community"
+            plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
+            max_prompts = plan_info.get("max_prompts", 20)
+            existing_count = db.query(Prompt).filter(Prompt.created_by == user.id, Prompt.is_archived.is_(False)).count()
+            if existing_count >= max_prompts:
+                raise ValueError(f"Prompt limit reached ({existing_count}/{max_prompts}) for the {plan_info['name']} plan.")
+
         safe_note = f"Duplicated from {src_name} (v{prompt.current_version_number})"
         new_prompt = Prompt(group_id=target_group.id, title=prompt_title, description=prompt.description,
                             current_version_number=1, created_by=user.id)
