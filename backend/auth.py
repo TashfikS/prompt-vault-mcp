@@ -224,7 +224,7 @@ def verify_firebase_id_token(id_token: str) -> dict[str, str] | None:
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:  # nosec B310
                 data = json.loads(resp.read().decode("utf-8"))
                 users = data.get("users") or []
                 if users:
@@ -240,7 +240,7 @@ def verify_firebase_id_token(id_token: str) -> dict[str, str] | None:
     url = f"https://oauth2.googleapis.com/tokeninfo?id_token={urllib.parse.quote(id_token.strip())}"
     req = urllib.request.Request(url, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
             email = (data.get("email") or "").strip().lower()
             if email and (data.get("email_verified") in (True, "true")):

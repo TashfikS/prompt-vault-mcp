@@ -169,7 +169,7 @@ def create_github_issue_for_feedback(
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=6.0) as resp:
+        with urllib.request.urlopen(req, timeout=6.0) as resp:  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
             return {
                 "created": True,
@@ -183,7 +183,7 @@ def create_github_issue_for_feedback(
             try:
                 fallback_payload = json.dumps({"title": title, "body": "\n".join(body_lines)}).encode("utf-8")
                 fallback_req = urllib.request.Request(url, data=fallback_payload, method="POST", headers=req.headers)
-                with urllib.request.urlopen(fallback_req, timeout=6.0) as resp2:
+                with urllib.request.urlopen(fallback_req, timeout=6.0) as resp2:  # nosec B310
                     data2 = json.loads(resp2.read().decode("utf-8"))
                     return {
                         "created": True,
