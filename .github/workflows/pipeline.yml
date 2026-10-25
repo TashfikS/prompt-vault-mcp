@@ -331,28 +331,3 @@ jobs:
           npm ci
           npx wrangler deploy
 
-  # 2.4 Deploy to Hugging Face Spaces (Docker Space)
-  deploy-huggingface:
-    name: 8. Deploy to Hugging Face Spaces
-    runs-on: ubuntu-latest
-    needs: [publish-ghcr]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Push to Hugging Face Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE_REPO: ${{ secrets.HF_SPACE_REPO }}
-        run: |
-          if [ -z "${HF_TOKEN}" ] || [ -z "${HF_SPACE_REPO}" ]; then
-            echo "HF_TOKEN or HF_SPACE_REPO not set. Skipping Hugging Face deploy."
-          else
-            git config user.name "PromptHold CD Bot"
-            git config user.email "cd-bot@prompthold.local"
-            git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}" HEAD:main
-            echo "Pushed to Hugging Face Space successfully!"
-          fi

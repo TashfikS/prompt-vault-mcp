@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Braces, GitBranch, LogIn, PlugZap, ShieldCheck, UserPlus } from 'lucide-react'
+import { Braces, GitBranch, LogIn, PlugZap, ShieldCheck, Sparkles, UserPlus } from 'lucide-react'
 import { login, register, setSessionToken } from '../api'
 import { Logo, PromptText } from './ui/Brand'
 import RoleBadge from './ui/RoleBadge'
@@ -16,7 +16,13 @@ const DEMO_ACCOUNTS: { name: string; email: string; role: AccessKind; context: s
   { name: 'Ian Malcolm', email: 'ian@example.com', role: 'GUEST', context: 'Marketing Guest' },
 ]
 
-export default function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
+export default function LoginPage({
+  onAuthenticated,
+  onOpenPricing,
+}: {
+  onAuthenticated: () => void
+  onOpenPricing?: () => void
+}) {
   const [mode, setMode] = useState<Mode>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -213,6 +219,19 @@ export default function LoginPage({ onAuthenticated }: { onAuthenticated: () => 
                 {mode === 'login' ? 'Create an account' : 'Sign in'}
               </button>
             </p>
+
+            {onOpenPricing && (
+              <div className="mt-4 flex items-center justify-center border-t border-slate-100 pt-3 dark:border-zinc-850">
+                <button
+                  type="button"
+                  onClick={onOpenPricing}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition hover:text-brand-700 dark:text-zinc-400 dark:hover:text-brand-300"
+                >
+                  <Sparkles size={13} className="text-brand-600 dark:text-brand-400" />
+                  <span>View Plans &amp; Pricing tiers</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Quick Demo Access with interactive RoleBadges */}

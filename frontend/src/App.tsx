@@ -16,6 +16,7 @@ import DuplicatePromptModal from './components/DuplicatePromptModal'
 import ConnectAiModal from './components/ConnectAiModal'
 import RolesGuideModal from './components/RolesGuideModal'
 import PricingModal from './components/PricingModal'
+import PricingPage from './components/PricingPage'
 import OnboardingTour from './components/OnboardingTour'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { ToastProvider } from './components/ui/Toast'
@@ -26,6 +27,8 @@ export default function App() {
   const params = new URLSearchParams(window.location.search)
   const shareId = params.get('share_diff') ?? window.location.pathname.match(/^\/share\/diff\/([^/]+)/)?.[1]
   const mcpMode = params.get('mcp_mode') === '1'
+  const isInitialPricingRoute =
+    params.get('page') === 'pricing' || params.get('pricing') === '1' || window.location.pathname === '/pricing'
 
   const [users, setUsers] = useState<User[]>([])
   const [activeUser, setActiveUser] = useState<User | null>(null)
@@ -43,6 +46,7 @@ export default function App() {
   const [connectOpen, setConnectOpen] = useState(false)
   const [rolesOpen, setRolesOpen] = useState(false)
   const [pricingOpen, setPricingOpen] = useState(false)
+  const [pricingPageOpen, setPricingPageOpen] = useState(isInitialPricingRoute)
   const [feedbackOpen, setFeedbackOpen] = useState<boolean | undefined>(undefined)
   const [tourOpen, setTourOpen] = useState(false)
   const [error, setError] = useState('')
@@ -169,6 +173,27 @@ export default function App() {
         <SharedDiffPage shareId={shareId} />
       ) : mcpMode ? (
         <McpInChatDrawer />
+      ) : pricingPageOpen ? (
+        <PricingPage
+          activeUser={activeUser}
+          onBackToApp={() => {
+            setPricingPageOpen(false)
+            if (window.history.pushState) {
+              const url = new URL(window.location.href)
+              url.searchParams.delete('page')
+              url.searchParams.delete('pricing')
+              window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''))
+            }
+          }}
+          onPlanUpdated={newPlan => {
+            if (activeUser) {
+              setActiveUser({ ...activeUser, plan: newPlan })
+            }
+          }}
+          onContactSales={() => {
+            window.location.href = 'mailto:sales@prompthold.com?subject=PromptHold%20Enterprise%20Inquiry'
+          }}
+        />
       ) : authState === 'checking' ? (
         <div className="grid min-h-screen place-items-center bg-[#f6f7f9] text-sm text-slate-500 dark:bg-zinc-950 dark:text-zinc-400">
           <div className="flex flex-col items-center gap-3">
@@ -183,6 +208,7 @@ export default function App() {
               setAuthState('checking')
               void loadSession()
             }}
+            onOpenPricing={() => setPricingPageOpen(true)}
           />
           <FeedbackWidget activeUser={null} />
         </>
