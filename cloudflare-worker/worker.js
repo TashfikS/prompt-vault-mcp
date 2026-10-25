@@ -540,17 +540,26 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // 1. Optional multi-pod upstream forwarding if BACKEND_POD_1 or BACKEND_POD_2 are configured
-    const pods = [env.BACKEND_POD_1, env.BACKEND_POD_2].filter(Boolean);
+    // 1. Optional multi-pod upstream forwarding (Render + Edge Failover)
+    const pods = [env.RENDER_ORIGIN, env.BACKEND_POD_1, env.BACKEND_POD_2].filter(Boolean);
     if (pods.length > 0 && (path.startsWith("/api/") || path.startsWith("/mcp"))) {
       for (const pod of pods) {
         try {
           const targetUrl = new URL(path + url.search, pod);
-          const resp = await fetch(new Request(targetUrl.toString(), request));
+          const reqBody = ["GET", "HEAD"].includes(request.method) ? undefined : request.body;
+          const upstreamReq = new Request(targetUrl.toString(), {
+            method: request.method,
+            headers: request.headers,
+            body: reqBody,
+            redirect: "follow",
+            signal: AbortSignal.timeout(2800),
+          });
+          const resp = await fetch(upstreamReq);
           if (resp.status < 502) {
             const headers = new Headers(resp.headers);
             headers.set("X-Upstream-Pod", pod);
-            for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
+            headers.set("X-Served-By", "render-upstream");
+            for (const [k, v] of Object.entries(getCorsHeaders(request))) headers.set(k, v);
             return new Response(resp.body, { status: resp.status, headers });
           }
         } catch {
@@ -1309,5 +1318,22 @@ export default {
     }
 
     return new Response("PromptHold Gateway Active", { status: 200 });
+  },
+
+  async scheduled(event, env, ctx) {
+    const origin = env.RENDER_ORIGIN || env.BACKEND_POD_1;
+    if (origin) {
+      try {
+        console.log(`[CRON] Keep-alive ping sent to ${origin}/api/health`);
+        const resp = await fetch(`${origin}/api/health`, {
+          method: "GET",
+          headers: { "User-Agent": "PromptHold-KeepAlive-Cron/1.0" },
+          signal: AbortSignal.timeout(10000),
+        });
+        console.log(`[CRON] Keep-alive response status: ${resp.status}`);
+      } catch (err) {
+        console.warn(`[CRON] Keep-alive error: ${err.message || err}`);
+      }
+    }
   },
 };

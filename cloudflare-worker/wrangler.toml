@@ -4,6 +4,13 @@ compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+[vars]
+RENDER_ORIGIN = "https://prompthold-backend.onrender.com"
+BACKEND_POD_1 = "https://prompthold-backend.onrender.com"
+
+[triggers]
+crons = ["*/14 * * * *"]
+
 [assets]
 directory = "../frontend/dist"
 binding = "ASSETS"
