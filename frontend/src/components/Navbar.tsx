@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, Users, X } from 'lucide-react'
+import { BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, Sparkles, Users, X } from 'lucide-react'
 import type { Group, PromptItem, User } from '../types'
 import { accessFor, spaceName } from '../access'
 import RoleBadge from './ui/RoleBadge'
@@ -23,6 +23,7 @@ type Props = {
   onStartTour: () => void
   onOpenRoles: () => void
   onOpenFeedback?: () => void
+  onOpenPricing?: () => void
   onLogout: () => void
 }
 
@@ -58,7 +59,7 @@ function MenuItem({ icon, children, onClick, tone = 'default' }: { icon: ReactNo
 }
 
 function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
-  const { activeUser, groups, prompts, page, selectedSpaceId, pendingReviewsCount, onNavigate, onSelectSpace, onNewGroup, onConnect, onStartTour, onOpenRoles, onOpenFeedback, onLogout, onAfterNavigate } = props
+  const { activeUser, groups, prompts, page, selectedSpaceId, pendingReviewsCount, onNavigate, onSelectSpace, onNewGroup, onConnect, onStartTour, onOpenRoles, onOpenFeedback, onOpenPricing, onLogout, onAfterNavigate } = props
   const [helpOpen, setHelpOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const helpRef = useDismiss<HTMLDivElement>(helpOpen, () => setHelpOpen(false))
@@ -197,6 +198,9 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
             <div role="menu" className="absolute bottom-full left-0 z-30 mb-1.5 w-60 animate-pop-in rounded-xl border border-slate-200 bg-white p-1.5 shadow-pop dark:border-zinc-800 dark:bg-zinc-900">
               <MenuItem icon={<Compass size={15} className="text-slate-500 dark:text-zinc-400" />} onClick={() => { setHelpOpen(false); onStartTour(); after() }}>Take the product tour</MenuItem>
               <MenuItem icon={<BookOpenCheck size={15} className="text-slate-500 dark:text-zinc-400" />} onClick={() => { setHelpOpen(false); onOpenRoles(); after() }}>Roles &amp; permissions</MenuItem>
+              {onOpenPricing && (
+                <MenuItem icon={<Sparkles size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setHelpOpen(false); onOpenPricing(); after() }}>Plans &amp; pricing</MenuItem>
+              )}
               {onOpenFeedback && (
                 <MenuItem icon={<MessageSquarePlus size={15} className="text-slate-500 dark:text-zinc-400" />} onClick={() => { setHelpOpen(false); onOpenFeedback(); after() }}>Feedback &amp; report issue</MenuItem>
               )}
@@ -223,11 +227,31 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
             {userOpen && (
               <div role="menu" className="absolute bottom-full left-0 right-0 z-30 mb-1.5 animate-pop-in rounded-xl border border-slate-200 bg-white p-1.5 shadow-pop dark:border-zinc-800 dark:bg-zinc-900">
                 <div className="px-2.5 pb-2 pt-1.5">
-                  <p className="text-xs text-slate-500 dark:text-zinc-400">Workspace role</p>
-                  <div className="mt-1">
-                    {activeUser.is_workspace_admin ? <RoleBadge kind="ADMIN" side="right" /> : <span className="text-sm text-slate-700 dark:text-zinc-300">Standard user</span>}
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">Workspace role</p>
+                    {activeUser.is_workspace_admin ? <RoleBadge kind="ADMIN" side="right" /> : <span className="text-xs text-slate-600 dark:text-zinc-300">Standard</span>}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-zinc-800/60">
+                    <div>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Plan</span>
+                      <span className="text-xs font-bold capitalize text-slate-900 dark:text-zinc-100">
+                        {activeUser.plan || 'Community'}
+                      </span>
+                    </div>
+                    {onOpenPricing && (
+                      <button
+                        type="button"
+                        onClick={() => { setUserOpen(false); onOpenPricing(); after() }}
+                        className="rounded-md bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-950/80 dark:text-brand-300 dark:hover:bg-brand-900/60"
+                      >
+                        Plans
+                      </button>
+                    )}
                   </div>
                 </div>
+                {onOpenPricing && (
+                  <MenuItem icon={<Sparkles size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setUserOpen(false); onOpenPricing(); after() }}>Plans &amp; pricing</MenuItem>
+                )}
                 <div className="my-1 border-t border-slate-100 dark:border-zinc-800" />
                 <MenuItem icon={<LogOut size={15} />} tone="danger" onClick={() => { setUserOpen(false); onLogout() }}>Sign out</MenuItem>
               </div>

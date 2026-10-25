@@ -1,25 +1,31 @@
-name: Continuous Integration (CI)
+name: CI/CD Pipeline (Test & Deploy)
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master]
+    tags: ["v*.*.*"]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, master]
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: pipeline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
+  packages: write
   checks: write
   security-events: write
 
 jobs:
-  # 1. Backend Lint, Syntax & Static Security Scan
+  # ============================================================================
+  # STAGE 1: VERIFICATION & TEST PIPELINE (Runs on every push & pull request)
+  # ============================================================================
+
+  # 1.1 Backend Lint, Syntax & Static Security
   backend-lint-security:
-    name: Backend Lint & Security Audit
+    name: 1. Backend Lint & Security Audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -32,7 +38,7 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
-      - name: Install backend & lint dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt ruff bandit
@@ -46,9 +52,9 @@ jobs:
       - name: Run Bandit static security analysis
         run: bandit -r backend -x backend/tests -ll -ii
 
-  # 2. Backend Unit & Integration Tests (SQLite + PostgreSQL 16 + Redis 7)
+  # 1.2 Backend Unit & Integration Tests (SQLite + PostgreSQL 16 + Redis 7)
   backend-tests:
-    name: Backend Tests (${{ matrix.db_backend }})
+    name: 2. Backend Tests (${{ matrix.db_backend }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -121,9 +127,9 @@ jobs:
               print(f'Successfully migrated and seeded {count} demo accounts on ${{ matrix.db_backend }}!')
           "
 
-  # 3. Frontend Type Check, Unit Tests, UI Guardrails & Production Build
+  # 1.3 Frontend Type Check, Unit Tests, UI Guardrails & Production Build
   frontend-verify:
-    name: Frontend TypeScript, Tests & Build
+    name: 3. Frontend TypeScript, Tests & Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -167,9 +173,9 @@ jobs:
           path: frontend/dist
           retention-days: 7
 
-  # 4. Full-Stack Docker Image Build & Container Smoke Test
+  # 1.4 Full-Stack Docker Smoke Test
   docker-smoke-test:
-    name: Docker Multi-Stage Build & E2E Smoke Test
+    name: 4. Docker Multi-Stage Build & Smoke Test
     runs-on: ubuntu-latest
     needs: [backend-tests, frontend-verify]
     steps:
@@ -188,7 +194,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Start container and run live HTTP + MCP smoke tests
+      - name: Start container and run live HTTP smoke tests
         run: |
           docker run -d --name pv-smoke -p 7860:7860 \
             -e SEED_DEMO_DATA=true \
@@ -206,17 +212,147 @@ jobs:
 
           grep -q '"status":"ok"' /tmp/health.json
           grep -q '"database":"connected"' /tmp/health.json
-
-          # Verify SPA index.html is served at root
           curl -fsS http://localhost:7860/ | grep -qi "<!doctype html>"
-
           echo "Docker E2E smoke test passed!"
-        continue-on-error: false
-
-      - name: Dump container logs on failure
-        if: failure()
-        run: docker logs pv-smoke || true
 
       - name: Stop and remove smoke container
         if: always()
         run: docker rm -f pv-smoke || true
+
+  # ============================================================================
+  # STAGE 2: CONTINUOUS DEPLOYMENT (Only triggers after ALL tests pass on main)
+  # ============================================================================
+
+  # 2.1 Publish Multi-Platform Image to GitHub Container Registry (GHCR)
+  publish-ghcr:
+    name: 5. Deploy Docker Image to GHCR
+    runs-on: ubuntu-latest
+    needs: [backend-lint-security, backend-tests, frontend-verify, docker-smoke-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 2.2 Trigger Render Production Deployment
+  deploy-render:
+    name: 6. Deploy to Render Backend Web Service
+    runs-on: ubuntu-latest
+    needs: [publish-ghcr]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Trigger Render Deploy Hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "${RENDER_DEPLOY_HOOK_URL}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret not set. Skipping Render trigger."
+          else
+            curl -fsSL -X POST "${RENDER_DEPLOY_HOOK_URL}"
+            echo "Triggered Render production deployment successfully!"
+          fi
+
+  # 2.3 Deploy to Cloudflare Pages & Cloudflare Worker Gateway
+  deploy-cloudflare:
+    name: 7. Deploy to Cloudflare Pages & Worker
+    runs-on: ubuntu-latest
+    needs: [backend-lint-security, backend-tests, frontend-verify, docker-smoke-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Cloudflare credentials
+        id: check_cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "CLOUDFLARE_API_TOKEN secret not set. Skipping Cloudflare deploy."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node.js 22
+        if: steps.check_cf.outputs.configured == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy Frontend to Cloudflare Pages
+        if: steps.check_cf.outputs.configured == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          npx wrangler pages deploy dist --project-name prompthold --branch main
+
+      - name: Deploy Gateway to Cloudflare Worker
+        if: steps.check_cf.outputs.configured == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd cloudflare-worker
+          npm ci
+          npx wrangler deploy
+
+  # 2.4 Deploy to Hugging Face Spaces (Docker Space)
+  deploy-huggingface:
+    name: 8. Deploy to Hugging Face Spaces
+    runs-on: ubuntu-latest
+    needs: [publish-ghcr]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_REPO: ${{ secrets.HF_SPACE_REPO }}
+        run: |
+          if [ -z "${HF_TOKEN}" ] || [ -z "${HF_SPACE_REPO}" ]; then
+            echo "HF_TOKEN or HF_SPACE_REPO not set. Skipping Hugging Face deploy."
+          else
+            git config user.name "PromptHold CD Bot"
+            git config user.email "cd-bot@prompthold.local"
+            git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}" HEAD:main
+            echo "Pushed to Hugging Face Space successfully!"
+          fi

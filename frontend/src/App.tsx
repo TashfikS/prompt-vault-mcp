@@ -15,6 +15,7 @@ import NewPromptModal from './components/NewPromptModal'
 import DuplicatePromptModal from './components/DuplicatePromptModal'
 import ConnectAiModal from './components/ConnectAiModal'
 import RolesGuideModal from './components/RolesGuideModal'
+import PricingModal from './components/PricingModal'
 import OnboardingTour from './components/OnboardingTour'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { ToastProvider } from './components/ui/Toast'
@@ -41,6 +42,7 @@ export default function App() {
   const [duplicatePromptTarget, setDuplicatePromptTarget] = useState<PromptItem | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
   const [rolesOpen, setRolesOpen] = useState(false)
+  const [pricingOpen, setPricingOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState<boolean | undefined>(undefined)
   const [tourOpen, setTourOpen] = useState(false)
   const [error, setError] = useState('')
@@ -80,6 +82,7 @@ export default function App() {
     setDuplicatePromptTarget(null)
     setConnectOpen(false)
     setRolesOpen(false)
+    setPricingOpen(false)
     setTourOpen(false)
     setPage('prompts')
     setError('')
@@ -201,6 +204,7 @@ export default function App() {
               setTourOpen(true)
             }}
             onOpenRoles={() => setRolesOpen(true)}
+            onOpenPricing={() => setPricingOpen(true)}
             onOpenFeedback={() => setFeedbackOpen(true)}
             onLogout={() => void signOut()}
           />
@@ -295,6 +299,22 @@ export default function App() {
 
           {connectOpen && <ConnectAiModal activeUser={activeUser} groups={groups} onClose={() => setConnectOpen(false)} />}
           {rolesOpen && <RolesGuideModal onClose={() => setRolesOpen(false)} />}
+          {pricingOpen && (
+            <PricingModal
+              activeUser={activeUser}
+              onClose={() => setPricingOpen(false)}
+              onPlanUpdated={newPlan => {
+                if (activeUser) {
+                  setActiveUser({ ...activeUser, plan: newPlan })
+                }
+                void refresh()
+              }}
+              onContactSales={() => {
+                setPricingOpen(false)
+                setFeedbackOpen(true)
+              }}
+            />
+          )}
 
           {selectedPrompt && (
             <PromptEditorAndHistory

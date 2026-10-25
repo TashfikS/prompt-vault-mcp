@@ -155,3 +155,7 @@ class FeedbackCreateRequest(BaseModel):
         return mapping[cleaned]
 
 
+class PlanUpdateRequest(BaseModel):
+    plan: Literal["community", "pro", "team", "enterprise"]
+
+

@@ -178,6 +178,8 @@ def upgrade_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255)"))
         if "onboarding_completed" not in user_columns:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN NOT NULL DEFAULT {bool_false}"))
+        if "plan" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR(32) NOT NULL DEFAULT 'community'"))
         if "personal_owner_id" not in group_columns:
             connection.execute(text("ALTER TABLE groups ADD COLUMN personal_owner_id VARCHAR(36) REFERENCES users(id)"))
         if "required_approvals" not in group_columns:

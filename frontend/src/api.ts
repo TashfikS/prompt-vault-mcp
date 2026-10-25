@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, CreatedApiKeyResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, PromptVersionItem, SharedDiffPayload, User } from './types'
+import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, CreatedApiKeyResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, PromptVersionItem, SharedDiffPayload, User } from './types'
 
 const TOKEN_KEY = 'prompt-vault-session'
 const API_BASE =
@@ -90,3 +90,7 @@ export const deleteApiKey = (keyId: string) =>
 
 export const submitFeedback = (data: FeedbackCreatePayload) =>
   api<FeedbackSubmissionResponse>('/api/feedback', { method: 'POST', body: JSON.stringify(data) })
+
+export const getPricing = () => api<PricingResponse>('/api/pricing')
+export const updatePlan = (plan: PricingPlanId) =>
+  api<{ message: string; plan: PricingPlanId; user: User }>('/api/me/plan', { method: 'PATCH', body: JSON.stringify({ plan }) })

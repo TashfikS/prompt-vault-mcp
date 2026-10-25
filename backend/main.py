@@ -31,8 +31,9 @@ from permissions import (can_access_group_with_key, can_user_approve_proposals, 
 from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, Prompt, PromptProposal, PromptVersion,
                     ProposalApproval, SharedDiffLink, User)
 from schemas import (AssignMemberRequest, CreateApiKeyRequest, CreateDiffShareRequest, FeedbackCreateRequest,
-                     FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest, PromptCreateRequest,
-                     PromptDuplicateRequest, PromptUpdateRequest, ProposalCreateRequest, RegisterRequest)
+                     FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest, PlanUpdateRequest,
+                     PromptCreateRequest, PromptDuplicateRequest, PromptUpdateRequest, ProposalCreateRequest,
+                     RegisterRequest)
 from security import (IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES, MAX_UPLOAD_FILE_BYTES,
                       SecurityHeadersMiddleware, escape_like, get_allowed_origins, get_client_ip, rate_limiter,
                       record_audit_log, sanitize_filename, should_seed_demo_data)
@@ -137,6 +138,28 @@ def current_user(
 
     rate_limiter.record_hit(f"invalid_auth:{client_ip}")
     raise HTTPException(status_code=401, detail="Your session or API key is invalid or has expired. Please sign in again.")
+
+
+def maybe_user(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    db: Session = Depends(get_db),
+) -> User | None:
+    bearer = _bearer_token(authorization)
+    cookie_token = (session_cookie or request.cookies.get("pv_session") or "").strip() or None
+    token = bearer or cookie_token
+    if not token:
+        return None
+    session_user = user_for_session_token(db, token)
+    if session_user is not None:
+        return session_user
+    res = resolve_api_key(db, token)
+    if res is not None:
+        user, key = res
+        setattr(user, "_active_api_key", key)
+        return user
+    return None
 
 
 def _active_key(user: User) -> ApiKey | None:
@@ -271,6 +294,133 @@ def _version_read(db: Session, version: PromptVersion, author_name: str | None =
             "created_at": version.created_at.isoformat() + "Z"}
 
 
+PLAN_TIERS = [
+    {
+        "id": "community",
+        "name": "Community",
+        "tagline": "Individual developers exploring version-controlled prompts and MCP in-chat access.",
+        "price_monthly": 0,
+        "price_annual": 0,
+        "price_label": "$0",
+        "max_prompts": 20,
+        "max_versions_per_prompt": 10,
+        "max_groups": 1,
+        "free_guests_per_editor": 0,
+        "mcp_monthly_calls": 1000,
+        "storage_type": "Free Cloud Database (Supabase / SQLite)",
+        "features": [
+            "1 User (Private Personal Space)",
+            "Up to 20 active prompts",
+            "Last 10 versions per prompt",
+            "Direct Save (instant versioning)",
+            "FastMCP In-Chat Drawer & Personal API Key",
+            "Word & sentence basic diff viewer",
+        ],
+    },
+    {
+        "id": "pro",
+        "name": "Pro",
+        "tagline": "Power prompt crafters and freelancers managing extensive prompt libraries.",
+        "price_monthly": 5,
+        "price_annual": 4,  # $48/year
+        "price_label": "$5/mo",
+        "max_prompts": 100,
+        "max_versions_per_prompt": 50,
+        "max_groups": 1,
+        "free_guests_per_editor": 0,
+        "mcp_monthly_calls": 10000,
+        "storage_type": "Cloud DB + Bring Your Own Storage (Google Drive / Local)",
+        "features": [
+            "Everything in Community",
+            "Up to 100 active prompts",
+            "Up to 50 versions per prompt",
+            "Word & Sentence Diff Viewer (Split & Inline)",
+            "Shareable Zero-Config Diff Links",
+            "Batch File Upload (.txt, .md, .csv, .json)",
+            "Bring Your Own Storage (Google Drive & local sync)",
+        ],
+    },
+    {
+        "id": "team",
+        "name": "Team",
+        "badge": "Most Popular",
+        "tagline": "Startups and product teams collaborating with approval workflows and RBAC.",
+        "price_monthly": 12,
+        "price_annual": 10,  # $120/year
+        "price_label": "$10/editor/mo",
+        "max_prompts": 500,
+        "max_versions_per_prompt": 100,
+        "max_groups": 5,
+        "free_guests_per_editor": 2,
+        "mcp_monthly_calls": 50000,
+        "storage_type": "Team Cloud DB + Google Drive Team Sync",
+        "features": [
+            "Everything in Pro",
+            "No seat minimums (starts at 1 editor)",
+            "2 Free Read-Only Guests per paid editor",
+            "Up to 500 prompts across 5 Team Groups",
+            "Proposal & Approval Workflow (required_approvals)",
+            "Central Review Requests Inbox & auto-merge",
+            "3 Team MCP API Keys for automated agents",
+            "Team Cloud & Google Drive Sync",
+        ],
+    },
+    {
+        "id": "enterprise",
+        "name": "Enterprise",
+        "tagline": "Organizations requiring self-hosting, strict compliance, and custom infrastructure.",
+        "price_monthly": None,
+        "price_annual": None,
+        "price_label": "Contact Us",
+        "max_prompts": 10000,
+        "max_versions_per_prompt": 1000,
+        "max_groups": 100,
+        "free_guests_per_editor": 10,
+        "mcp_monthly_calls": 1000000,
+        "storage_type": "Self-Hosted Docker / VPC / Private PostgreSQL",
+        "features": [
+            "Everything in Team",
+            "Self-Hosted Deployment (Docker / VPC / On-Prem)",
+            "Dedicated PostgreSQL or custom DB cluster",
+            "SSO / SAML 2.0 (Okta, Google Workspace, Azure AD)",
+            "Custom prompt & version quotas",
+            "Full Compliance & Audit Logs Export",
+            "Dedicated SLA & onboarding support",
+        ],
+    },
+]
+
+PLAN_LIMITS_MAP = {tier["id"]: tier for tier in PLAN_TIERS}
+
+
+def _check_prompt_quota(db: Session, user: User, group_id: str, new_prompts_count: int = 1) -> None:
+    if user.is_workspace_admin:
+        return
+    user_plan = getattr(user, "plan", "community") or "community"
+    plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
+    max_prompts = plan_info.get("max_prompts", 20)
+    existing_count = db.query(Prompt).filter(Prompt.created_by == user.id, Prompt.is_archived.is_(False)).count()
+    if existing_count + new_prompts_count > max_prompts:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Prompt limit reached ({existing_count}/{max_prompts}) for the {plan_info['name']} plan. Please upgrade to Pro or Team for more space.",
+        )
+
+
+def _check_version_quota(db: Session, user: User, prompt: Prompt) -> None:
+    if user.is_workspace_admin:
+        return
+    user_plan = getattr(user, "plan", "community") or "community"
+    plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
+    max_versions = plan_info.get("max_versions_per_prompt", 10)
+    max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
+    if max_ver >= max_versions:
+        raise HTTPException(
+            status_code=403,
+            detail=f"This prompt has reached the maximum of {max_versions} versions on the {plan_info['name']} plan. Please upgrade to preserve more versions.",
+        )
+
+
 def _create_prompt(db: Session, user: User, group_id: str, title: str, content: str,
                    description: str = "", change_note: str = "Initial creation", source_filename: str | None = None) -> Prompt:
     safe_title = (title.strip() or "Untitled prompt")[:240]
@@ -374,11 +524,65 @@ def list_users(db: Session = Depends(get_db), user: User = Depends(current_user)
 def get_me(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
     memberships = db.query(GroupMembership, Group).join(Group).filter(GroupMembership.user_id == user.id).all()
     latest_key = db.query(ApiKey).filter_by(user_id=user.id, is_active=True).order_by(ApiKey.created_at.desc()).first()
+    plan_name = getattr(user, "plan", "community") or "community"
     return {"id": user.id, "name": user.name, "email": user.email, "is_workspace_admin": user.is_workspace_admin,
+            "plan": plan_name,
             "api_key": latest_key.key_prefix if latest_key else None,
             "onboarding_completed": bool(user.onboarding_completed),
             "groups": [{"id": m.group_id, "name": group_display_name(group), "role": m.role,
                         "is_personal": group.personal_owner_id is not None} for m, group in memberships]}
+
+
+@app.get("/api/pricing")
+def get_pricing_plans(db: Session = Depends(get_db), user: User | None = Depends(maybe_user)) -> dict:
+    """Return all available plans, limits, and current user's usage if authenticated."""
+    current_plan = getattr(user, "plan", "community") if user else "community"
+    plan_info = PLAN_LIMITS_MAP.get(current_plan, PLAN_LIMITS_MAP["community"])
+    usage = None
+    if user is not None:
+        prompts_count = db.query(Prompt).filter(Prompt.created_by == user.id, Prompt.is_archived.is_(False)).count()
+        usage = {
+            "prompts_count": prompts_count,
+            "max_prompts": plan_info["max_prompts"],
+        }
+    return {
+        "tiers": PLAN_TIERS,
+        "current_plan": current_plan,
+        "usage": usage,
+    }
+
+
+@app.patch("/api/me/plan")
+@app.post("/api/me/plan")
+def update_my_plan(payload: PlanUpdateRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    """Update subscription plan for the current user."""
+    _require_web_session(user)
+    if payload.plan not in PLAN_LIMITS_MAP:
+        raise HTTPException(status_code=400, detail="Invalid plan selected.")
+    old_plan = getattr(user, "plan", "community") or "community"
+    user.plan = payload.plan
+    db.commit()
+    db.refresh(user)
+    record_audit_log(
+        db,
+        "PLAN_CHANGED",
+        user_id=user.id,
+        ip_address=get_client_ip(request),
+        target_type="user",
+        target_id=user.id,
+        details=f"Changed subscription plan from {old_plan} to {payload.plan}",
+    )
+    return {
+        "message": f"Successfully updated your plan to {payload.plan.title()}.",
+        "plan": user.plan,
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "plan": user.plan,
+            "is_workspace_admin": user.is_workspace_admin,
+        },
+    }
 
 
 @app.get("/api/api-keys")
@@ -654,6 +858,7 @@ def create_prompt(payload: PromptCreateRequest, db: Session = Depends(get_db), u
     role = get_user_group_role(db, user, payload.group_id)
     if role == "GUEST":
         raise HTTPException(status_code=403, detail="Guests have view-only access and cannot create prompts.")
+    _check_prompt_quota(db, user, payload.group_id)
     prompt = _create_prompt(db, user, payload.group_id, payload.title, payload.content, payload.description,
                             payload.change_note, payload.source_filename)
     db.commit()
@@ -828,6 +1033,8 @@ def update_prompt(prompt_id: str, payload: PromptUpdateRequest, db: Session = De
             "proposal_id": proposal.id,
             "message": "Your changes have been submitted as a proposal for review.",
         }
+
+    _check_version_quota(db, user, prompt)
 
     if payload.title is not None:
         prompt.title = payload.title.strip()

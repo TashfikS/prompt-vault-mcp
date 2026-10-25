@@ -34,7 +34,7 @@ git status
 
 ---
 
-## 3. Automated Push-to-Deploy (Recommended)
+## 3. Automated Push-to-Deploy (Push Once, Deploy All)
 
 Whenever you push to the `main` branch on GitHub:
 
@@ -44,17 +44,23 @@ git commit -m "feat: description of your changes"
 git push origin main
 ```
 
-### What Happens Automatically:
-1. **GitHub Actions CI (`.github/workflows/ci.yml`):**
-   * Lints backend code with `ruff` and audits security with `bandit`.
-   * Spins up containerized **PostgreSQL 16** and **Redis 7** service containers.
-   * Runs all backend unit and integration tests with `pytest`.
-   * Verifies database migration and seed idempotency.
-   * Compiles the React frontend with Vite and runs frontend test suites.
-2. **GitHub Actions CD (`.github/workflows/cd.yml`):**
-   * Builds the multi-platform Docker container and pushes to **GitHub Container Registry (GHCR)**.
-   * Triggers the **Render Deploy Hook** to redeploy the live container.
-   * If `CLOUDFLARE_API_TOKEN` is configured in GitHub Secrets, automatically deploys the latest frontend build to **Cloudflare Pages** and the gateway to **Cloudflare Worker**.
+### What Happens Automatically (Strict Test-Gated Pipeline):
+The unified GitHub Actions pipeline (`.github/workflows/pipeline.yml`) executes in two strict stages:
+
+#### **Stage 1: Comprehensive Verification (Test Gate)**
+1. **Backend Lint & Static Security Audit:** Lints Python syntax, compiles bytecode, runs `ruff` and `bandit` security scans.
+2. **Backend Multi-Database Tests:** Spins up clean containerized **PostgreSQL 16** and **Redis 7** service containers, runs all 29 pytest unit & integration tests across both SQLite and PostgreSQL, and verifies database migration & demo account seed idempotency.
+3. **Frontend Guardrails & Build:** Enforces AGENTS.md UI standards (0 native OS widgets or dialogs), runs TypeScript type check (`tsc -b --noEmit`), runs diff engine unit tests, and builds the production bundle with Vite.
+4. **Full-Stack Docker Smoke Test:** Performs a multi-stage Docker build, launches the live container, and tests the `/api/health` probe and single-page-application serving.
+
+#### **Stage 2: Automatic Deployment (Only Executes if 100% of Stage 1 Passes)**
+* **GitHub Container Registry (GHCR):** Automatically builds and pushes production multi-platform images (`ghcr.io/tashfiks/prompt-vault-mcp:latest` and tagged with the commit SHA).
+* **Render Web Service:** Automatically triggers the Render deploy hook to redeploy the live backend container.
+* **Cloudflare Pages & Worker:** Automatically deploys the production frontend bundle to **Cloudflare Pages** (`prompthold.pages.dev`) and the edge gateway to **Cloudflare Worker**.
+* **Hugging Face Spaces:** Pushes repository updates to Hugging Face Spaces (if configured).
+
+> [!IMPORTANT]
+> If **any test fails** in Stage 1, the pipeline halts immediately and **no deployment takes place**, ensuring broken code can never reach production.
 
 ---
 

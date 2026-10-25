@@ -14,25 +14,25 @@ def seed_initial_data(db: Session) -> None:
         return
 
     # 2 Workspace Admins
-    alice = User(name="Alice Morgan", email="alice@example.com", is_workspace_admin=True, password_hash=hash_password(DEMO_PASSWORD))
-    evan = User(name="Evan Wright", email="evan@example.com", is_workspace_admin=True, password_hash=hash_password(DEMO_PASSWORD))
+    alice = User(name="Alice Morgan", email="alice@example.com", is_workspace_admin=True, plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    evan = User(name="Evan Wright", email="evan@example.com", is_workspace_admin=True, plan="team", password_hash=hash_password(DEMO_PASSWORD))
 
     # 2 Group Owners
-    bob = User(name="Bob Chen", email="bob@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    diana = User(name="Diana Okafor", email="diana@example.com", password_hash=hash_password(DEMO_PASSWORD))
+    bob = User(name="Bob Chen", email="bob@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    diana = User(name="Diana Okafor", email="diana@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
 
     # 4 Members
-    charlie = User(name="Charlie Rivera", email="charlie@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    fiona = User(name="Fiona Gallagher", email="fiona@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    george = User(name="George Clark", email="george@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    hannah = User(name="Hannah Abbott", email="hannah@example.com", password_hash=hash_password(DEMO_PASSWORD))
+    charlie = User(name="Charlie Rivera", email="charlie@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    fiona = User(name="Fiona Gallagher", email="fiona@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    george = User(name="George Clark", email="george@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    hannah = User(name="Hannah Abbott", email="hannah@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
 
     # 5 Guests
-    ian = User(name="Ian Malcolm", email="ian@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    julia = User(name="Julia Roberts", email="julia@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    kevin = User(name="Kevin Bacon", email="kevin@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    laura = User(name="Laura Croft", email="laura@example.com", password_hash=hash_password(DEMO_PASSWORD))
-    mike = User(name="Mike Ross", email="mike@example.com", password_hash=hash_password(DEMO_PASSWORD))
+    ian = User(name="Ian Malcolm", email="ian@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    julia = User(name="Julia Roberts", email="julia@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    kevin = User(name="Kevin Bacon", email="kevin@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    laura = User(name="Laura Croft", email="laura@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
+    mike = User(name="Mike Ross", email="mike@example.com", plan="team", password_hash=hash_password(DEMO_PASSWORD))
 
     marketing = Group(name="Marketing", description="Brand voice, campaigns, and customer communications", created_by=None)
     sales = Group(name="Sales", description="Sales enablement and customer conversations", created_by=None)

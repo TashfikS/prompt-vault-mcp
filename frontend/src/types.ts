@@ -1,5 +1,39 @@
 export type GroupRole = 'GROUP_MANAGER' | 'MEMBER' | 'GUEST'
-export type User = { id: string; name: string; email: string; is_workspace_admin: boolean; api_key?: string; onboarding_completed?: boolean }
+export type PricingPlanId = 'community' | 'pro' | 'team' | 'enterprise'
+export type User = {
+  id: string
+  name: string
+  email: string
+  is_workspace_admin: boolean
+  plan?: PricingPlanId
+  api_key?: string
+  onboarding_completed?: boolean
+  groups?: Array<{ id: string; name: string; role: GroupRole; is_personal: boolean }>
+}
+export type PricingTier = {
+  id: PricingPlanId
+  name: string
+  tagline: string
+  badge?: string
+  price_monthly: number | null
+  price_annual: number | null
+  price_label: string
+  max_prompts: number
+  max_versions_per_prompt: number
+  max_groups: number
+  free_guests_per_editor: number
+  mcp_monthly_calls: number
+  storage_type: string
+  features: string[]
+}
+export type PricingResponse = {
+  tiers: PricingTier[]
+  current_plan: PricingPlanId
+  usage?: {
+    prompts_count: number
+    max_prompts: number
+  } | null
+}
 export type GroupMember = { user_id: string; name: string; email: string; role: GroupRole; added_at?: string }
 export type Group = {
   id: string

@@ -23,6 +23,7 @@ class User(Base):
     api_key: Mapped[str | None] = mapped_column(String(200), unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255))
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    plan: Mapped[str] = mapped_column(String(32), default="community", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     memberships: Mapped[list["GroupMembership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 

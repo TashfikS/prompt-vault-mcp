@@ -24,7 +24,7 @@ export default function Modal({
   children?: ReactNode
   footer?: ReactNode
   onClose: () => void
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
   busy?: boolean
   as?: 'div' | 'form'
   onSubmit?: (e: React.FormEvent) => void
@@ -53,7 +53,7 @@ export default function Modal({
     }
   }, [busy])
 
-  const width = size === 'sm' ? 'max-w-md' : size === 'lg' ? 'max-w-2xl' : size === 'xl' ? 'max-w-3xl' : 'max-w-lg'
+  const width = size === 'sm' ? 'max-w-md' : size === 'lg' ? 'max-w-2xl' : size === 'xl' ? 'max-w-3xl' : size === '2xl' ? 'max-w-5xl' : 'max-w-lg'
   const Panel = as
   return createPortal(
     <div
