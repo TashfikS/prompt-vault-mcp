@@ -1,0 +1,66 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: prompthold-app
+    ports:
+      - "${PORT:-7860}:7860"
+    environment:
+      PORT: "7860"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://prompthold:prompthold_secret@postgres:5432/prompthold}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      SEED_DEMO_DATA: "${SEED_DEMO_DATA:-true}"
+      CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-http://localhost:7860,http://localhost:5173}"
+      PROMPT_HOLD_APP_URL: "${PROMPT_HOLD_APP_URL:-http://localhost:7860}"
+      GITHUB_ISSUE_REPO: "${GITHUB_ISSUE_REPO:-}"
+      GITHUB_ISSUE_TOKEN: "${GITHUB_ISSUE_TOKEN:-}"
+      FIREBASE_WEB_API_KEY: "${FIREBASE_WEB_API_KEY:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7860/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: prompthold-postgres
+    environment:
+      POSTGRES_USER: prompthold
+      POSTGRES_PASSWORD: prompthold_secret
+      POSTGRES_DB: prompthold
+    ports:
+      - "5432:5432"
+    volumes:
+      - ph_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prompthold -d prompthold"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: prompthold-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ph_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  ph_postgres_data:
+  ph_redis_data:

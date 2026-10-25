@@ -1,0 +1,31 @@
+# Git & IDE
+.git
+.github
+.vscode
+.idea
+.agents
+
+# Python virtualenvs & caches
+.venv
+venv
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Node modules & build artifacts (rebuilt in stage 1)
+frontend/node_modules
+frontend/dist
+npm-debug.log*
+
+# Local SQLite databases & environment secrets
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example

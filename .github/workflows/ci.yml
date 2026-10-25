@@ -1,0 +1,222 @@
+name: Continuous Integration (CI)
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  security-events: write
+
+jobs:
+  # 1. Backend Lint, Syntax & Static Security Scan
+  backend-lint-security:
+    name: Backend Lint & Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend & lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt ruff bandit
+
+      - name: Compile Python bytecode (syntax check)
+        run: python -m py_compile backend/*.py backend/tests/*.py
+
+      - name: Run Ruff linter on backend
+        run: ruff check backend --select=E9,F63,F7,F82 --show-source
+
+      - name: Run Bandit static security analysis
+        run: bandit -r backend -x backend/tests -ll -ii
+
+  # 2. Backend Unit & Integration Tests (SQLite + PostgreSQL 16 + Redis 7)
+  backend-tests:
+    name: Backend Tests (${{ matrix.db_backend }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db_backend: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: promptvault
+          POSTGRES_PASSWORD: promptvault_test_pw
+          POSTGRES_DB: promptvault_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt pytest-cov
+
+      - name: Run Pytest suite (${{ matrix.db_backend }})
+        working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: ${{ matrix.db_backend == 'postgres' && 'postgresql+psycopg://promptvault:promptvault_test_pw@localhost:5432/promptvault_test' || 'sqlite:///./test_ci.db' }}
+        run: |
+          pytest -v --cov=. --cov-report=term-missing
+
+      - name: Verify database seed & schema migration on ${{ matrix.db_backend }}
+        working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: ${{ matrix.db_backend == 'postgres' && 'postgresql+psycopg://promptvault:promptvault_test_pw@localhost:5432/promptvault_test' || 'sqlite:///./seed_verify.db' }}
+        run: |
+          python -c "
+          from database import Base, engine, SessionLocal
+          from auth import upgrade_schema
+          from seed import seed_database
+          from models import User
+          Base.metadata.create_all(bind=engine)
+          upgrade_schema(engine)
+          with SessionLocal() as db:
+              seed_database(db)
+              count = db.query(User).count()
+              assert count >= 13, f'Expected at least 13 seeded users, found {count}'
+              print(f'Successfully migrated and seeded {count} demo accounts on ${{ matrix.db_backend }}!')
+          "
+
+  # 3. Frontend Type Check, Unit Tests, UI Guardrails & Production Build
+  frontend-verify:
+    name: Frontend TypeScript, Tests & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Enforce AGENTS.md Rule #5 (No native OS dialogs or <select>/<datalist>)
+        run: |
+          if grep -rnE "<select|<datalist|window\.(alert|confirm|prompt)\(" frontend/src/; then
+            echo "ERROR: Native OS select/datalist or browser dialog found in frontend/src/ (violates AGENTS.md §6 Rule 5)"
+            exit 1
+          fi
+          echo "UI guardrail check passed: 0 native OS dialogs or <select>/<datalist> elements."
+
+      - name: Run TypeScript compiler check (npx tsc -b --noEmit)
+        working-directory: frontend
+        run: npx tsc -b --noEmit
+
+      - name: Run Frontend Unit & Diff Engine Tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build production frontend bundle
+        working-directory: frontend
+        run: npm run build
+
+      - name: Upload production frontend dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  # 4. Full-Stack Docker Image Build & Container Smoke Test
+  docker-smoke-test:
+    name: Docker Multi-Stage Build & E2E Smoke Test
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-verify]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: prompt-vault-mcp:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start container and run live HTTP + MCP smoke tests
+        run: |
+          docker run -d --name pv-smoke -p 7860:7860 \
+            -e SEED_DEMO_DATA=true \
+            -e DATABASE_URL=sqlite:////tmp/smoke_vault.db \
+            prompt-vault-mcp:ci-test
+
+          echo "Waiting for container health endpoint..."
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:7860/api/health > /tmp/health.json 2>/dev/null; then
+              cat /tmp/health.json
+              break
+            fi
+            sleep 1
+          done
+
+          grep -q '"status":"ok"' /tmp/health.json
+          grep -q '"database":"connected"' /tmp/health.json
+
+          # Verify SPA index.html is served at root
+          curl -fsS http://localhost:7860/ | grep -qi "<!doctype html>"
+
+          echo "Docker E2E smoke test passed!"
+        continue-on-error: false
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker logs pv-smoke || true
+
+      - name: Stop and remove smoke container
+        if: always()
+        run: docker rm -f pv-smoke || true

@@ -1,0 +1,1484 @@
+"""PromptHold REST API, account login, and mounted FastMCP app."""
+
+import csv
+import hashlib
+import io
+import json
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from database import Base, SessionLocal, engine, get_db
+from auth import (DUMMY_PASSWORD_HASH, SESSION_LIFETIME, create_api_key_record, create_session,
+                  delete_all_user_sessions, delete_session, ensure_demo_passwords, hash_password, resolve_api_key,
+                  upgrade_schema, user_for_session_token, verify_firebase_id_token, verify_password)
+from cache import (create_github_issue_for_feedback, invalidate_prompt_cache, set_cached_active_version_uuid,
+                   set_cached_version_by_uuid)
+from permissions import (can_access_group_with_key, can_user_approve_proposals, can_user_direct_write_prompt,
+                         can_user_manage_group_members, can_user_view_group, ensure_all_personal_groups,
+                         ensure_personal_group, extract_variables, get_scoped_group_ids, get_user_group_ids,
+                         get_user_group_role, group_display_name, require_workspace_admin)
+from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, Prompt, PromptProposal, PromptVersion,
+                    ProposalApproval, SharedDiffLink, User)
+from schemas import (AssignMemberRequest, CreateApiKeyRequest, CreateDiffShareRequest, FeedbackCreateRequest,
+                     FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest, PromptCreateRequest,
+                     PromptDuplicateRequest, PromptUpdateRequest, ProposalCreateRequest, RegisterRequest)
+from security import (IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES, MAX_UPLOAD_FILE_BYTES,
+                      SecurityHeadersMiddleware, escape_like, get_allowed_origins, get_client_ip, rate_limiter,
+                      record_audit_log, sanitize_filename, should_seed_demo_data)
+from seed import seed_initial_data
+from mcp_server import mcp
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+SESSION_COOKIE_NAME = "ph_session"
+mcp_asgi = mcp.http_app(path="/")
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    upgrade_schema(engine)
+    with SessionLocal() as db:
+        if should_seed_demo_data():
+            seed_initial_data(db)
+            ensure_demo_passwords(db)
+        ensure_all_personal_groups(db)
+    async with mcp_asgi.router.lifespan_context(application):
+        yield
+
+
+app = FastAPI(
+    title="PromptHold RBAC & Version Control",
+    version="2.0.0",
+    lifespan=lifespan,
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_allowed_origins(),
+    allow_origin_regex=r"https://.*\.(pages\.dev|workers\.dev|hf\.space|onrender\.com)",
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "If-None-Match"],
+    expose_headers=["ETag"],
+)
+
+
+def _bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    return token.strip() if scheme.lower() == "bearer" and token.strip() else None
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=int(SESSION_LIFETIME.total_seconds()),
+        httponly=True,
+        secure=IS_PRODUCTION,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/", httponly=True, samesite="lax")
+
+
+def current_user(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    db: Session = Depends(get_db),
+) -> User:
+    """Accept a web login session token (Bearer or HttpOnly cookie) or a scoped API key."""
+    bearer = _bearer_token(authorization)
+    cookie_token = (session_cookie or request.cookies.get("pv_session") or "").strip() or None
+    token = bearer or cookie_token
+    if token is None:
+        raise HTTPException(status_code=401, detail="Please sign in to continue.")
+
+    # Enforce CSRF defense when authenticating solely via cookie on state-changing requests
+    if not bearer and cookie_token and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        xrw = request.headers.get("x-requested-with", "")
+        origin = request.headers.get("origin", "").rstrip("/")
+        if xrw not in {"PromptHold", "PromptVault"} and origin not in set(get_allowed_origins()):
+            raise HTTPException(status_code=403, detail="CSRF verification failed: missing X-Requested-With header or untrusted Origin.")
+
+    session_user = user_for_session_token(db, token)
+    if session_user is not None:
+        session_user._active_api_key = None  # type: ignore[attr-defined]
+        return session_user
+
+    client_ip = get_client_ip(request)
+    if rate_limiter.count_recent(f"invalid_auth:{client_ip}", window_seconds=60) >= 20:
+        raise HTTPException(status_code=429, detail="Too many invalid authentication attempts. Please wait a minute.")
+
+    resolved = resolve_api_key(db, token)
+    if resolved is not None:
+        key_user, key_record = resolved
+        key_user._active_api_key = key_record  # type: ignore[attr-defined]
+        return key_user
+
+    rate_limiter.record_hit(f"invalid_auth:{client_ip}")
+    raise HTTPException(status_code=401, detail="Your session or API key is invalid or has expired. Please sign in again.")
+
+
+def _active_key(user: User) -> ApiKey | None:
+    return getattr(user, "_active_api_key", None)
+
+
+def _require_web_session(user: User) -> None:
+    """Block API keys from performing account, RBAC, or security administration actions."""
+    if _active_key(user) is not None:
+        raise HTTPException(status_code=403, detail="This action requires an interactive web session and cannot be performed with an API key.")
+
+
+def _require_write_permission(user: User) -> None:
+    """Enforce READ_ONLY vs READ_WRITE access level when authenticated via an API key."""
+    key = _active_key(user)
+    if key is not None and getattr(key, "access_level", "READ_WRITE") == "READ_ONLY":
+        raise HTTPException(status_code=403, detail="This API key has Read-Only access and cannot modify prompts or submit proposals.")
+
+
+def _auth_response(db: Session, user: User, response: Response) -> dict:
+    token = create_session(db, user)
+    _set_session_cookie(response, token)
+    return {"token": token,
+            "user": {"id": user.id, "name": user.name, "email": user.email, "is_workspace_admin": user.is_workspace_admin}}
+
+
+@app.post("/api/auth/register", status_code=201)
+def register(payload: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    client_ip = get_client_ip(request)
+    rate_limiter.check(f"register_ip:{client_ip}", limit=5, window_seconds=60,
+                       detail="Too many registration attempts from this IP. Please wait a minute.")
+    email = payload.email.strip().lower()
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists. Try signing in.")
+    initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
+    if initial_admin_email:
+        is_admin = email == initial_admin_email
+    else:
+        is_admin = (not IS_PRODUCTION) and (db.query(User).count() == 0)
+    user = User(name=payload.name.strip(), email=email, is_workspace_admin=is_admin,
+                password_hash=hash_password(payload.password))
+    db.add(user)
+    db.commit()
+    ensure_personal_group(db, user)
+    record_audit_log(db, "AUTH_REGISTER", user_id=user.id, ip_address=client_ip, details=f"Registered {email}")
+    return _auth_response(db, user, response)
+
+
+@app.post("/api/auth/login")
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    client_ip = get_client_ip(request)
+    email = payload.email.strip().lower()
+    rate_limiter.check(f"login_ip:{client_ip}", limit=10, window_seconds=60,
+                       detail="Too many sign-in attempts. Please wait 60 seconds and try again.")
+    lockout_bucket = f"login_fail:{client_ip}:{email}"
+    if rate_limiter.count_recent(lockout_bucket, window_seconds=300) >= 5:
+        raise HTTPException(status_code=429, detail="Account temporarily locked due to repeated failed sign-in attempts. Try again in 5 minutes.")
+
+    user = db.query(User).filter(User.email == email).first()
+    password_ok = verify_password(payload.password, user.password_hash if user else DUMMY_PASSWORD_HASH)
+    if user is None or not password_ok:
+        rate_limiter.record_hit(lockout_bucket)
+        record_audit_log(db, "AUTH_LOGIN_FAILED", user_id=user.id if user else None, ip_address=client_ip, details=f"Failed login for {email}")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+
+    rate_limiter.clear_bucket(lockout_bucket)
+    record_audit_log(db, "AUTH_LOGIN_SUCCESS", user_id=user.id, ip_address=client_ip, details=f"Signed in {email}")
+    return _auth_response(db, user, response)
+
+
+@app.post("/api/auth/firebase")
+def firebase_sso_login(payload: FirebaseAuthRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    """Authenticate or auto-provision a user via Firebase Auth (Google / GitHub SSO)."""
+    client_ip = get_client_ip(request)
+    rate_limiter.check(f"login_ip:{client_ip}", limit=15, window_seconds=60,
+                       detail="Too many sign-in attempts. Please wait a minute.")
+    verified = verify_firebase_id_token(payload.id_token)
+    if verified is None:
+        raise HTTPException(status_code=401, detail="Firebase SSO verification failed or FIREBASE_WEB_API_KEY is not configured.")
+    email = verified["email"]
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
+        is_admin = (email == initial_admin_email) if initial_admin_email else False
+        user = User(name=verified["name"][:160], email=email, is_workspace_admin=is_admin, password_hash=None)
+        db.add(user)
+        db.commit()
+    ensure_personal_group(db, user)
+    record_audit_log(db, "AUTH_FIREBASE_SSO", user_id=user.id, ip_address=client_ip, details=f"SSO login {email}")
+    return _auth_response(db, user, response)
+
+
+@app.post("/api/auth/logout")
+def logout(
+    response: Response,
+    authorization: str | None = Header(default=None),
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    db: Session = Depends(get_db),
+) -> dict:
+    token = _bearer_token(authorization) or (session_cookie.strip() if session_cookie else None)
+    if token:
+        delete_session(db, token)
+    _clear_session_cookie(response)
+    return {"logged_out": True}
+
+
+@app.delete("/api/auth/sessions")
+def logout_all_sessions(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict:
+    """Invalidate all active login sessions for the current user across all devices."""
+    _require_web_session(user)
+    revoked = delete_all_user_sessions(db, user.id)
+    _clear_session_cookie(response)
+    record_audit_log(db, "AUTH_LOGOUT_ALL", user_id=user.id, ip_address=get_client_ip(request), details=f"Revoked {revoked} session(s)")
+    return {"logged_out_all": True, "sessions_revoked": revoked}
+
+
+def _version_read(db: Session, version: PromptVersion, author_name: str | None = None) -> dict:
+    if author_name is None:
+        author = db.query(User).filter_by(id=version.author_id).first() if version.author_id else None
+        resolved_author = author.name if author else "Unknown"
+    else:
+        resolved_author = author_name or "Unknown"
+    return {"id": version.id, "prompt_id": version.prompt_id, "version_number": version.version_number,
+            "content": version.content, "variables": json.loads(version.variables_json),
+            "change_note": version.change_Note, "source_filename": version.source_filename,
+            "author_id": version.author_id, "author_name": resolved_author,
+            "created_at": version.created_at.isoformat() + "Z"}
+
+
+def _create_prompt(db: Session, user: User, group_id: str, title: str, content: str,
+                   description: str = "", change_note: str = "Initial creation", source_filename: str | None = None) -> Prompt:
+    safe_title = (title.strip() or "Untitled prompt")[:240]
+    safe_desc = (description or "")[:2000]
+    safe_note = (change_note or "Initial creation")[:500]
+    safe_source = sanitize_filename(source_filename) if source_filename else None
+    prompt = Prompt(group_id=group_id, title=safe_title, description=safe_desc,
+                    current_version_number=1, created_by=user.id)
+    db.add(prompt)
+    db.flush()
+    v1 = PromptVersion(prompt_id=prompt.id, version_number=1, content=content,
+                       variables_json=json.dumps(extract_variables(content)), change_Note=safe_note,
+                       source_filename=safe_source, author_id=user.id)
+    db.add(v1)
+    db.flush()
+    prompt.current_version_id = v1.id
+    set_cached_version_by_uuid(v1.id, {"id": v1.id, "content": v1.content})
+    set_cached_active_version_uuid(prompt.id, v1.id)
+    return prompt
+
+
+@app.get("/api/health")
+def health_check(db: Session = Depends(get_db)) -> dict:
+    """Fast health check endpoint for Hugging Face Spaces, Render, Docker, and load balancers."""
+    db_ok = True
+    try:
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "service": "prompt-vault-mcp",
+        "version": "2.0.0",
+        "database": "connected" if db_ok else "unreachable",
+    }
+
+
+def _accessible_prompt(db: Session, user: User, prompt_id: str) -> Prompt:
+    prompt = db.query(Prompt).filter_by(id=prompt_id).first()
+    if prompt is None or not can_access_group_with_key(db, user, prompt.group_id, _active_key(user)):
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return prompt
+
+
+def _api_key_read(db: Session, record: ApiKey) -> dict:
+    group = db.query(Group).filter_by(id=record.group_id).first() if record.group_id else None
+    is_personal = bool(group and group.personal_owner_id is not None)
+    if record.scope_type == "GLOBAL":
+        scope_label = "All Spaces + Personal"
+    elif group:
+        scope_label = "Personal" if is_personal else group.name
+    else:
+        scope_label = "Removed Group"
+    return {
+        "id": record.id,
+        "name": record.name,
+        "description": record.description,
+        "key_prefix": record.key_prefix,
+        "scope_type": record.scope_type,
+        "access_level": getattr(record, "access_level", "READ_WRITE"),
+        "group_id": record.group_id,
+        "group_name": scope_label,
+        "is_personal_group": is_personal,
+        "is_active": record.is_active,
+        "created_at": record.created_at.isoformat() + "Z",
+        "last_used_at": (record.last_used_at.isoformat() + "Z") if record.last_used_at else None,
+        "revoked_at": (record.revoked_at.isoformat() + "Z") if record.revoked_at else None,
+    }
+
+
+@app.get("/api/users")
+def list_users(db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+    """List teammates visible to the caller (all users for Workspace Admins; shared-group teammates for standard users)."""
+    _require_web_session(user)
+    if user.is_workspace_admin:
+        users = db.query(User).order_by(User.name).all()
+    else:
+        my_group_ids = [
+            row[0]
+            for row in db.query(GroupMembership.group_id)
+            .join(Group, Group.id == GroupMembership.group_id)
+            .filter(GroupMembership.user_id == user.id, Group.personal_owner_id.is_(None))
+            .all()
+        ]
+        if my_group_ids:
+            teammate_ids = {
+                row[0]
+                for row in db.query(GroupMembership.user_id)
+                .filter(GroupMembership.group_id.in_(my_group_ids))
+                .all()
+            }
+            teammate_ids.add(user.id)
+            users = db.query(User).filter(User.id.in_(teammate_ids)).order_by(User.name).all()
+        else:
+            users = [user]
+    return [{"id": u.id, "name": u.name, "email": u.email, "is_workspace_admin": u.is_workspace_admin} for u in users]
+
+
+@app.get("/api/me")
+def get_me(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    memberships = db.query(GroupMembership, Group).join(Group).filter(GroupMembership.user_id == user.id).all()
+    latest_key = db.query(ApiKey).filter_by(user_id=user.id, is_active=True).order_by(ApiKey.created_at.desc()).first()
+    return {"id": user.id, "name": user.name, "email": user.email, "is_workspace_admin": user.is_workspace_admin,
+            "api_key": latest_key.key_prefix if latest_key else None,
+            "onboarding_completed": bool(user.onboarding_completed),
+            "groups": [{"id": m.group_id, "name": group_display_name(group), "role": m.role,
+                        "is_personal": group.personal_owner_id is not None} for m, group in memberships]}
+
+
+@app.get("/api/api-keys")
+def list_api_keys(db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+    """List all active API keys for the signed-in user. Raw secrets are never returned here."""
+    _require_web_session(user)
+    records = (
+        db.query(ApiKey)
+        .filter_by(user_id=user.id, is_active=True)
+        .order_by(ApiKey.created_at.desc())
+        .all()
+    )
+    return [_api_key_read(db, record) for record in records]
+
+
+@app.post("/api/api-keys", status_code=201)
+def create_api_key(payload: CreateApiKeyRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    """Generate a new API key (Global or Group-scoped). Returns the full raw secret ONLY once."""
+    _require_web_session(user)
+    ensure_personal_group(db, user)
+    group_id: str | None = None
+    if payload.scope_type == "GROUP":
+        group_id = (payload.group_id or "").strip()
+        if not can_user_view_group(db, user, group_id):
+            raise HTTPException(status_code=403, detail="You do not have access to the selected group.")
+    record, raw_key = create_api_key_record(
+        db=db,
+        user=user,
+        name=payload.name,
+        description=payload.description,
+        scope_type=payload.scope_type,
+        group_id=group_id,
+        access_level=payload.access_level,
+    )
+    record_audit_log(
+        db,
+        "API_KEY_CREATED",
+        user_id=user.id,
+        ip_address=get_client_ip(request),
+        target_type="api_key",
+        target_id=record.id,
+        details=f"Created {record.scope_type} ({record.access_level}) key '{record.name}'",
+    )
+    data = _api_key_read(db, record)
+    data["raw_key"] = raw_key
+    return data
+
+
+@app.post("/api/api-keys/{key_id}/revoke")
+def revoke_api_key(key_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    """Revoke an active API key by deleting it permanently (no revoked history is kept)."""
+    _require_web_session(user)
+    record = db.query(ApiKey).filter_by(id=key_id, user_id=user.id).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="API key not found.")
+    name = record.name
+    db.delete(record)
+    db.commit()
+    record_audit_log(db, "API_KEY_REVOKED", user_id=user.id, ip_address=get_client_ip(request), target_type="api_key", target_id=key_id, details=f"Revoked key '{name}'")
+    return {"revoked": True, "id": key_id, "name": name}
+
+
+@app.delete("/api/api-keys/{key_id}")
+def delete_api_key(key_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    """Delete an API key record from history."""
+    _require_web_session(user)
+    record = db.query(ApiKey).filter_by(id=key_id, user_id=user.id).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="API key not found.")
+    name = record.name
+    db.delete(record)
+    db.commit()
+    record_audit_log(db, "API_KEY_DELETED", user_id=user.id, ip_address=get_client_ip(request), target_type="api_key", target_id=key_id, details=f"Deleted key '{name}'")
+    return {"deleted": True, "id": key_id}
+
+
+@app.post("/api/me/onboarding")
+def complete_onboarding(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    """Mark the first-login product tour as finished (or skipped) for the current user."""
+    _require_web_session(user)
+    user.onboarding_completed = True
+    db.commit()
+    return {"onboarding_completed": True}
+
+
+@app.get("/api/groups")
+def list_groups(db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+    ensure_personal_group(db, user)
+    ids = get_scoped_group_ids(db, user, _active_key(user))
+    groups = db.query(Group).filter(Group.id.in_(ids)).order_by(Group.name).all() if ids else []
+    groups.sort(key=lambda group: group.personal_owner_id is None)
+    result = []
+    for group in groups:
+        members = db.query(GroupMembership, User).join(User).filter(GroupMembership.group_id == group.id).order_by(User.name).all()
+        result.append({"id": group.id, "name": group_display_name(group), "description": group.description,
+                       "is_personal": group.personal_owner_id is not None,
+                       "required_approvals": getattr(group, "required_approvals", 1),
+                       "members": [{"user_id": membership.user_id, "name": member.name, "email": member.email,
+                                    "role": membership.role, "added_at": membership.added_at.isoformat() + "Z"}
+                                   for membership, member in members]})
+    return result
+
+
+@app.put("/api/groups/{group_id}/settings")
+@app.patch("/api/groups/{group_id}/settings")
+def update_group_settings(group_id: str, payload: GroupSettingsUpdate, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_web_session(user)
+    can_user_manage_group_members(db, user, group_id)
+    group = db.query(Group).filter_by(id=group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found.")
+    if group.personal_owner_id:
+        raise HTTPException(status_code=400, detail="Personal space does not require approval settings.")
+    group.required_approvals = payload.required_approvals
+    db.commit()
+    record_audit_log(db, "GROUP_SETTINGS_UPDATED", user_id=user.id, ip_address=get_client_ip(request), target_type="group", target_id=group.id, details=f"required_approvals={group.required_approvals}")
+    return {"group_id": group.id, "required_approvals": group.required_approvals}
+
+
+@app.post("/api/groups", status_code=201)
+def create_group(payload: GroupCreate, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    """Any signed-in user may create a group. The creator leads it, unless a Workspace Admin picks another leader."""
+    _require_web_session(user)
+    name = payload.name.strip()
+    if not name or name.lower().startswith("personal"):
+        raise HTTPException(status_code=400, detail="Please choose a different group name.")
+    if db.query(Group).filter_by(name=name).first():
+        raise HTTPException(status_code=409, detail="A group with this name already exists.")
+    leader = user
+    if payload.manager_user_id and payload.manager_user_id != user.id:
+        require_workspace_admin(user)
+        leader = db.query(User).filter_by(id=payload.manager_user_id).first()
+        if not leader:
+            raise HTTPException(status_code=404, detail="Selected user not found.")
+    group = Group(name=name, description=payload.description.strip(), created_by=user.id)
+    db.add(group)
+    db.flush()
+    db.add(GroupMembership(user_id=leader.id, group_id=group.id, role="GROUP_MANAGER"))
+    db.commit()
+    record_audit_log(db, "GROUP_CREATED", user_id=user.id, ip_address=get_client_ip(request), target_type="group", target_id=group.id, details=f"Created group '{group.name}'")
+    return {"id": group.id, "name": group.name, "description": group.description}
+
+
+@app.post("/api/groups/{group_id}/members", status_code=201)
+def add_member(group_id: str, payload: AssignMemberRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_web_session(user)
+    can_user_manage_group_members(db, user, group_id)
+    group = db.query(Group).filter_by(id=group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found.")
+    if group.personal_owner_id:
+        raise HTTPException(status_code=400, detail="Your Personal space is private. Create a group to share prompts with others.")
+    if payload.role == "GROUP_MANAGER" and not user.is_workspace_admin:
+        raise HTTPException(status_code=403, detail="Only a Workspace Admin can assign Group Managers.")
+    if payload.user_id:
+        target = db.query(User).filter_by(id=payload.user_id).first()
+    else:
+        target = db.query(User).filter(User.email == (payload.email or "").strip().lower()).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="No PromptHold account uses that email yet. Ask them to sign up first, then add them.")
+    membership = db.query(GroupMembership).filter_by(user_id=target.id, group_id=group_id).first()
+    if membership:
+        if membership.role == "GROUP_MANAGER" and not user.is_workspace_admin:
+            raise HTTPException(status_code=403, detail="Only a Workspace Admin can change a Group Manager's membership.")
+        if payload.role == "GROUP_MANAGER" and not user.is_workspace_admin:
+            raise HTTPException(status_code=403, detail="Only a Workspace Admin can assign Group Managers.")
+        membership.role = payload.role
+    else:
+        membership = GroupMembership(user_id=target.id, group_id=group_id, role=payload.role)
+        db.add(membership)
+    db.commit()
+    record_audit_log(db, "GROUP_MEMBER_ASSIGNED", user_id=user.id, ip_address=get_client_ip(request), target_type="group", target_id=group_id, details=f"Assigned {target.email} as {membership.role}")
+    return {"user_id": target.id, "name": target.name, "role": membership.role}
+
+
+@app.delete("/api/groups/{group_id}/members/{target_user_id}")
+def remove_member(group_id: str, target_user_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_web_session(user)
+    can_user_manage_group_members(db, user, group_id)
+    group = db.query(Group).filter_by(id=group_id).first()
+    if group and group.personal_owner_id:
+        raise HTTPException(status_code=400, detail="You cannot leave your own Personal space.")
+    membership = db.query(GroupMembership).filter_by(group_id=group_id, user_id=target_user_id).first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="Group membership not found.")
+    if membership.role == "GROUP_MANAGER" and not user.is_workspace_admin:
+        raise HTTPException(status_code=403, detail="Only a Workspace Admin can remove a Group Manager.")
+    db.delete(membership)
+    db.commit()
+    record_audit_log(db, "GROUP_MEMBER_REMOVED", user_id=user.id, ip_address=get_client_ip(request), target_type="group", target_id=group_id, details=f"Removed user {target_user_id}")
+    return {"removed": True}
+
+
+@app.get("/api/prompts")
+def list_prompts(
+    request: Request,
+    response: Response,
+    group_id: str | None = None,
+    search: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    accessible_ids = get_scoped_group_ids(db, user, _active_key(user))
+    if not accessible_ids:
+        return []
+
+    ver_count_subq = (
+        db.query(
+            PromptVersion.prompt_id.label("p_id"),
+            func.count(PromptVersion.id).label("v_count"),
+        )
+        .group_by(PromptVersion.prompt_id)
+        .subquery()
+    )
+
+    query = (
+        db.query(Prompt, Group, PromptVersion, func.coalesce(ver_count_subq.c.v_count, 1))
+        .join(Group, Prompt.group_id == Group.id)
+        .join(
+            PromptVersion,
+            (PromptVersion.id == Prompt.current_version_id)
+            | (
+                Prompt.current_version_id.is_(None)
+                & (PromptVersion.prompt_id == Prompt.id)
+                & (PromptVersion.version_number == Prompt.current_version_number)
+            ),
+        )
+        .outerjoin(ver_count_subq, ver_count_subq.c.p_id == Prompt.id)
+        .filter(Prompt.group_id.in_(accessible_ids), Prompt.is_archived.is_(False))
+    )
+    if group_id:
+        query = query.filter(Prompt.group_id == group_id)
+    if search.strip():
+        needle = f"%{escape_like(search.strip()[:200])}%"
+        query = query.filter(Prompt.title.ilike(needle, escape="\\") | Prompt.description.ilike(needle, escape="\\"))
+
+    rows = query.order_by(Prompt.updated_at.desc()).limit(500).all()
+
+    # Compute fast ETag from active version UUIDs + updated_at timestamps
+    etag_seed = "|".join(f"{p.id}:{v.id}:{int(p.updated_at.timestamp())}:{vc}" for p, _, v, vc in rows)
+    etag_value = f'W/"{hashlib.sha256(etag_seed.encode("utf-8")).hexdigest()[:24]}"'
+    if request.headers.get("if-none-match") == etag_value:
+        return Response(status_code=304, headers={"ETag": etag_value})
+
+    response.headers["ETag"] = etag_value
+    response.headers["Cache-Control"] = "private, must-revalidate"
+
+    result = []
+    for prompt, group, version, v_count in rows:
+        result.append(
+            {
+                "id": prompt.id,
+                "group_id": prompt.group_id,
+                "group_name": group_display_name(group),
+                "title": prompt.title,
+                "description": prompt.description,
+                "current_version_number": prompt.current_version_number,
+                "current_version_id": version.id,
+                "updated_at": prompt.updated_at.isoformat() + "Z",
+                "content": version.content,
+                "variables": json.loads(version.variables_json),
+                "version_count": int(v_count or 1),
+            }
+        )
+    return result
+
+
+@app.post("/api/prompts", status_code=201)
+def create_prompt(payload: PromptCreateRequest, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    if not can_access_group_with_key(db, user, payload.group_id, _active_key(user)):
+        raise HTTPException(status_code=403, detail="You (or this scoped API key) cannot create prompts in this group.")
+    role = get_user_group_role(db, user, payload.group_id)
+    if role == "GUEST":
+        raise HTTPException(status_code=403, detail="Guests have view-only access and cannot create prompts.")
+    prompt = _create_prompt(db, user, payload.group_id, payload.title, payload.content, payload.description,
+                            payload.change_note, payload.source_filename)
+    db.commit()
+    db.refresh(prompt)
+    return {
+        "id": prompt.id,
+        "title": prompt.title,
+        "group_id": prompt.group_id,
+        "current_version_number": 1,
+        "current_version_id": prompt.current_version_id,
+    }
+
+
+@app.post("/api/prompts/upload-files", status_code=201)
+async def upload_files(request: Request, group_id: str = Form(...), prompt_id: str | None = Form(None),
+                       change_note: str = Form("Uploaded from file"), files: list[UploadFile] = File(...),
+                       db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    rate_limiter.check(f"upload_user:{user.id}", limit=15, window_seconds=60,
+                       detail="Too many file upload requests. Please wait a minute and try again.")
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=400, detail=f"You can upload at most {MAX_UPLOAD_FILES} files at once.")
+    safe_change_note = (change_note or "Uploaded from file").strip()[:500]
+    if not can_access_group_with_key(db, user, group_id, _active_key(user)):
+        raise HTTPException(status_code=403, detail="You (or this scoped API key) cannot upload prompts to this group.")
+    role = get_user_group_role(db, user, group_id)
+    if role == "GUEST":
+        raise HTTPException(status_code=403, detail="Guests have view-only access and cannot upload prompts.")
+    if prompt_id:
+        target = _accessible_prompt(db, user, prompt_id)
+        if target.group_id != group_id:
+            raise HTTPException(status_code=400, detail="The selected prompt does not belong to this group.")
+    created: list[str] = []
+    updated: list[str] = []
+    proposed: list[str] = []
+    try:
+        for upload in files:
+            filename = sanitize_filename(upload.filename)
+            suffix = Path(filename).suffix.lower()
+            raw = await upload.read(MAX_UPLOAD_FILE_BYTES + 1)
+            if len(raw) > MAX_UPLOAD_FILE_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"{filename} exceeds the maximum allowed size of {MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MB.",
+                )
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(status_code=400, detail=f"{filename} must be UTF-8 encoded.") from exc
+            if suffix in {".txt", ".md"}:
+                if len(text) > 100_000:
+                    raise HTTPException(status_code=400, detail=f"{filename} exceeds 100,000 characters.")
+                if prompt_id:
+                    if not can_user_direct_write_prompt(db, user, target.group_id):
+                        proposal = PromptProposal(
+                            prompt_id=target.id,
+                            group_id=target.group_id,
+                            proposer_id=user.id,
+                            title=target.title,
+                            description=target.description,
+                            content=text,
+                            change_note=f"{safe_change_note} ({filename})"[:500],
+                            status="PENDING",
+                        )
+                        db.add(proposal)
+                        db.flush()
+                        proposed.append(proposal.id)
+                    else:
+                        max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=target.id).scalar() or 0
+                        target.current_version_number = max_ver + 1
+                        variables_list = extract_variables(text)
+                        new_ver = PromptVersion(
+                            prompt_id=target.id,
+                            version_number=target.current_version_number,
+                            content=text,
+                            variables_json=json.dumps(variables_list),
+                            change_Note=safe_change_note,
+                            source_filename=filename,
+                            author_id=user.id,
+                        )
+                        db.add(new_ver)
+                        db.flush()
+                        target.current_version_id = new_ver.id
+                        target.updated_at = datetime.utcnow()
+                        invalidate_prompt_cache(target.id)
+                        set_cached_version_by_uuid(
+                            new_ver.id,
+                            {
+                                "id": new_ver.id,
+                                "prompt_id": target.id,
+                                "title": target.title,
+                                "version_number": new_ver.version_number,
+                                "content": new_ver.content,
+                                "variables": variables_list,
+                            },
+                        )
+                        set_cached_active_version_uuid(target.id, new_ver.id)
+                        updated.append(target.id)
+                else:
+                    prompt = _create_prompt(db, user, group_id, Path(filename).stem, text,
+                                            change_note=safe_change_note, source_filename=filename)
+                    created.append(prompt.id)
+            elif suffix == ".json":
+                try:
+                    rows = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise HTTPException(status_code=400, detail=f"{filename} contains invalid JSON.") from exc
+                if isinstance(rows, dict):
+                    rows = rows.get("prompts", [rows])
+                if not isinstance(rows, list):
+                    raise HTTPException(status_code=400, detail=f"{filename} must contain a list of prompt objects.")
+                if len(rows) > MAX_BATCH_PROMPTS_PER_FILE:
+                    raise HTTPException(status_code=400, detail=f"{filename} contains more than {MAX_BATCH_PROMPTS_PER_FILE} prompts.")
+                for row in rows:
+                    if not isinstance(row, dict) or not row.get("title") or not isinstance(row.get("content"), str):
+                        raise HTTPException(status_code=400, detail=f"Every row in {filename} needs title and content fields.")
+                    if len(row["content"]) > 100_000:
+                        raise HTTPException(status_code=400, detail=f"A prompt in {filename} exceeds 100,000 characters.")
+                    prompt = _create_prompt(db, user, group_id, str(row["title"]), row["content"],
+                                            str(row.get("description", "")), safe_change_note, filename)
+                    created.append(prompt.id)
+            elif suffix == ".csv":
+                reader = csv.DictReader(io.StringIO(text))
+                if not reader.fieldnames or not {"title", "content"}.issubset({field.strip().lower() for field in reader.fieldnames}):
+                    raise HTTPException(status_code=400, detail=f"{filename} needs title and content columns.")
+                row_count = 0
+                for row in reader:
+                    row_count += 1
+                    if row_count > MAX_BATCH_PROMPTS_PER_FILE:
+                        raise HTTPException(status_code=400, detail=f"{filename} contains more than {MAX_BATCH_PROMPTS_PER_FILE} rows.")
+                    normalized = {str(key).strip().lower(): value for key, value in row.items() if key}
+                    if not normalized.get("title") or normalized.get("content") is None:
+                        continue
+                    if len(normalized["content"]) > 100_000:
+                        raise HTTPException(status_code=400, detail=f"A row in {filename} exceeds 100,000 characters.")
+                    prompt = _create_prompt(db, user, group_id, normalized["title"], normalized["content"],
+                                            normalized.get("description", ""), safe_change_note, filename)
+                    created.append(prompt.id)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {filename}")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"created_prompt_ids": created, "updated_prompt_ids": updated, "proposal_ids": proposed}
+
+
+@app.put("/api/prompts/{prompt_id}")
+def update_prompt(prompt_id: str, payload: PromptUpdateRequest, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    prompt = _accessible_prompt(db, user, prompt_id)
+    role = get_user_group_role(db, user, prompt.group_id)
+    if role == "GUEST":
+        raise HTTPException(status_code=403, detail="Guests have view-only access and cannot edit prompts.")
+
+    if not can_user_direct_write_prompt(db, user, prompt.group_id):
+        proposal = PromptProposal(
+            prompt_id=prompt.id,
+            group_id=prompt.group_id,
+            proposer_id=user.id,
+            title=payload.title.strip() if payload.title else prompt.title,
+            description=payload.description if payload.description is not None else prompt.description,
+            content=payload.content,
+            change_note=payload.change_note or "Proposed change",
+            status="PENDING",
+        )
+        db.add(proposal)
+        db.commit()
+        db.refresh(proposal)
+        return {
+            "proposal_created": True,
+            "proposal_id": proposal.id,
+            "message": "Your changes have been submitted as a proposal for review.",
+        }
+
+    if payload.title is not None:
+        prompt.title = payload.title.strip()
+    if payload.description is not None:
+        prompt.description = payload.description
+    max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
+    prompt.current_version_number = max_ver + 1
+    prompt.updated_at = datetime.utcnow()
+    safe_source = sanitize_filename(payload.source_filename) if payload.source_filename else None
+    variables_list = extract_variables(payload.content)
+    version = PromptVersion(
+        prompt_id=prompt.id,
+        version_number=prompt.current_version_number,
+        content=payload.content,
+        variables_json=json.dumps(variables_list),
+        change_Note=payload.change_note,
+        source_filename=safe_source,
+        author_id=user.id,
+    )
+    db.add(version)
+    db.flush()
+    prompt.current_version_id = version.id
+    db.commit()
+
+    invalidate_prompt_cache(prompt.id)
+    set_cached_version_by_uuid(
+        version.id,
+        {
+            "id": version.id,
+            "prompt_id": prompt.id,
+            "title": prompt.title,
+            "version_number": version.version_number,
+            "content": version.content,
+            "variables": variables_list,
+        },
+    )
+    set_cached_active_version_uuid(prompt.id, version.id)
+    return _version_read(db, version, author_name=user.name)
+
+
+@app.post("/api/prompts/{prompt_id}/rollback/{version_number}")
+def rollback_prompt(prompt_id: str, version_number: int, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    prompt = _accessible_prompt(db, user, prompt_id)
+    role = get_user_group_role(db, user, prompt.group_id)
+    if role != "GROUP_MANAGER":
+        raise HTTPException(status_code=403, detail="Only the Group Owner can switch the active version.")
+    target = db.query(PromptVersion).filter_by(prompt_id=prompt.id, version_number=version_number).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Version not found.")
+    prompt.current_version_number = version_number
+    prompt.current_version_id = target.id
+    prompt.updated_at = datetime.utcnow()
+    db.commit()
+
+    invalidate_prompt_cache(prompt.id)
+    set_cached_active_version_uuid(prompt.id, target.id)
+    record_audit_log(db, "PROMPT_ROLLBACK", user_id=user.id, ip_address=get_client_ip(request), target_type="prompt", target_id=prompt.id, details=f"Switched active version to v{version_number} ({target.id})")
+    return _version_read(db, target)
+
+
+@app.post("/api/prompts/{prompt_id}/duplicate", status_code=201)
+def duplicate_or_move_prompt_route(
+    prompt_id: str,
+    payload: PromptDuplicateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict:
+    _require_write_permission(user)
+    prompt = _accessible_prompt(db, user, prompt_id)
+
+    # Check caller's role in the source group
+    source_role = get_user_group_role(db, user, prompt.group_id)
+    if source_role == "GUEST" or source_role not in {"GROUP_MANAGER", "MEMBER"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Guests have view-only access and cannot duplicate or move prompts. Only Members and Owners can duplicate or move prompts.",
+        )
+
+    # Check caller's role in the target group
+    target_group = db.query(Group).filter_by(id=payload.target_group_id).first()
+    if target_group is None or not can_access_group_with_key(db, user, payload.target_group_id, _active_key(user)):
+        raise HTTPException(status_code=403, detail="You do not have access to the target group.")
+
+    target_role = get_user_group_role(db, user, payload.target_group_id)
+    if target_role == "GUEST" or target_role not in {"GROUP_MANAGER", "MEMBER"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Guests have view-only access and cannot add prompts to the target group. You must be a Member or Owner of the target group.",
+        )
+
+    source_group = db.query(Group).filter_by(id=prompt.group_id).first()
+    src_name = group_display_name(source_group) if source_group else "Source group"
+    tgt_name = group_display_name(target_group)
+
+    if payload.mode == "move":
+        if prompt.group_id == payload.target_group_id:
+            raise HTTPException(status_code=400, detail="The prompt is already in this space.")
+        old_group_id = prompt.group_id
+        prompt.group_id = payload.target_group_id
+        if payload.title and payload.title.strip():
+            prompt.title = payload.title.strip()[:240]
+        prompt.updated_at = datetime.utcnow()
+        # Transfer any pending proposals for this prompt
+        db.query(PromptProposal).filter_by(prompt_id=prompt.id).update({"group_id": payload.target_group_id})
+        db.commit()
+        db.refresh(prompt)
+        invalidate_prompt_cache(prompt.id)
+        record_audit_log(
+            db,
+            "PROMPT_MOVED",
+            user_id=user.id,
+            ip_address=get_client_ip(request),
+            target_type="prompt",
+            target_id=prompt.id,
+            details=f"Moved from {old_group_id} to {payload.target_group_id}",
+        )
+        return {
+            "id": prompt.id,
+            "title": prompt.title,
+            "group_id": prompt.group_id,
+            "group_name": tgt_name,
+            "current_version_number": prompt.current_version_number,
+            "mode": "move",
+            "message": f"Prompt successfully moved to {tgt_name}.",
+        }
+
+    # Otherwise mode == "copy" (Duplicate)
+    active_version = None
+    if prompt.current_version_id:
+        active_version = db.query(PromptVersion).filter_by(id=prompt.current_version_id).first()
+    if not active_version:
+        active_version = (
+            db.query(PromptVersion)
+            .filter_by(prompt_id=prompt.id, version_number=prompt.current_version_number)
+            .first()
+        )
+    if not active_version:
+        active_version = (
+            db.query(PromptVersion)
+            .filter_by(prompt_id=prompt.id)
+            .order_by(PromptVersion.version_number.desc())
+            .first()
+        )
+    if not active_version:
+        raise HTTPException(status_code=400, detail="Source prompt has no content to duplicate.")
+
+    if payload.title and payload.title.strip():
+        new_title = payload.title.strip()[:240]
+    else:
+        if prompt.group_id == payload.target_group_id:
+            new_title = f"{prompt.title} (Copy)"[:240]
+        else:
+            new_title = prompt.title[:240]
+
+    change_note = f"Duplicated from {src_name} (v{prompt.current_version_number})"
+    new_prompt = _create_prompt(
+        db=db,
+        user=user,
+        group_id=payload.target_group_id,
+        title=new_title,
+        content=active_version.content,
+        description=prompt.description,
+        change_note=change_note,
+        source_filename=active_version.source_filename,
+    )
+    db.commit()
+    db.refresh(new_prompt)
+    record_audit_log(
+        db,
+        "PROMPT_DUPLICATED",
+        user_id=user.id,
+        ip_address=get_client_ip(request),
+        target_type="prompt",
+        target_id=new_prompt.id,
+        details=f"Duplicated from {prompt.id} ({prompt.title}) to {target_group.id}",
+    )
+    return {
+        "id": new_prompt.id,
+        "title": new_prompt.title,
+        "group_id": new_prompt.group_id,
+        "group_name": tgt_name,
+        "current_version_number": 1,
+        "mode": "copy",
+        "message": f"Prompt successfully duplicated to {tgt_name}.",
+    }
+
+
+def _proposal_read(db: Session, proposal: PromptProposal, current_user_id: str, user_role: str | None) -> dict:
+    proposer = db.query(User).filter_by(id=proposal.proposer_id).first()
+    approvals_list = []
+    has_approved = False
+    for a in proposal.approvals:
+        u = db.query(User).filter_by(id=a.user_id).first()
+        if a.user_id == current_user_id:
+            has_approved = True
+        approvals_list.append({
+            "id": a.id,
+            "user_id": a.user_id,
+            "user_name": u.name if u else "Unknown",
+            "created_at": a.created_at.isoformat() + "Z",
+        })
+    group = db.query(Group).filter_by(id=proposal.group_id).first()
+    required = getattr(group, "required_approvals", 1) if group else 1
+    can_approve = (user_role in {"GROUP_MANAGER", "MEMBER"}) and (not has_approved) and (proposal.status == "PENDING") and (proposal.proposer_id != current_user_id)
+
+    return {
+        "id": proposal.id,
+        "prompt_id": proposal.prompt_id,
+        "group_id": proposal.group_id,
+        "proposer_id": proposal.proposer_id,
+        "proposer_name": proposer.name if proposer else "Unknown",
+        "proposer_email": proposer.email if proposer else "",
+        "title": proposal.title,
+        "description": proposal.description,
+        "content": proposal.content,
+        "change_note": proposal.change_note,
+        "status": proposal.status,
+        "created_at": proposal.created_at.isoformat() + "Z",
+        "approvals": approvals_list,
+        "approvals_count": len(approvals_list),
+        "required_approvals": required,
+        "can_approve": can_approve,
+        "has_approved": has_approved,
+    }
+
+
+@app.get("/api/proposals")
+def list_all_proposals(
+    group_id: str | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> list[dict]:
+    group_ids = get_scoped_group_ids(db, user, _active_key(user))
+    if group_id:
+        if group_id not in group_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this group.")
+        target_group_ids = [group_id]
+    else:
+        target_group_ids = group_ids
+
+    query = db.query(PromptProposal).filter(PromptProposal.group_id.in_(target_group_ids))
+    if status:
+        query = query.filter(PromptProposal.status == status.upper())
+
+    proposals = query.order_by(PromptProposal.created_at.desc()).all()
+    results = []
+    for p in proposals:
+        role = get_user_group_role(db, user, p.group_id)
+        read_data = _proposal_read(db, p, user.id, role)
+        prompt = db.query(Prompt).filter_by(id=p.prompt_id).first()
+        group = db.query(Group).filter_by(id=p.group_id).first()
+        read_data["prompt_title"] = prompt.title if prompt else p.title
+        read_data["group_name"] = group.name if group else "Unknown"
+        read_data["current_version_number"] = prompt.current_version_number if prompt else 1
+        active_ver = None
+        if prompt and prompt.current_version_id:
+            active_ver = db.query(PromptVersion).filter_by(id=prompt.current_version_id).first()
+        if not active_ver and prompt:
+            active_ver = (
+                db.query(PromptVersion)
+                .filter_by(prompt_id=p.prompt_id, version_number=prompt.current_version_number)
+                .first()
+            )
+        read_data["current_content"] = active_ver.content if active_ver else ""
+        results.append(read_data)
+    return results
+
+
+@app.get("/api/prompts/{prompt_id}/proposals")
+def list_proposals(prompt_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+    prompt = _accessible_prompt(db, user, prompt_id)
+    role = get_user_group_role(db, user, prompt.group_id)
+    proposals = db.query(PromptProposal).filter_by(prompt_id=prompt.id).order_by(PromptProposal.created_at.desc()).all()
+    return [_proposal_read(db, p, user.id, role) for p in proposals]
+
+
+@app.post("/api/prompts/{prompt_id}/proposals", status_code=201)
+def create_proposal(prompt_id: str, payload: ProposalCreateRequest, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    prompt = _accessible_prompt(db, user, prompt_id)
+    role = get_user_group_role(db, user, prompt.group_id)
+    if role == "GUEST":
+        raise HTTPException(status_code=403, detail="Guests have view-only access and cannot propose changes.")
+    proposal = PromptProposal(
+        prompt_id=prompt.id,
+        group_id=prompt.group_id,
+        proposer_id=user.id,
+        title=payload.title.strip(),
+        description=payload.description.strip(),
+        content=payload.content,
+        change_note=payload.change_note.strip() or "Proposed change",
+        status="PENDING",
+    )
+    db.add(proposal)
+    db.commit()
+    db.refresh(proposal)
+    return {"id": proposal.id, "status": proposal.status, "message": "Proposal submitted for review."}
+
+
+@app.post("/api/proposals/{proposal_id}/approve")
+def approve_proposal(proposal_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found.")
+    prompt = _accessible_prompt(db, user, proposal.prompt_id)
+    if not can_user_approve_proposals(db, user, prompt.group_id):
+        raise HTTPException(status_code=403, detail="Guests cannot approve proposals.")
+    if proposal.status != "PENDING":
+        raise HTTPException(status_code=400, detail=f"Proposal is already {proposal.status.lower()}.")
+    if proposal.proposer_id == user.id:
+        raise HTTPException(status_code=400, detail="You cannot approve your own proposal.")
+
+    existing_approval = db.query(ProposalApproval).filter_by(proposal_id=proposal.id, user_id=user.id).first()
+    if existing_approval:
+        raise HTTPException(status_code=400, detail="You have already approved this proposal.")
+
+    approval = ProposalApproval(proposal_id=proposal.id, user_id=user.id)
+    db.add(approval)
+    db.flush()
+
+    total_approvals = db.query(ProposalApproval).filter_by(proposal_id=proposal.id).count()
+    group = db.query(Group).filter_by(id=proposal.group_id).first()
+    required = getattr(group, "required_approvals", 1) if group else 1
+
+    if total_approvals >= required:
+        proposal.status = "APPROVED"
+        max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
+        prompt.current_version_number = max_ver + 1
+        prompt.title = proposal.title
+        if proposal.description:
+            prompt.description = proposal.description
+        prompt.updated_at = datetime.utcnow()
+        variables_list = extract_variables(proposal.content)
+        new_version = PromptVersion(
+            prompt_id=prompt.id,
+            version_number=prompt.current_version_number,
+            content=proposal.content,
+            variables_json=json.dumps(variables_list),
+            change_Note=f"[Approved] {proposal.change_note}"[:500],
+            author_id=proposal.proposer_id,
+        )
+        db.add(new_version)
+        db.flush()
+        prompt.current_version_id = new_version.id
+        db.commit()
+
+        invalidate_prompt_cache(prompt.id)
+        set_cached_version_by_uuid(
+            new_version.id,
+            {
+                "id": new_version.id,
+                "prompt_id": prompt.id,
+                "title": prompt.title,
+                "version_number": new_version.version_number,
+                "content": new_version.content,
+                "variables": variables_list,
+            },
+        )
+        set_cached_active_version_uuid(prompt.id, new_version.id)
+        return {
+            "status": "APPROVED",
+            "merged": True,
+            "approvals_count": total_approvals,
+            "required_approvals": required,
+            "version_number": prompt.current_version_number,
+            "version_id": new_version.id,
+        }
+    else:
+        db.commit()
+        return {
+            "status": "PENDING",
+            "merged": False,
+            "approvals_count": total_approvals,
+            "required_approvals": required,
+        }
+
+
+@app.post("/api/proposals/{proposal_id}/reject")
+def reject_proposal(proposal_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found.")
+    prompt = _accessible_prompt(db, user, proposal.prompt_id)
+    if not can_user_approve_proposals(db, user, prompt.group_id):
+        raise HTTPException(status_code=403, detail="Guests cannot reject proposals.")
+    if proposal.status != "PENDING":
+        raise HTTPException(status_code=400, detail=f"Proposal is already {proposal.status.lower()}.")
+    proposal.status = "REJECTED"
+    db.commit()
+    return {"status": "REJECTED"}
+
+
+@app.get("/api/prompts/{prompt_id}/versions")
+def prompt_versions(
+    prompt_id: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    prompt = _accessible_prompt(db, user, prompt_id)
+    rows = (
+        db.query(PromptVersion, User.name)
+        .outerjoin(User, PromptVersion.author_id == User.id)
+        .filter(PromptVersion.prompt_id == prompt.id)
+        .order_by(PromptVersion.version_number.desc())
+        .all()
+    )
+
+    etag_seed = f"{prompt.id}:{prompt.current_version_id}:{prompt.current_version_number}:{len(rows)}"
+    etag_value = f'W/"{hashlib.sha256(etag_seed.encode("utf-8")).hexdigest()[:24]}"'
+    if request.headers.get("if-none-match") == etag_value:
+        return Response(status_code=304, headers={"ETag": etag_value})
+
+    response.headers["ETag"] = etag_value
+    response.headers["Cache-Control"] = "private, must-revalidate"
+
+    active_pair = None
+    others = []
+    for v, author_name in rows:
+        is_active = (v.id == prompt.current_version_id) if prompt.current_version_id else (v.version_number == prompt.current_version_number)
+        if is_active and active_pair is None:
+            active_pair = (v, author_name)
+        else:
+            others.append((v, author_name))
+    ranked = ([active_pair] if active_pair else []) + others
+    return [_version_read(db, version, author_name=author_name or "Unknown") for version, author_name in ranked]
+
+
+@app.post("/api/diff-shares", status_code=201)
+def create_diff_share(payload: CreateDiffShareRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    prompt = _accessible_prompt(db, user, payload.prompt_id)
+    role = get_user_group_role(db, user, prompt.group_id)
+    if role == "GUEST":
+        raise HTTPException(status_code=403, detail="Guests cannot create external share links.")
+    for number in (payload.base_version, payload.target_version):
+        if not db.query(PromptVersion.id).filter_by(prompt_id=prompt.id, version_number=number).first():
+            raise HTTPException(status_code=404, detail=f"Version {number} not found.")
+    days = payload.expires_in_days or 7
+    expires_at = datetime.utcnow() + timedelta(days=days)
+    record = SharedDiffLink(
+        prompt_id=prompt.id,
+        base_version=payload.base_version,
+        target_version=payload.target_version,
+        diff_granularity=payload.diff_granularity,
+        view_mode=payload.view_mode,
+        created_by=user.id,
+        expires_at=expires_at,
+        is_revoked=False,
+    )
+    db.add(record)
+    db.commit()
+    record_audit_log(db, "DIFF_SHARE_CREATED", user_id=user.id, ip_address=get_client_ip(request), target_type="diff_share", target_id=record.id, details=f"Prompt {prompt.id} v{record.base_version}..v{record.target_version} (expires {days}d)")
+    return {
+        "share_id": record.id,
+        "expires_at": expires_at.isoformat() + "Z",
+        "share_url": f"/share/diff/{record.id}?base={record.base_version}&target={record.target_version}&granularity={record.diff_granularity}&mode={record.view_mode}",
+    }
+
+
+@app.delete("/api/diff-shares/{share_id}")
+def revoke_diff_share(share_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_web_session(user)
+    record = db.query(SharedDiffLink).filter_by(id=share_id).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Shared comparison not found.")
+    prompt = _accessible_prompt(db, user, record.prompt_id)
+    role = get_user_group_role(db, user, prompt.group_id)
+    if record.created_by != user.id and role != "GROUP_MANAGER" and not user.is_workspace_admin:
+        raise HTTPException(status_code=403, detail="Only the creator or Group Owner can revoke this shared link.")
+    record.is_revoked = True
+    db.commit()
+    record_audit_log(db, "DIFF_SHARE_REVOKED", user_id=user.id, ip_address=get_client_ip(request), target_type="diff_share", target_id=record.id)
+    return {"revoked": True, "share_id": share_id}
+
+
+@app.get("/api/diff-shares/{share_id}")
+def get_diff_share(share_id: str, request: Request, db: Session = Depends(get_db)) -> dict:
+    rate_limiter.check(f"diff_share_ip:{get_client_ip(request)}", limit=30, window_seconds=60,
+                       detail="Too many shared comparison requests. Please wait a minute.")
+    record = db.query(SharedDiffLink).filter_by(id=share_id[:64]).first()
+    if record is None or getattr(record, "is_revoked", False):
+        raise HTTPException(status_code=404, detail="Shared comparison not found or has been revoked.")
+    if record.expires_at and record.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=410, detail="This shared comparison link has expired.")
+    prompt = db.query(Prompt).filter_by(id=record.prompt_id).first()
+    base = db.query(PromptVersion).filter_by(prompt_id=record.prompt_id, version_number=record.base_version).first()
+    target = db.query(PromptVersion).filter_by(prompt_id=record.prompt_id, version_number=record.target_version).first()
+    group = db.query(Group).filter_by(id=prompt.group_id).first() if prompt else None
+    if not prompt or not base or not target:
+        raise HTTPException(status_code=404, detail="The comparison versions are unavailable.")
+    return {"share_id": record.id, "prompt": {"id": prompt.id, "title": prompt.title, "group_id": prompt.group_id,
+             "group_name": group_display_name(group) if group else ""}, "base_version": _version_read(db, base),
+            "target_version": _version_read(db, target), "diff_granularity": record.diff_granularity,
+            "view_mode": record.view_mode,
+            "expires_at": (record.expires_at.isoformat() + "Z") if record.expires_at else None}
+
+
+@app.post("/api/feedback", status_code=201)
+def submit_feedback(
+    payload: FeedbackCreateRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Submit user feedback, a complaint, a bug report, or a contact message and automatically create a GitHub Issue."""
+    client_ip = get_client_ip(request)
+    rate_limiter.check(
+        f"feedback_ip:{client_ip}",
+        limit=10,
+        window_seconds=300,
+        detail="Too many feedback submissions from this IP. Please wait a few minutes.",
+    )
+
+    # Resolve optional authenticated user without failing if submitted from login page
+    auth_user: User | None = None
+    try:
+        auth_user = current_user(
+            request=request,
+            authorization=authorization,
+            session_cookie=request.cookies.get(SESSION_COOKIE_NAME),
+            db=db,
+        )
+    except HTTPException:
+        auth_user = None
+
+    contact_name = (payload.contact_name or (auth_user.name if auth_user else "Anonymous User")).strip()[:120]
+    contact_email = (payload.contact_email or (auth_user.email if auth_user else "")).strip()[:254]
+
+    submission = FeedbackSubmission(
+        user_id=auth_user.id if auth_user else None,
+        category=payload.category,
+        subject=payload.subject,
+        message=payload.message,
+        reporter_name=contact_name,
+        reporter_email=contact_email,
+        page_url=(payload.page_url or "")[:500],
+        status="OPEN",
+    )
+    db.add(submission)
+    db.flush()
+
+    gh_issue = create_github_issue_for_feedback(
+        category=payload.category,
+        subject=payload.subject,
+        message=payload.message,
+        contact_name=contact_name,
+        contact_email=contact_email,
+        page_url=payload.page_url,
+        submission_id=submission.id,
+    )
+    if gh_issue.get("created"):
+        submission.github_issue_number = gh_issue.get("issue_number")
+        submission.github_issue_url = gh_issue.get("issue_url")
+        submission.status = "GITHUB_SYNCED"
+
+    db.commit()
+    db.refresh(submission)
+    record_audit_log(
+        db,
+        "FEEDBACK_SUBMITTED",
+        user_id=auth_user.id if auth_user else None,
+        ip_address=client_ip,
+        target_type="feedback",
+        target_id=submission.id,
+        details=f"[{payload.category}] {payload.subject[:80]} (gh_issue={submission.github_issue_number})",
+    )
+    return {
+        "id": submission.id,
+        "category": submission.category,
+        "subject": submission.subject,
+        "status": submission.status,
+        "github_issue_created": bool(gh_issue.get("created")),
+        "github_issue_number": submission.github_issue_number,
+        "github_issue_url": submission.github_issue_url,
+        "created_at": submission.created_at.isoformat() + "Z",
+        "message": (
+            f"Thank you! Your {payload.category.lower().replace('_', ' ')} has been logged as Issue #{submission.github_issue_number}."
+            if submission.github_issue_number
+            else "Thank you! Your feedback has been saved and queued for our team."
+        ),
+    }
+
+
+@app.get("/api/feedback")
+def list_feedback_submissions(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> list[dict]:
+    """List user complaints, bug reports, and contact submissions (Workspace Admins only)."""
+    _require_web_session(user)
+    require_workspace_admin(user)
+    safe_limit = max(1, min(limit, 500))
+    items = db.query(FeedbackSubmission).order_by(FeedbackSubmission.created_at.desc()).limit(safe_limit).all()
+    return [
+        {
+            "id": item.id,
+            "user_id": item.user_id,
+            "category": item.category,
+            "subject": item.subject,
+            "message": item.message,
+            "contact_name": item.reporter_name,
+            "contact_email": item.reporter_email,
+            "page_url": item.page_url,
+            "github_issue_number": item.github_issue_number,
+            "github_issue_url": item.github_issue_url,
+            "status": item.status,
+            "created_at": item.created_at.isoformat() + "Z",
+        }
+        for item in items
+    ]
+
+
+@app.get("/api/audit-logs")
+def list_audit_logs(limit: int = 100, db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+    """Return recent security audit log entries (Workspace Admins only)."""
+    _require_web_session(user)
+    require_workspace_admin(user)
+    safe_limit = max(1, min(limit, 500))
+    logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(safe_limit).all()
+    return [
+        {
+            "id": entry.id,
+            "user_id": entry.user_id,
+            "action": entry.action,
+            "ip_address": entry.ip_address,
+            "target_type": entry.target_type,
+            "target_id": entry.target_id,
+            "details": entry.details,
+            "created_at": entry.created_at.isoformat() + "Z",
+        }
+        for entry in logs
+    ]
+
+
+@app.get("/share/diff/{share_id}")
+def share_fallback(share_id: str):
+    """Help direct API-server share links open the SPA when a dist build exists."""
+    if not (FRONTEND_DIST / "index.html").exists():
+        raise HTTPException(status_code=404, detail="Build the frontend to open shared links directly.")
+    from fastapi.responses import FileResponse
+    return FileResponse(FRONTEND_DIST / "index.html")
+
+
+app.mount("/mcp", mcp_asgi, name="mcp")
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
