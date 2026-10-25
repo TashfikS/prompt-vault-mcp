@@ -12,6 +12,12 @@ pinned: false
 
 PromptHold is a team prompt workspace and version control system built with FastAPI, SQLAlchemy, React, and FastMCP. It provides Role-Based Access Control (RBAC), immutable sequential prompt versions, drag-and-drop uploads, instant rollback, granular word and sentence comparisons, shareable comparison links, and an in-chat MCP drawer for connected AI assistants and agents.
 
+## Documentation & Architecture
+
+* **[Architecture & System Blueprint](ARCHITECTURE.md)**: Full Mermaid diagrams, edge routing, failover sequence, and relational entity models.
+* **[Cloud Deployment Guide](DEPLOYMENT_GUIDE.md)**: Complete $0/month deployment walkthrough for Cloudflare, Firebase, Render, Upstash Redis, and Neon.
+* **[How to Make Changes Live](MAKING_CHANGES_LIVE.md)**: Step-by-step workflow for testing locally, CI/CD, and instant 10-second CLI deploys.
+
 ## Start the backend
 
 From the repository root:
