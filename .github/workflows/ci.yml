@@ -110,7 +110,7 @@ jobs:
           python -c "
           from database import Base, engine, SessionLocal
           from auth import upgrade_schema
-          from seed import seed_database
+          from seed import seed_initial_data as seed_database
           from models import User
           Base.metadata.create_all(bind=engine)
           upgrade_schema(engine)

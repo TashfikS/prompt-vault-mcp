@@ -92,3 +92,7 @@ def seed_initial_data(db: Session) -> None:
             last_version_id = pv.id
         prompt.current_version_id = last_version_id
     db.commit()
+
+
+# Backward compatibility alias
+seed_database = seed_initial_data
