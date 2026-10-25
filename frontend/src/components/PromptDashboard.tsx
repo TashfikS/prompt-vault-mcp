@@ -54,7 +54,7 @@ export default function PromptDashboard({
       if (activeGroupId && p.group_id !== activeGroupId) return false
       if (!search.trim()) return true
       const query = search.trim().toLowerCase()
-      return `${p.title} ${p.description} ${p.group_name} ${p.content}`.toLowerCase().includes(query)
+      return `${p.title} ${p.description || ''} ${p.group_name || ''} ${p.content || ''}`.toLowerCase().includes(query)
     })
   }, [prompts, search, activeGroupId])
 
@@ -271,7 +271,7 @@ export default function PromptDashboard({
                       {isCopied ? <Check size={13} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={13} />}
                     </button>
                     <p className="line-clamp-3 whitespace-pre-wrap break-anywhere break-words [overflow-wrap:anywhere] [word-break:break-word] pr-8">
-                      <PromptText text={prompt.content} />
+                      <PromptText text={prompt.content || ''} />
                     </p>
                   </div>
                 </div>
@@ -281,7 +281,7 @@ export default function PromptDashboard({
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0 text-xs text-slate-400 dark:text-zinc-500">
                       <span className="tabular-nums">{prompt.version_count} {prompt.version_count === 1 ? 'version' : 'versions'}</span>
-                      {prompt.variables.length > 0 && (
+                      {Boolean(prompt.variables && prompt.variables.length > 0) && (
                         <span> · {prompt.variables.length} {prompt.variables.length === 1 ? 'field' : 'fields'}</span>
                       )}
                       {prompt.updated_at && (

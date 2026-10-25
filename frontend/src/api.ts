@@ -48,7 +48,14 @@ export const getUsers = () => api<User[]>('/api/users')
 export const getGroups = () => api<Group[]>('/api/groups')
 export const createGroup = (data: { name: string; description?: string; manager_user_id?: string | null }) =>
   api<{ id: string; name: string; description: string }>('/api/groups', { method: 'POST', body: JSON.stringify(data) })
-export const getPrompts = (search = '') => api<PromptItem[]>(`/api/prompts${search ? `?search=${encodeURIComponent(search)}` : ''}`)
+export const getPrompts = async (search = ''): Promise<PromptItem[]> => {
+  const items = await api<any[]>(`/api/prompts${search ? `?search=${encodeURIComponent(search)}` : ''}`)
+  return (items || []).map((p): PromptItem => ({
+    ...p,
+    content: p.content ?? p.latest_version?.content ?? '',
+    variables: Array.isArray(p.variables) ? p.variables : (p.latest_version?.variables ?? []),
+  }))
+}
 export const createPrompt = (data: { group_id: string; title: string; description?: string; content: string; change_note?: string }) =>
   api<{ id: string; title: string; group_id: string; current_version_number: number; current_version_id?: string }>('/api/prompts', { method: 'POST', body: JSON.stringify(data) })
 export const duplicatePrompt = (promptId: string, data: PromptDuplicatePayload) =>

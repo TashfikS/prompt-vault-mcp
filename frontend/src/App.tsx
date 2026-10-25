@@ -19,6 +19,7 @@ import OnboardingTour from './components/OnboardingTour'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { ToastProvider } from './components/ui/Toast'
 import { LogoMark } from './components/ui/Brand'
+import ErrorBoundary from './components/ui/ErrorBoundary'
 
 export default function App() {
   const params = new URLSearchParams(window.location.search)
@@ -159,7 +160,8 @@ export default function App() {
   }
 
   return (
-    <ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
       {shareId ? (
         <SharedDiffPage shareId={shareId} />
       ) : mcpMode ? (
@@ -314,6 +316,7 @@ export default function App() {
           />
         </div>
       )}
-    </ToastProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   )
 }

@@ -305,6 +305,8 @@ async function buildPromptSummaries(sql, groupIds, filterGroupId = null, search 
       created_by: r.created_by,
       creator_name: r.creator_name || "Unknown",
       updated_at: r.updated_at,
+      content: r.v_content || "",
+      variables: vars,
       version_count: Number(r.version_count || 1),
       latest_version: r.v_id
         ? {
