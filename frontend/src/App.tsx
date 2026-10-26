@@ -64,6 +64,33 @@ export default function App() {
   const [error, setError] = useState('')
   const createGroupInputRef = useRef<HTMLInputElement>(null)
 
+  useEffect(() => {
+    const handlePopState = () => {
+      const p = new URLSearchParams(window.location.search)
+      const isPricing =
+        p.get('page') === 'pricing' || p.get('pricing') === '1' || window.location.pathname === '/pricing'
+      const isAuth =
+        p.get('auth') === 'login' ||
+        p.get('auth') === 'register' ||
+        p.get('login') === '1' ||
+        window.location.pathname === '/login' ||
+        window.location.pathname === '/register'
+      const mode = p.get('auth') === 'register' || window.location.pathname === '/register' ? 'register' : 'login'
+      const plan = (p.get('plan') as PricingPlanId) || 'community'
+      setSelectedSignupPlan(plan)
+      setAuthMode(mode)
+      if (isAuth) {
+        setUnauthView('auth')
+        setPricingPageOpen(false)
+      } else if (isPricing) {
+        setUnauthView('pricing')
+        setPricingPageOpen(true)
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -190,13 +217,32 @@ export default function App() {
       ) : pricingPageOpen ? (
         <PricingPage
           activeUser={activeUser}
+          onHome={() => {
+            setPricingPageOpen(false)
+            if (activeUser) {
+              setPage('prompts')
+              setSelectedSpaceId(null)
+            } else {
+              setAuthMode('login')
+              setUnauthView('auth')
+            }
+            if (window.history.pushState) {
+              const url = new URL(window.location.href)
+              url.searchParams.delete('page')
+              url.searchParams.delete('pricing')
+              if (!activeUser) {
+                url.searchParams.set('auth', 'login')
+              }
+              window.history.pushState({}, '', url.pathname.replace(/\/pricing$/, '/') + (url.search ? url.search : ''))
+            }
+          }}
           onBackToApp={() => {
             setPricingPageOpen(false)
             if (window.history.pushState) {
               const url = new URL(window.location.href)
               url.searchParams.delete('page')
               url.searchParams.delete('pricing')
-              window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''))
+              window.history.pushState({}, '', url.pathname.replace(/\/pricing$/, '/') + (url.search ? url.search : ''))
             }
           }}
           onPlanUpdated={newPlan => {
@@ -219,14 +265,40 @@ export default function App() {
         unauthView === 'pricing' ? (
           <PricingPage
             activeUser={null}
+            onHome={() => {
+              setAuthMode('login')
+              setUnauthView('auth')
+              if (window.history.pushState) {
+                const url = new URL(window.location.href)
+                url.searchParams.delete('page')
+                url.searchParams.delete('pricing')
+                url.searchParams.set('auth', 'login')
+                window.history.pushState({}, '', url.pathname.replace(/\/pricing$/, '/') + (url.search ? url.search : ''))
+              }
+            }}
             onSignIn={() => {
               setAuthMode('login')
               setUnauthView('auth')
+              if (window.history.pushState) {
+                const url = new URL(window.location.href)
+                url.searchParams.delete('page')
+                url.searchParams.delete('pricing')
+                url.searchParams.set('auth', 'login')
+                window.history.pushState({}, '', url.pathname.replace(/\/pricing$/, '/') + (url.search ? url.search : ''))
+              }
             }}
             onSelectPlan={tierId => {
               setSelectedSignupPlan(tierId)
               setAuthMode('register')
               setUnauthView('auth')
+              if (window.history.pushState) {
+                const url = new URL(window.location.href)
+                url.searchParams.delete('page')
+                url.searchParams.delete('pricing')
+                url.searchParams.set('auth', 'register')
+                url.searchParams.set('plan', tierId)
+                window.history.pushState({}, '', url.pathname.replace(/\/pricing$/, '/') + (url.search ? url.search : ''))
+              }
             }}
             onContactSales={() => {
               window.location.href = 'mailto:sales@prompthold.com?subject=PromptHold%20Enterprise%20Inquiry'
@@ -241,7 +313,17 @@ export default function App() {
                 setAuthState('checking')
                 void loadSession()
               }}
-              onOpenPricing={() => setUnauthView('pricing')}
+              onOpenPricing={() => {
+                setUnauthView('pricing')
+                if (window.history.pushState) {
+                  const url = new URL(window.location.href)
+                  url.searchParams.delete('auth')
+                  url.searchParams.delete('login')
+                  url.searchParams.delete('plan')
+                  url.searchParams.set('page', 'pricing')
+                  window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''))
+                }
+              }}
             />
             <FeedbackWidget activeUser={null} />
           </>

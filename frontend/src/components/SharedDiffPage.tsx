@@ -27,7 +27,13 @@ export default function SharedDiffPage({ shareId }: { shareId: string }) {
       <header className="border-b border-slate-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900 sm:px-8">
         <div className="mx-auto flex max-w-6xl xl:max-w-7xl items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Logo />
+            <a
+              href="/"
+              aria-label="PromptHold home"
+              className="group -m-1 rounded-lg p-1 text-left transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
+            >
+              <Logo />
+            </a>
             <span className="text-slate-300 dark:text-zinc-600">/</span>
             <span className="text-sm font-medium text-slate-500 dark:text-zinc-400">Shared comparison</span>
           </div>

@@ -280,7 +280,14 @@ export default function Navbar(props: Props) {
       </aside>
 
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:hidden dark:border-zinc-800 dark:bg-zinc-950/95">
-        <Logo />
+        <button
+          type="button"
+          onClick={() => { props.onNavigate('prompts'); props.onSelectSpace(null) }}
+          aria-label="PromptHold home"
+          className="rounded-lg text-left transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
+        >
+          <Logo />
+        </button>
         <div className="flex items-center gap-1.5">
           <ThemeToggleButton className="h-8 w-8" />
           <button type="button" onClick={props.onConnect} className="btn-ghost px-2.5" aria-label="Connect to AI"><PlugZap size={18} /></button>

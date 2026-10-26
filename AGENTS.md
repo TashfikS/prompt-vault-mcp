@@ -58,6 +58,12 @@ Users can belong to multiple groups with distinct roles per group:
   - Web UI: Authenticates via `Authorization: Bearer <session_token>` header.
   - MCP Clients: Authenticates via personal `api_key` (`Authorization: Bearer <api_key>` or MCP tool argument).
 
+### Pillar 5: Multi-Tier Database Architecture (Supabase vs Neon)
+- **Free / Community Tier (`plan = "community"`):** Stored in **Supabase PostgreSQL** (`SUPABASE_DATABASE_URL`). If Supabase credentials are not yet configured in `.env`, the system safely falls back to local SQLite (`prompthold_community.db`) with clear diagnostics so development and testing continue smoothly.
+- **Paid Tiers (`plan in ("pro", "team", "enterprise")`):** Stored in **Neon Serverless PostgreSQL** (`NEON_DATABASE_URL` / `DATABASE_URL`).
+- **Dynamic Request Routing:** FastAPI dependencies and FastMCP tools automatically inspect the user's token / API key and dynamically route queries to the appropriate database engine with zero latency overhead via an in-memory routing cache.
+- **Cross-Tier Data Migration:** When a user upgrades from Free/Community to Pro/Team/Enterprise (or downgrades), `migrate_user_tier` atomically transfers their account, personal workspace, prompts, versions, API keys, and sessions between Supabase and Neon.
+
 ---
 
 ## 3. Project Directory Structure

@@ -109,6 +109,7 @@ type Props = {
   onContactSales?: () => void
   onSignIn?: () => void
   onSelectPlan?: (tierId: PricingPlanId) => void
+  onHome?: () => void
 }
 
 export default function PricingPage({
@@ -118,6 +119,7 @@ export default function PricingPage({
   onContactSales,
   onSignIn,
   onSelectPlan,
+  onHome,
 }: Props) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [pricing, setPricing] = useState<PricingResponse | null>(null)
@@ -170,13 +172,36 @@ export default function PricingPage({
     }
   }
 
+  function handleGoHome() {
+    if (onHome) {
+      onHome()
+      return
+    }
+    if (activeUser && onBackToApp) {
+      onBackToApp()
+      return
+    }
+    if (onSignIn) {
+      onSignIn()
+      return
+    }
+    window.location.href = activeUser ? '/' : '/?auth=login'
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f6f7f9] text-slate-900 dark:bg-zinc-950 dark:text-zinc-100">
       {/* Top Header */}
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-5 py-4 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-900/90 sm:px-8">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Logo />
+            <button
+              type="button"
+              onClick={handleGoHome}
+              aria-label="PromptHold home"
+              className="group -m-1 rounded-lg p-1 text-left transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
+            >
+              <Logo />
+            </button>
             <span className="text-slate-300 dark:text-zinc-600">/</span>
             <span className="text-sm font-medium text-slate-600 dark:text-zinc-400">Plans &amp; Pricing</span>
           </div>
@@ -226,14 +251,14 @@ export default function PricingPage({
 
           {/* Billing Cycle Toggle */}
           <div className="mt-8 flex items-center justify-center">
-            <div className="inline-flex rounded-xl bg-slate-200/70 p-1 text-xs font-semibold text-slate-600 dark:bg-zinc-850 dark:text-zinc-300">
+            <div className="inline-flex rounded-xl bg-slate-200/70 p-1 text-xs font-semibold text-slate-600 dark:bg-zinc-950 dark:border dark:border-zinc-800 dark:text-zinc-400">
               <button
                 type="button"
                 onClick={() => setBillingCycle('annual')}
                 className={`rounded-lg px-4 py-2 transition ${
                   billingCycle === 'annual'
-                    ? 'bg-white text-slate-900 shadow-2xs dark:bg-zinc-900 dark:text-zinc-100'
-                    : 'hover:text-slate-900 dark:hover:text-zinc-100'
+                    ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 dark:shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
                 }`}
               >
                 Annual billing <span className="ml-1 font-bold text-emerald-600 dark:text-emerald-400">Save 20%</span>
@@ -243,8 +268,8 @@ export default function PricingPage({
                 onClick={() => setBillingCycle('monthly')}
                 className={`rounded-lg px-4 py-2 transition ${
                   billingCycle === 'monthly'
-                    ? 'bg-white text-slate-900 shadow-2xs dark:bg-zinc-900 dark:text-zinc-100'
-                    : 'hover:text-slate-900 dark:hover:text-zinc-100'
+                    ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 dark:shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
                 }`}
               >
                 Monthly billing
@@ -353,7 +378,7 @@ export default function PricingPage({
                   </div>
 
                   <div className="mt-5 space-y-3">
-                    <div className="rounded-xl bg-slate-50 p-2.5 text-xs text-slate-700 dark:bg-zinc-850 dark:text-zinc-300">
+                    <div className="rounded-xl border border-slate-200/70 bg-slate-50 p-2.5 text-xs text-slate-700 dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:text-zinc-300">
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">{tier.max_prompts} Prompts</span>
                       {' • '}
                       <span>{tier.max_versions_per_prompt} versions/prompt</span>

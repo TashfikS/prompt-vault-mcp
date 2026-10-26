@@ -99,6 +99,11 @@ def create_api_key_record(
     user.api_key = None
     db.commit()
     db.refresh(record)
+    try:
+        from database import cache_token_plan
+        cache_token_plan(raw_key, getattr(user, "plan", "community") or "community")
+    except Exception:
+        pass
     return record, raw_key
 
 
@@ -112,6 +117,11 @@ def resolve_api_key(db: Session, token: str) -> tuple[User, ApiKey | None] | Non
             return None
         record.last_used_at = datetime.utcnow()
         db.commit()
+        try:
+            from database import cache_token_plan
+            cache_token_plan(token, getattr(user, "plan", "community") or "community")
+        except Exception:
+            pass
         return user, record
     return None
 
@@ -121,6 +131,11 @@ def create_session(db: Session, user: User) -> str:
     token_hash = hash_session_token(raw_token)
     db.add(AuthSession(token=token_hash, user_id=user.id, expires_at=datetime.utcnow() + SESSION_LIFETIME))
     db.commit()
+    try:
+        from database import cache_token_plan
+        cache_token_plan(raw_token, getattr(user, "plan", "community") or "community")
+    except Exception:
+        pass
     return raw_token
 
 
@@ -147,13 +162,25 @@ def user_for_session_token(db: Session, token: str) -> User | None:
         db.delete(session)
         db.commit()
         return None
-    return db.query(User).filter_by(id=session.user_id).first()
+    user = db.query(User).filter_by(id=session.user_id).first()
+    if user is not None:
+        try:
+            from database import cache_token_plan
+            cache_token_plan(token, getattr(user, "plan", "community") or "community")
+        except Exception:
+            pass
+    return user
 
 
 def delete_session(db: Session, token: str) -> None:
     token_hash = hash_session_token(token)
     db.query(AuthSession).filter(AuthSession.token.in_([token_hash, token])).delete(synchronize_session=False)
     db.commit()
+    try:
+        from database import invalidate_token_plan
+        invalidate_token_plan(token)
+    except Exception:
+        pass
 
 
 def delete_all_user_sessions(db: Session, user_id: str) -> int:

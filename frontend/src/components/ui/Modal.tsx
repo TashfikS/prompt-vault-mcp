@@ -10,6 +10,7 @@ export default function Modal({
   title,
   description,
   icon,
+  iconWrapper = true,
   children,
   footer,
   onClose,
@@ -21,6 +22,7 @@ export default function Modal({
   title: ReactNode
   description?: ReactNode
   icon?: ReactNode
+  iconWrapper?: boolean
   children?: ReactNode
   footer?: ReactNode
   onClose: () => void
@@ -68,14 +70,20 @@ export default function Modal({
         onSubmit={onSubmit}
         className={`w-full ${width} animate-pop-in rounded-2xl bg-white shadow-pop outline-none ring-1 ring-slate-900/5 dark:bg-zinc-900 dark:ring-zinc-800 dark:border dark:border-zinc-800`}
       >
-        <div className="flex items-start gap-4 px-6 pt-6">
+        <div className="flex items-start gap-3.5 px-6 pt-6">
           {icon && (
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-700 ring-8 ring-brand-50/50 dark:bg-brand-950/60 dark:text-brand-300 dark:ring-brand-950/40">
-              {icon}
-            </div>
+            iconWrapper ? (
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-700 ring-8 ring-brand-50/50 dark:bg-brand-950/60 dark:text-brand-300 dark:ring-brand-950/40">
+                {icon}
+              </div>
+            ) : (
+              <div className="shrink-0 flex items-center justify-center">
+                {icon}
+              </div>
+            )
           )}
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-zinc-100">{title}</h2>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-zinc-100 flex items-center leading-7 min-h-[28px]">{title}</h2>
             {description && <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-zinc-400">{description}</p>}
           </div>
           <button

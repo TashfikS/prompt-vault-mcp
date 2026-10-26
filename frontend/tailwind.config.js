@@ -27,6 +27,9 @@ export default {
           DEFAULT: '#f6f7f9',
           dark: '#09090b',
         },
+        zinc: {
+          850: '#1e1e22',
+        },
       },
       boxShadow: {
         xs: '0 1px 2px 0 rgb(16 24 40 / 0.05)',

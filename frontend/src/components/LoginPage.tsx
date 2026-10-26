@@ -270,41 +270,43 @@ export default function LoginPage({
             )}
           </div>
 
-          {/* Quick Demo Access with interactive RoleBadges */}
-          <section aria-label="Demo accounts" className="mt-5 rounded-xl border border-slate-200/90 bg-white/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/80">
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-200">
-                <Braces size={13} className="text-brand-600 dark:text-brand-400" /> Quick demo sign-in
-              </span>
-              <span className="text-[11px] text-slate-400 dark:text-zinc-500">Password: <code className="font-mono text-slate-600 dark:text-zinc-300">demo1234</code></span>
-            </div>
-            <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-              Click any account to sign in immediately, or hover its role badge to see what it can do.
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {DEMO_ACCOUNTS.map(acct => (
-                <div
-                  key={acct.email}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 transition hover:border-brand-300 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-850"
-                >
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setEmail(acct.email)
-                      setPassword('demo1234')
-                      void signInWith(acct.email, 'demo1234')
-                    }}
-                    className="min-w-0 flex-1 text-left"
+          {/* Quick Demo Access with interactive RoleBadges - only shown in development mode */}
+          {Boolean(import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true') && (
+            <section aria-label="Demo accounts" className="mt-5 rounded-xl border border-slate-200/90 bg-white/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/80">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-200">
+                  <Braces size={13} className="text-brand-600 dark:text-brand-400" /> Quick demo sign-in
+                </span>
+                <span className="text-[11px] text-slate-400 dark:text-zinc-500">Password: <code className="font-mono text-slate-600 dark:text-zinc-300">demo1234</code></span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                Click any account to sign in immediately, or hover its role badge to see what it can do.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {DEMO_ACCOUNTS.map(acct => (
+                  <div
+                    key={acct.email}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 transition hover:border-brand-300 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-850"
                   >
-                    <span className="block truncate text-xs font-semibold text-slate-900 dark:text-zinc-100">{acct.name}</span>
-                    <span className="block truncate text-[11px] text-slate-500 dark:text-zinc-400">{acct.context}</span>
-                  </button>
-                  <RoleBadge kind={acct.role} size="sm" side="top" showIcon={false} />
-                </div>
-              ))}
-            </div>
-          </section>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setEmail(acct.email)
+                        setPassword('demo1234')
+                        void signInWith(acct.email, 'demo1234')
+                      }}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate text-xs font-semibold text-slate-900 dark:text-zinc-100">{acct.name}</span>
+                      <span className="block truncate text-[11px] text-slate-500 dark:text-zinc-400">{acct.context}</span>
+                    </button>
+                    <RoleBadge kind={acct.role} size="sm" side="top" showIcon={false} />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </main>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Check, HardDrive, Loader2, Sparkles, Users } from 'lucide-react'
+import { ArrowRight, Check, HardDrive, Loader2, Users } from 'lucide-react'
 import Modal from './ui/Modal'
+import { LogoMark } from './ui/Brand'
 import { getPricing, updatePlan } from '../api'
 import type { PricingPlanId, PricingResponse, PricingTier, User } from '../types'
 import { useToast } from './ui/Toast'
@@ -154,30 +155,24 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
 
   return (
     <Modal
-      title={
-        <div className="flex items-center gap-2">
-          <span>Plans &amp; Pricing</span>
-          <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-950/70 dark:text-brand-300">
-            PromptHold
-          </span>
-        </div>
-      }
+      title="Plans &amp; Pricing"
       description="Simple, predictable pricing. No seat minimums on Team, and 2 free guests included with every paid editor."
-      icon={<Sparkles size={20} />}
+      icon={<LogoMark size={28} />}
+      iconWrapper={false}
       size="2xl"
       onClose={onClose}
     >
       <div className="space-y-6">
         {/* Billing cycle toggle */}
         <div className="flex items-center justify-center">
-          <div className="inline-flex rounded-xl bg-slate-100 p-1 text-xs font-semibold text-slate-600 dark:bg-zinc-850 dark:text-zinc-300">
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 text-xs font-semibold text-slate-600 dark:bg-zinc-950 dark:border dark:border-zinc-800 dark:text-zinc-400">
             <button
               type="button"
               onClick={() => setBillingCycle('annual')}
               className={`rounded-lg px-3.5 py-1.5 transition ${
                 billingCycle === 'annual'
-                  ? 'bg-white text-slate-900 shadow-2xs dark:bg-zinc-900 dark:text-zinc-100'
-                  : 'hover:text-slate-900 dark:hover:text-zinc-100'
+                  ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 dark:shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
               }`}
             >
               Annual billing <span className="text-emerald-600 dark:text-emerald-400 font-bold ml-1">Save 20%</span>
@@ -187,8 +182,8 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
               onClick={() => setBillingCycle('monthly')}
               className={`rounded-lg px-3.5 py-1.5 transition ${
                 billingCycle === 'monthly'
-                  ? 'bg-white text-slate-900 shadow-2xs dark:bg-zinc-900 dark:text-zinc-100'
-                  : 'hover:text-slate-900 dark:hover:text-zinc-100'
+                  ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 dark:shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
               }`}
             >
               Monthly billing
@@ -198,21 +193,21 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
 
         {/* Usage bar if available */}
         {pricing?.usage && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-850/50 dark:text-zinc-400">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-400">
             <div className="flex items-center justify-between mb-1.5 font-medium">
-              <span>Workspace Prompt Usage</span>
+              <span className="text-slate-600 dark:text-zinc-400">Workspace Prompt Usage</span>
               <span className="tabular-nums font-semibold text-slate-900 dark:text-zinc-200">
                 {pricing.usage.prompts_count} / {pricing.usage.max_prompts} prompts used
               </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-800">
               <div
                 className={`h-full transition-all ${
                   pricing.usage.prompts_count >= pricing.usage.max_prompts
                     ? 'bg-rose-500'
                     : pricing.usage.prompts_count >= pricing.usage.max_prompts * 0.8
                     ? 'bg-amber-500'
-                    : 'bg-brand-600'
+                    : 'bg-brand-600 dark:bg-brand-500'
                 }`}
                 style={{
                   width: `${Math.min(100, (pricing.usage.prompts_count / Math.max(1, pricing.usage.max_prompts)) * 100)}%`,
@@ -300,8 +295,8 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
                   </div>
 
                   <div className="mt-4 space-y-2">
-                    <div className="rounded-lg bg-slate-50 p-2 text-[11px] leading-tight text-slate-600 dark:bg-zinc-850/60 dark:text-zinc-300">
-                      <span className="font-semibold text-slate-800 dark:text-zinc-200">
+                    <div className="rounded-lg border border-slate-200/70 bg-slate-50 p-2 text-[11px] leading-tight text-slate-600 dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:text-zinc-300">
+                      <span className="font-semibold text-slate-800 dark:text-zinc-100">
                         {tier.max_prompts} prompts
                       </span>{' '}
                       • {tier.max_versions_per_prompt} versions/prompt
@@ -327,7 +322,7 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
                       isCurrent
                         ? 'cursor-default border border-slate-200 bg-slate-100 text-slate-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'
                         : isTeam
-                        ? 'bg-brand-600 text-white hover:bg-brand-700 shadow-2xs dark:bg-brand-500 dark:hover:bg-brand-600'
+                        ? 'bg-brand-600 text-white hover:bg-brand-700 shadow-xs dark:bg-brand-500 dark:hover:bg-brand-600'
                         : tier.id === 'enterprise'
                         ? 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700'
                         : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700'
@@ -359,7 +354,7 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
         </div>
 
         {/* Feature highlight callout */}
-        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-300">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex items-start gap-2">
               <Users size={16} className="mt-0.5 shrink-0 text-brand-600 dark:text-brand-400" />

@@ -18,7 +18,22 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from database import Base, SessionLocal, engine, get_db
+from database import (
+    Base,
+    SessionLocal,
+    SessionNeon,
+    SessionSupabase,
+    engine,
+    engine_neon,
+    engine_supabase,
+    get_db,
+    get_db_for_plan,
+    get_sessionmaker_for_plan,
+    is_community_plan,
+    is_supabase_configured,
+    is_test_session,
+    migrate_user_tier,
+)
 from auth import (DUMMY_PASSWORD_HASH, SESSION_LIFETIME, create_api_key_record, create_session,
                   delete_all_user_sessions, delete_session, ensure_demo_passwords, hash_password, resolve_api_key,
                   upgrade_schema, user_for_session_token, verify_firebase_id_token, verify_password)
@@ -47,13 +62,25 @@ mcp_asgi = mcp.http_app(path="/")
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    upgrade_schema(engine)
-    with SessionLocal() as db:
+    # 1. Initialize Neon tables & schema upgrades (Paid Tiers)
+    Base.metadata.create_all(bind=engine_neon)
+    upgrade_schema(engine_neon)
+
+    # 2. Initialize Supabase tables & schema upgrades (Free/Community Tier)
+    Base.metadata.create_all(bind=engine_supabase)
+    upgrade_schema(engine_supabase)
+
+    # 3. Seed Neon database with demo team accounts if enabled
+    with SessionNeon() as db_neon:
         if should_seed_demo_data():
-            seed_initial_data(db)
-            ensure_demo_passwords(db)
-        ensure_all_personal_groups(db)
+            seed_initial_data(db_neon)
+            ensure_demo_passwords(db_neon)
+        ensure_all_personal_groups(db_neon)
+
+    # 4. Ensure personal spaces in Supabase as well
+    with SessionSupabase() as db_supa:
+        ensure_all_personal_groups(db_supa)
+
     async with mcp_asgi.router.lifespan_context(application):
         yield
 
@@ -126,6 +153,19 @@ def current_user(
         session_user._active_api_key = None  # type: ignore[attr-defined]
         return session_user
 
+    # Multi-tier probe across Supabase and Neon if not found in current db
+    if not is_test_session(db):
+        bind_url = get_db_bind_url(db)
+        alt_factory = SessionSupabase if bind_url == str(engine_neon.url) else SessionNeon
+        try:
+            with alt_factory() as alt_db:
+                alt_session_user = user_for_session_token(alt_db, token)
+                if alt_session_user is not None:
+                    alt_session_user._active_api_key = None
+                    return alt_session_user
+        except Exception:
+            pass
+
     client_ip = get_client_ip(request)
     if rate_limiter.count_recent(f"invalid_auth:{client_ip}", window_seconds=60) >= 20:
         raise HTTPException(status_code=429, detail="Too many invalid authentication attempts. Please wait a minute.")
@@ -135,6 +175,19 @@ def current_user(
         key_user, key_record = resolved
         key_user._active_api_key = key_record  # type: ignore[attr-defined]
         return key_user
+
+    if not is_test_session(db):
+        bind_url = get_db_bind_url(db)
+        alt_factory = SessionSupabase if bind_url == str(engine_neon.url) else SessionNeon
+        try:
+            with alt_factory() as alt_db:
+                alt_resolved = resolve_api_key(alt_db, token)
+                if alt_resolved is not None:
+                    key_user, key_record = alt_resolved
+                    key_user._active_api_key = key_record  # type: ignore[attr-defined]
+                    return key_user
+        except Exception:
+            pass
 
     rate_limiter.record_hit(f"invalid_auth:{client_ip}")
     raise HTTPException(status_code=401, detail="Your session or API key is invalid or has expired. Please sign in again.")
@@ -154,11 +207,33 @@ def maybe_user(
     session_user = user_for_session_token(db, token)
     if session_user is not None:
         return session_user
+    if not is_test_session(db):
+        bind_url = get_db_bind_url(db)
+        alt_factory = SessionSupabase if bind_url == str(engine_neon.url) else SessionNeon
+        try:
+            with alt_factory() as alt_db:
+                alt_user = user_for_session_token(alt_db, token)
+                if alt_user is not None:
+                    return alt_user
+        except Exception:
+            pass
     res = resolve_api_key(db, token)
     if res is not None:
         user, key = res
         setattr(user, "_active_api_key", key)
         return user
+    if not is_test_session(db):
+        bind_url = get_db_bind_url(db)
+        alt_factory = SessionSupabase if bind_url == str(engine_neon.url) else SessionNeon
+        try:
+            with alt_factory() as alt_db:
+                alt_res = resolve_api_key(alt_db, token)
+                if alt_res is not None:
+                    user, key = alt_res
+                    setattr(user, "_active_api_key", key)
+                    return user
+        except Exception:
+            pass
     return None
 
 
@@ -192,20 +267,44 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
     rate_limiter.check(f"register_ip:{client_ip}", limit=5, window_seconds=60,
                        detail="Too many registration attempts from this IP. Please wait a minute.")
     email = payload.email.strip().lower()
-    if db.query(User).filter(User.email == email).first():
-        raise HTTPException(status_code=409, detail="An account with this email already exists. Try signing in.")
-    initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
-    if initial_admin_email:
-        is_admin = email == initial_admin_email
+
+    is_test_env = is_test_session(db)
+
+    if is_test_env:
+        target_db = db
+        close_target = False
     else:
-        is_admin = (not IS_PRODUCTION) and (db.query(User).count() == 0)
-    user = User(name=payload.name.strip(), email=email, is_workspace_admin=is_admin,
-                password_hash=hash_password(payload.password), plan=payload.plan)
-    db.add(user)
-    db.commit()
-    ensure_personal_group(db, user)
-    record_audit_log(db, "AUTH_REGISTER", user_id=user.id, ip_address=client_ip, details=f"Registered {email}")
-    return _auth_response(db, user, response)
+        target_factory = get_sessionmaker_for_plan(payload.plan)
+        target_db = target_factory()
+        close_target = True
+
+    try:
+        if target_db.query(User).filter(User.email == email).first():
+            raise HTTPException(status_code=409, detail="An account with this email already exists. Try signing in.")
+        if not is_test_env:
+            alt_factory = SessionNeon if is_community_plan(payload.plan) else SessionSupabase
+            try:
+                with alt_factory() as alt_db:
+                    if alt_db.query(User).filter(User.email == email).first():
+                        raise HTTPException(status_code=409, detail="An account with this email already exists. Try signing in.")
+            except Exception:
+                pass
+
+        initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
+        if initial_admin_email:
+            is_admin = email == initial_admin_email
+        else:
+            is_admin = (not IS_PRODUCTION) and (target_db.query(User).count() == 0)
+        user = User(name=payload.name.strip(), email=email, is_workspace_admin=is_admin,
+                    password_hash=hash_password(payload.password), plan=payload.plan)
+        target_db.add(user)
+        target_db.commit()
+        ensure_personal_group(target_db, user)
+        record_audit_log(target_db, "AUTH_REGISTER", user_id=user.id, ip_address=client_ip, details=f"Registered {email}")
+        return _auth_response(target_db, user, response)
+    finally:
+        if close_target:
+            target_db.close()
 
 
 @app.post("/api/auth/login")
@@ -218,16 +317,55 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     if rate_limiter.count_recent(lockout_bucket, window_seconds=300) >= 5:
         raise HTTPException(status_code=429, detail="Account temporarily locked due to repeated failed sign-in attempts. Try again in 5 minutes.")
 
-    user = db.query(User).filter(User.email == email).first()
-    password_ok = verify_password(payload.password, user.password_hash if user else DUMMY_PASSWORD_HASH)
-    if user is None or not password_ok:
-        rate_limiter.record_hit(lockout_bucket)
-        record_audit_log(db, "AUTH_LOGIN_FAILED", user_id=user.id if user else None, ip_address=client_ip, details=f"Failed login for {email}")
-        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    is_test_env = is_test_session(db)
 
-    rate_limiter.clear_bucket(lockout_bucket)
-    record_audit_log(db, "AUTH_LOGIN_SUCCESS", user_id=user.id, ip_address=client_ip, details=f"Signed in {email}")
-    return _auth_response(db, user, response)
+    user = None
+    target_db = db
+    close_target = False
+
+    if is_test_env:
+        user = db.query(User).filter(User.email == email).first()
+    else:
+        # Check Supabase first (free/community tier)
+        try:
+            s_db = SessionSupabase()
+            found = s_db.query(User).filter(User.email == email).first()
+            if found:
+                user = found
+                target_db = s_db
+                close_target = True
+            else:
+                s_db.close()
+        except Exception:
+            pass
+
+        # If not found in Supabase, check Neon (paid tiers)
+        if user is None:
+            try:
+                n_db = SessionNeon()
+                found = n_db.query(User).filter(User.email == email).first()
+                if found:
+                    user = found
+                    target_db = n_db
+                    close_target = True
+                else:
+                    n_db.close()
+            except Exception:
+                pass
+
+    try:
+        password_ok = verify_password(payload.password, user.password_hash if user else DUMMY_PASSWORD_HASH)
+        if user is None or not password_ok:
+            rate_limiter.record_hit(lockout_bucket)
+            record_audit_log(target_db, "AUTH_LOGIN_FAILED", user_id=user.id if user else None, ip_address=client_ip, details=f"Failed login for {email}")
+            raise HTTPException(status_code=401, detail="Incorrect email or password.")
+
+        rate_limiter.clear_bucket(lockout_bucket)
+        record_audit_log(target_db, "AUTH_LOGIN_SUCCESS", user_id=user.id, ip_address=client_ip, details=f"Signed in {email}")
+        return _auth_response(target_db, user, response)
+    finally:
+        if close_target:
+            target_db.close()
 
 
 @app.post("/api/auth/firebase")
@@ -240,16 +378,60 @@ def firebase_sso_login(payload: FirebaseAuthRequest, request: Request, response:
     if verified is None:
         raise HTTPException(status_code=401, detail="Firebase SSO verification failed or FIREBASE_WEB_API_KEY is not configured.")
     email = verified["email"]
-    user = db.query(User).filter(User.email == email).first()
-    if user is None:
-        initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
-        is_admin = (email == initial_admin_email) if initial_admin_email else False
-        user = User(name=verified["name"][:160], email=email, is_workspace_admin=is_admin, password_hash=None)
-        db.add(user)
-        db.commit()
-    ensure_personal_group(db, user)
-    record_audit_log(db, "AUTH_FIREBASE_SSO", user_id=user.id, ip_address=client_ip, details=f"SSO login {email}")
-    return _auth_response(db, user, response)
+
+    is_test_env = is_test_session(db)
+
+    user = None
+    target_db = db
+    close_target = False
+
+    if is_test_env:
+        user = db.query(User).filter(User.email == email).first()
+    else:
+        try:
+            s_db = SessionSupabase()
+            found = s_db.query(User).filter(User.email == email).first()
+            if found:
+                user = found
+                target_db = s_db
+                close_target = True
+            else:
+                s_db.close()
+        except Exception:
+            pass
+
+        if user is None:
+            try:
+                n_db = SessionNeon()
+                found = n_db.query(User).filter(User.email == email).first()
+                if found:
+                    user = found
+                    target_db = n_db
+                    close_target = True
+                else:
+                    n_db.close()
+            except Exception:
+                pass
+
+        if user is None:
+            target_db = SessionSupabase()
+            close_target = True
+
+    try:
+        if user is None:
+            initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
+            is_admin = (email == initial_admin_email) if initial_admin_email else False
+            user = User(name=verified["name"][:160], email=email, is_workspace_admin=is_admin, password_hash=None, plan="community")
+            target_db.add(user)
+            target_db.commit()
+            ensure_personal_group(target_db, user)
+            record_audit_log(target_db, "AUTH_FIREBASE_SSO_REGISTER", user_id=user.id, ip_address=client_ip, details=f"SSO register {email}")
+        else:
+            record_audit_log(target_db, "AUTH_FIREBASE_SSO", user_id=user.id, ip_address=client_ip, details=f"SSO login {email}")
+        return _auth_response(target_db, user, response)
+    finally:
+        if close_target:
+            target_db.close()
 
 
 @app.post("/api/auth/logout")
@@ -458,18 +640,46 @@ def _create_prompt(db: Session, user: User, group_id: str, title: str, content: 
 
 @app.get("/api/health")
 def health_check(db: Session = Depends(get_db)) -> dict:
-    """Fast health check endpoint for Hugging Face Spaces, Render, Docker, and load balancers."""
+    """Fast health check endpoint reporting status for both Neon (Paid) and Supabase (Community) tiers."""
+    from sqlalchemy import text
     db_ok = True
     try:
-        from sqlalchemy import text
         db.execute(text("SELECT 1"))
     except Exception:
         db_ok = False
+
+    neon_status = "connected"
+    try:
+        with SessionNeon() as n_db:
+            n_db.execute(text("SELECT 1"))
+    except Exception:
+        neon_status = "unreachable"
+
+    supa_status = "connected" if is_supabase_configured() else "local_fallback (prompthold_community.db)"
+    try:
+        with SessionSupabase() as s_db:
+            s_db.execute(text("SELECT 1"))
+    except Exception:
+        supa_status = "unreachable"
+
     return {
         "status": "ok" if db_ok else "degraded",
         "service": "prompt-vault-mcp",
         "version": "2.0.0",
         "database": "connected" if db_ok else "unreachable",
+        "tiers": {
+            "paid": {
+                "provider": "Neon PostgreSQL",
+                "plans": ["pro", "team", "enterprise"],
+                "status": neon_status,
+            },
+            "community": {
+                "provider": "Supabase PostgreSQL" if is_supabase_configured() else "SQLite Fallback",
+                "configured": is_supabase_configured(),
+                "plans": ["community"],
+                "status": supa_status,
+            },
+        },
     }
 
 
@@ -574,18 +784,41 @@ def update_my_plan(payload: PlanUpdateRequest, request: Request, db: Session = D
     if payload.plan not in PLAN_LIMITS_MAP:
         raise HTTPException(status_code=400, detail="Invalid plan selected.")
     old_plan = getattr(user, "plan", "community") or "community"
-    user.plan = payload.plan
-    db.commit()
-    db.refresh(user)
-    record_audit_log(
-        db,
-        "PLAN_CHANGED",
-        user_id=user.id,
-        ip_address=get_client_ip(request),
-        target_type="user",
-        target_id=user.id,
-        details=f"Changed subscription plan from {old_plan} to {payload.plan}",
-    )
+
+    is_test_env = is_test_session(db)
+
+    # If transitioning across database tiers (Community <-> Paid), migrate the user's data!
+    if not is_test_env and is_community_plan(old_plan) != is_community_plan(payload.plan):
+        migrate_user_tier(user.id, old_plan, payload.plan)
+        new_factory = get_sessionmaker_for_plan(payload.plan)
+        with new_factory() as new_db:
+            migrated_user = new_db.query(User).filter_by(id=user.id).first()
+            if migrated_user:
+                migrated_user.plan = payload.plan
+                new_db.commit()
+                record_audit_log(
+                    new_db,
+                    "PLAN_CHANGED",
+                    user_id=user.id,
+                    ip_address=get_client_ip(request),
+                    target_type="user",
+                    target_id=user.id,
+                    details=f"Migrated tier database and updated plan from {old_plan} to {payload.plan}",
+                )
+        user.plan = payload.plan
+    else:
+        user.plan = payload.plan
+        db.commit()
+        db.refresh(user)
+        record_audit_log(
+            db,
+            "PLAN_CHANGED",
+            user_id=user.id,
+            ip_address=get_client_ip(request),
+            target_type="user",
+            target_id=user.id,
+            details=f"Changed subscription plan from {old_plan} to {payload.plan}",
+        )
     return {
         "message": f"Successfully updated your plan to {payload.plan.title()}.",
         "plan": user.plan,

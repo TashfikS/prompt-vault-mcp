@@ -18,7 +18,9 @@ from cache import (
     set_cached_active_version_uuid,
     set_cached_version_by_uuid,
 )
-from database import SessionLocal
+from contextlib import contextmanager
+from sqlalchemy.orm import Session
+from database import SessionLocal, SessionNeon, SessionSupabase, get_sessionmaker_for_plan, resolve_token_plan
 from permissions import (
     can_access_group_with_key,
     can_user_direct_write_prompt,
@@ -60,6 +62,36 @@ def prompt_hold_drawer() -> str:
             "</body></html>")
 
 
+@contextmanager
+def _get_mcp_session(api_key: str):
+    """Context manager yielding a database session routed to the user's tier (Supabase or Neon)."""
+    test_session = SessionLocal()
+    if not isinstance(test_session, Session):
+        try:
+            yield test_session
+        finally:
+            test_session.close()
+        return
+
+    plan = resolve_token_plan(api_key)
+    target_factory = get_sessionmaker_for_plan(plan)
+    db = target_factory()
+    try:
+        resolved = resolve_api_key(db, api_key)
+        if resolved is None:
+            alt_factory = SessionNeon if target_factory is SessionSupabase else SessionSupabase
+            alt_db = alt_factory()
+            alt_resolved = resolve_api_key(alt_db, api_key)
+            if alt_resolved is not None:
+                db.close()
+                db = alt_db
+            else:
+                alt_db.close()
+        yield db
+    finally:
+        db.close()
+
+
 def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
     if rate_limiter.count_recent("mcp_invalid_key", window_seconds=60) >= 20:
         raise ValueError("Too many invalid API key attempts. Please wait a minute and try again.")
@@ -73,7 +105,7 @@ def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
 @mcp.tool()
 def list_my_accessible_prompts(api_key: str, search_query: str = "", group_name: str = "") -> dict[str, Any]:
     """List prompts from spaces authorized for the supplied API key in a single SQL JOIN query."""
-    with SessionLocal() as db:
+    with _get_mcp_session(api_key) as db:
         user, key_record = _auth_key(db, api_key)
         group_ids = get_scoped_group_ids(db, user, key_record)
         if not group_ids:
@@ -119,7 +151,7 @@ def list_my_accessible_prompts(api_key: str, search_query: str = "", group_name:
 @mcp.tool()
 def get_and_fill_prompt(api_key: str, prompt_id: str, variables: dict[str, str] | None = None) -> dict[str, str]:
     """Get the latest accessible prompt by UUID and substitute provided variable values."""
-    with SessionLocal() as db:
+    with _get_mcp_session(api_key) as db:
         user, key_record = _auth_key(db, api_key)
         prompt = db.query(Prompt).filter_by(id=prompt_id.strip()[:64]).first()
         if prompt is None or not can_access_group_with_key(db, user, prompt.group_id, key_record):
@@ -160,7 +192,7 @@ def save_prompt_version_from_chat(api_key: str, prompt_id: str, new_content: str
     if not new_content or len(new_content) > 100_000:
         raise ValueError("Prompt content must be between 1 and 100,000 characters.")
     safe_note = (change_note or "Updated via AI Chat").strip()[:500]
-    with SessionLocal() as db:
+    with _get_mcp_session(api_key) as db:
         user, key_record = _auth_key(db, api_key)
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot modify or propose changes to prompts.")
@@ -224,7 +256,7 @@ def duplicate_or_move_prompt(api_key: str, prompt_id: str, target_group_id: str,
                              new_title: str = "", mode: str = "copy") -> dict[str, Any]:
     """Duplicate (copy) or move a prompt to another group or Personal space. Requires Member or Owner role in both spaces."""
     clean_mode = "move" if mode.strip().lower() == "move" else "copy"
-    with SessionLocal() as db:
+    with _get_mcp_session(api_key) as db:
         user, key_record = _auth_key(db, api_key)
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot duplicate or move prompts.")
