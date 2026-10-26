@@ -275,18 +275,16 @@ jobs:
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          CLEAN_URL=$(echo "${RENDER_DEPLOY_HOOK_URL}" | tr -d '\r\n"' | xargs)
+          CLEAN_URL=$(python3 -c "import os, re; s = os.getenv('RENDER_DEPLOY_HOOK_URL', ''); m = re.search(r'https?://[^\s\"\'\`<>]+', s); print(m.group(0) if m else '')")
           if [ -z "${CLEAN_URL}" ]; then
-            echo "RENDER_DEPLOY_HOOK_URL secret not set. Skipping Render trigger."
-          elif [[ "${CLEAN_URL}" =~ ^https?://.+ ]]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret not set or does not contain a valid URL. Skipping Render trigger."
+          else
             echo "Calling Render deploy hook..."
             if curl -fsSL -X POST "${CLEAN_URL}"; then
               echo "Triggered Render production deployment successfully!"
             else
               echo "::warning::Render deploy hook call failed. Please check RENDER_DEPLOY_HOOK_URL in GitHub Secrets."
             fi
-          else
-            echo "::warning::RENDER_DEPLOY_HOOK_URL is not a valid HTTP/HTTPS URL (got '${CLEAN_URL}'). Please check GitHub Secrets."
           fi
 
   # 2.3 Deploy to Cloudflare Pages & Cloudflare Worker Gateway
