@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Check, HardDrive, Loader2, Users } from 'lucide-react'
+import { ArrowRight, Check, CreditCard, HardDrive, Loader2, Users } from 'lucide-react'
 import Modal from './ui/Modal'
-import { LogoMark } from './ui/Brand'
 import { getPricing, updatePlan } from '../api'
 import type { PricingPlanId, PricingResponse, PricingTier, User } from '../types'
 import { useToast } from './ui/Toast'
@@ -158,8 +157,8 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
     <Modal
       title="Plans &amp; Pricing"
       description="Simple, predictable pricing. No seat minimums on Team, and 2 free guests included with every paid editor."
-      icon={<LogoMark size={28} />}
-      iconWrapper={false}
+      icon={<CreditCard size={20} />}
+      iconWrapper={true}
       size="2xl"
       onClose={onClose}
     >
@@ -219,7 +218,7 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
         )}
 
         {/* 4 Cards Grid */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 pt-2.5 sm:grid-cols-2 lg:grid-cols-4">
           {tiers.map(tier => {
             const isCurrent = currentPlan === tier.id
             const isTeam = tier.id === 'team'

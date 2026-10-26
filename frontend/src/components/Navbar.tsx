@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowRight, BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, Sparkles, Users, X } from 'lucide-react'
+import { ArrowRight, BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, CreditCard, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, Users, X } from 'lucide-react'
 import type { Group, PromptItem, User } from '../types'
 import { accessFor, spaceName } from '../access'
 import RoleBadge from './ui/RoleBadge'
@@ -192,7 +192,7 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
           <div className="flex items-center justify-between gap-1.5">
             <div className="flex min-w-0 items-center gap-2">
               <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-500/20 dark:bg-brand-950/80 dark:text-brand-300 dark:ring-brand-500/30">
-                <Sparkles size={14} className="transition-transform group-hover/plan:scale-110" />
+                <CreditCard size={14} className="transition-transform group-hover/plan:scale-110" />
               </span>
               <div className="min-w-0 leading-tight">
                 <div className="flex items-center gap-1.5">
@@ -269,7 +269,7 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
               <MenuItem icon={<Compass size={15} className="text-slate-500 dark:text-zinc-400" />} onClick={() => { setHelpOpen(false); onStartTour(); after() }}>Take the product tour</MenuItem>
               <MenuItem icon={<BookOpenCheck size={15} className="text-slate-500 dark:text-zinc-400" />} onClick={() => { setHelpOpen(false); onOpenRoles(); after() }}>Roles &amp; permissions</MenuItem>
               {onOpenPricing && (
-                <MenuItem icon={<Sparkles size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setHelpOpen(false); onOpenPricing(); after() }}>Plans &amp; pricing</MenuItem>
+                <MenuItem icon={<CreditCard size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setHelpOpen(false); onOpenPricing(); after() }}>Plans &amp; pricing</MenuItem>
               )}
               {onOpenFeedback && (
                 <MenuItem icon={<MessageSquarePlus size={15} className="text-slate-500 dark:text-zinc-400" />} onClick={() => { setHelpOpen(false); onOpenFeedback(); after() }}>Feedback &amp; report issue</MenuItem>
@@ -320,7 +320,7 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
                   </div>
                 </div>
                 {onOpenPricing && (
-                  <MenuItem icon={<Sparkles size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setUserOpen(false); onOpenPricing(); after() }}>Plans &amp; pricing</MenuItem>
+                  <MenuItem icon={<CreditCard size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setUserOpen(false); onOpenPricing(); after() }}>Plans &amp; pricing</MenuItem>
                 )}
                 <div className="my-1 border-t border-slate-100 dark:border-zinc-800" />
                 <MenuItem icon={<LogOut size={15} />} tone="danger" onClick={() => { setUserOpen(false); onLogout() }}>Sign out</MenuItem>
@@ -367,7 +367,7 @@ export default function Navbar(props: Props) {
               className="btn-ghost px-2 text-brand-600 dark:text-brand-400"
               aria-label="Plans & pricing"
             >
-              <Sparkles size={18} />
+              <CreditCard size={18} />
             </button>
           )}
           <button type="button" onClick={props.onConnect} className="btn-ghost px-2.5" aria-label="Connect to AI"><PlugZap size={18} /></button>

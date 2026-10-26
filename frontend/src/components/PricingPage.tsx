@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, HardDrive, HelpCircle, Loader2, Sparkles, Users } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CreditCard, HardDrive, HelpCircle, Loader2, Users } from 'lucide-react'
 import { getPricing, updatePlan } from '../api'
 import type { PricingPlanId, PricingResponse, PricingTier, User } from '../types'
 import { ThemeToggleButton } from '../theme'
@@ -239,7 +239,7 @@ export default function PricingPage({
         {/* Hero Section */}
         <div className="mx-auto max-w-3xl text-center">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50/70 px-3 py-1 text-xs font-semibold text-brand-700 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-300">
-            <Sparkles size={13} />
+            <CreditCard size={13} />
             <span>Predictable, Developer-Friendly Pricing</span>
           </div>
           <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-950 dark:text-zinc-50 sm:text-5xl">
@@ -305,7 +305,7 @@ export default function PricingPage({
         )}
 
         {/* 4 Cards Grid */}
-        <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-10 pt-3 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {tiers.map(tier => {
             const isCurrent = activeUser ? currentPlan === tier.id : tier.id === 'community'
             const isTeam = tier.id === 'team'

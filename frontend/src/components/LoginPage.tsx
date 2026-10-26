@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ArrowLeft, ArrowRight, Braces, GitBranch, LogIn, PlugZap, ShieldCheck, Sparkles, UserPlus } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Braces, CreditCard, GitBranch, LogIn, PlugZap, ShieldCheck, UserPlus } from 'lucide-react'
 import { login, register, setSessionToken } from '../api'
 import type { PricingPlanId } from '../types'
 import { Logo, PromptText } from './ui/Brand'
@@ -137,7 +137,7 @@ export default function LoginPage({
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="grid h-6 w-6 place-items-center rounded-md bg-brand-50 text-brand-600 dark:bg-brand-950/80 dark:text-brand-300">
-                  <Sparkles size={13} />
+                  <CreditCard size={13} />
                 </span>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-300">
                   Plans &amp; Pricing
@@ -153,44 +153,58 @@ export default function LoginPage({
             </p>
 
             {/* 4 Mini Plan Cards */}
-            <div className="mt-3.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mt-4 pt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 p-2.5 text-center transition hover:border-slate-300 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700">
                 <div>
                   <span className="block text-[11px] font-bold text-slate-800 dark:text-zinc-200">Community</span>
-                  <span className="mt-0.5 block text-base font-extrabold text-slate-950 dark:text-zinc-50">$0</span>
+                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
+                    <span className="text-base font-extrabold text-slate-950 dark:text-zinc-50">$0</span>
+                  </div>
                 </div>
-                <span className="mt-1 block text-[10px] text-slate-500 dark:text-zinc-400">20 prompts · FastMCP</span>
+                <div className="mt-1 flex min-h-[28px] items-center justify-center">
+                  <span className="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">20 prompts · FastMCP</span>
+                </div>
               </div>
 
               <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 p-2.5 text-center transition hover:border-slate-300 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700">
                 <div>
                   <span className="block text-[11px] font-bold text-slate-800 dark:text-zinc-200">Pro</span>
-                  <span className="mt-0.5 block text-base font-extrabold text-slate-950 dark:text-zinc-50">
-                    $5<span className="text-[10px] font-normal text-slate-500">/mo</span>
-                  </span>
+                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
+                    <span className="text-base font-extrabold text-slate-950 dark:text-zinc-50">$5</span>
+                    <span className="text-[10px] font-normal text-slate-500">/mo</span>
+                  </div>
                 </div>
-                <span className="mt-1 block text-[10px] text-slate-500 dark:text-zinc-400">100 prompts · BYOS</span>
+                <div className="mt-1 flex min-h-[28px] items-center justify-center">
+                  <span className="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">100 prompts · BYOS</span>
+                </div>
               </div>
 
               <div className="relative flex flex-col justify-between rounded-xl border border-brand-300 bg-brand-50/40 p-2.5 text-center shadow-2xs dark:border-brand-700/60 dark:bg-brand-950/30">
-                <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.2 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
+                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
                   Popular
                 </span>
                 <div>
                   <span className="block text-[11px] font-bold text-brand-900 dark:text-brand-200">Team</span>
-                  <span className="mt-0.5 block text-base font-extrabold text-brand-950 dark:text-brand-100">
-                    $10<span className="text-[10px] font-normal text-brand-700/80 dark:text-brand-300/80">/ed/mo</span>
-                  </span>
+                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
+                    <span className="text-base font-extrabold text-brand-950 dark:text-brand-100">$10</span>
+                    <span className="text-[10px] font-normal text-brand-700/80 dark:text-brand-300/80">/ed/mo</span>
+                  </div>
                 </div>
-                <span className="mt-1 block text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">+2 Free Guests</span>
+                <div className="mt-1 flex min-h-[28px] items-center justify-center">
+                  <span className="text-[10px] leading-tight font-semibold text-emerald-700 dark:text-emerald-400">+2 Free Guests</span>
+                </div>
               </div>
 
               <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 p-2.5 text-center transition hover:border-slate-300 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700">
                 <div>
                   <span className="block text-[11px] font-bold text-slate-800 dark:text-zinc-200">Enterprise</span>
-                  <span className="mt-0.5 block text-base font-extrabold text-slate-950 dark:text-zinc-50">Custom</span>
+                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
+                    <span className="text-base font-extrabold text-slate-950 dark:text-zinc-50">Custom</span>
+                  </div>
                 </div>
-                <span className="mt-1 block text-[10px] text-slate-500 dark:text-zinc-400">VPC · SAML SSO</span>
+                <div className="mt-1 flex min-h-[28px] items-center justify-center">
+                  <span className="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">VPC · SAML SSO</span>
+                </div>
               </div>
             </div>
 
@@ -251,7 +265,7 @@ export default function LoginPage({
                 onClick={onOpenPricing}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-brand-300 hover:text-brand-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-700 dark:hover:text-brand-300 cursor-pointer"
               >
-                <Sparkles size={13} className="text-brand-600 dark:text-brand-400" />
+                <CreditCard size={13} className="text-brand-600 dark:text-brand-400" />
                 <span>Plans &amp; Pricing</span>
                 <span className="rounded-full bg-emerald-50 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                   From $0
@@ -303,7 +317,7 @@ export default function LoginPage({
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="pt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {PLAN_PREVIEWS.map(opt => {
                     const active = planChoice === opt.id
                     return (
@@ -311,24 +325,26 @@ export default function LoginPage({
                         key={opt.id}
                         type="button"
                         onClick={() => setPlanChoice(opt.id)}
-                        className={`relative rounded-xl border p-2 text-center transition cursor-pointer ${
+                        className={`relative rounded-xl border p-2.5 text-center transition cursor-pointer ${
                           active
                             ? 'border-brand-600 bg-brand-50/60 ring-2 ring-brand-500/20 dark:border-brand-500 dark:bg-brand-950/40'
                             : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-700'
                         }`}
                       >
                         {opt.badge && (
-                          <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.2 text-[8px] font-bold uppercase text-white shadow-2xs">
+                          <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
                             {opt.badge}
                           </span>
                         )}
                         <span className={`block text-xs font-bold ${active ? 'text-brand-950 dark:text-brand-100' : 'text-slate-900 dark:text-zinc-100'}`}>
                           {opt.name}
                         </span>
-                        <span className="block text-xs font-extrabold text-slate-900 dark:text-zinc-100 mt-0.5">
-                          {opt.price}
-                        </span>
-                        <span className="block text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5 truncate">
+                        <div className="my-0.5 flex h-5 items-baseline justify-center">
+                          <span className="text-xs font-extrabold text-slate-900 dark:text-zinc-100">
+                            {opt.price}
+                          </span>
+                        </div>
+                        <span className="block text-[10px] text-slate-500 dark:text-zinc-400 truncate">
                           {opt.quota}
                         </span>
                       </button>
@@ -401,34 +417,35 @@ export default function LoginPage({
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="grid h-7 w-7 place-items-center rounded-lg bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-500/20 dark:bg-brand-950/80 dark:text-brand-300 dark:ring-brand-500/30">
-                  <Sparkles size={14} />
+                <span className="grid h-6 w-6 place-items-center rounded-md bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-500/20 dark:bg-brand-950/80 dark:text-brand-300 dark:ring-brand-500/30">
+                  <CreditCard size={13} />
                 </span>
-                <div>
-                  <h2 className="text-xs font-bold text-slate-950 dark:text-zinc-50">
-                    Transparent Plans &amp; Pricing
-                  </h2>
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                    No credit card needed to get started on Community.
-                  </p>
-                </div>
+                <h2 className="text-xs font-bold text-slate-950 dark:text-zinc-50">
+                  Transparent Plans &amp; Pricing
+                </h2>
               </div>
               <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950/80 dark:text-emerald-300">
                 Free Forever $0
               </span>
             </div>
 
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            <p className="mt-1.5 text-[11px] text-slate-500 dark:text-zinc-400">
+              No credit card needed to get started on Community.
+            </p>
+
+            <div className="mt-3.5 pt-2.5 grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setPlanChoice('community')
                   switchMode('register')
                 }}
-                className="flex flex-col items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-2 text-center transition hover:border-brand-400 hover:bg-white dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 cursor-pointer"
+                className="flex flex-col items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 text-center transition hover:border-brand-400 hover:bg-white dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 cursor-pointer"
               >
                 <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">Community</span>
-                <span className="my-0.5 text-sm font-extrabold text-slate-900 dark:text-zinc-100">$0</span>
+                <div className="my-1 flex h-5 items-baseline justify-center gap-0.5">
+                  <span className="text-sm font-extrabold text-slate-900 dark:text-zinc-100">$0</span>
+                </div>
                 <span className="text-[10px] text-slate-500 dark:text-zinc-400">20 prompts</span>
               </button>
 
@@ -438,12 +455,13 @@ export default function LoginPage({
                   setPlanChoice('pro')
                   switchMode('register')
                 }}
-                className="flex flex-col items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-2 text-center transition hover:border-brand-400 hover:bg-white dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 cursor-pointer"
+                className="flex flex-col items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 text-center transition hover:border-brand-400 hover:bg-white dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 cursor-pointer"
               >
                 <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">Pro</span>
-                <span className="my-0.5 text-sm font-extrabold text-slate-900 dark:text-zinc-100">
-                  $5<span className="text-[10px] font-normal text-slate-500">/mo</span>
-                </span>
+                <div className="my-1 flex h-5 items-baseline justify-center gap-0.5">
+                  <span className="text-sm font-extrabold text-slate-900 dark:text-zinc-100">$5</span>
+                  <span className="text-[10px] font-normal text-slate-500">/mo</span>
+                </div>
                 <span className="text-[10px] text-slate-500 dark:text-zinc-400">100 prompts</span>
               </button>
 
@@ -453,15 +471,16 @@ export default function LoginPage({
                   setPlanChoice('team')
                   switchMode('register')
                 }}
-                className="relative flex flex-col items-center justify-between rounded-xl border border-brand-300 bg-brand-50/30 p-2 text-center transition hover:border-brand-500 hover:bg-brand-50/60 dark:border-brand-700/60 dark:bg-brand-950/30 dark:hover:border-brand-600 cursor-pointer"
+                className="relative flex flex-col items-center justify-between rounded-xl border border-brand-300 bg-brand-50/30 p-2.5 text-center transition hover:border-brand-500 hover:bg-brand-50/60 dark:border-brand-700/60 dark:bg-brand-950/30 dark:hover:border-brand-600 cursor-pointer"
               >
-                <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.2 text-[8px] font-bold uppercase text-white shadow-2xs">
+                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
                   Popular
                 </span>
                 <span className="text-xs font-bold text-brand-900 dark:text-brand-200">Team</span>
-                <span className="my-0.5 text-sm font-extrabold text-brand-950 dark:text-brand-100">
-                  $10<span className="text-[10px] font-normal text-brand-700/80 dark:text-brand-300/80">/ed</span>
-                </span>
+                <div className="my-1 flex h-5 items-baseline justify-center gap-0.5">
+                  <span className="text-sm font-extrabold text-brand-950 dark:text-brand-100">$10</span>
+                  <span className="text-[10px] font-normal text-brand-700/80 dark:text-brand-300/80">/ed</span>
+                </div>
                 <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-400">+2 Free Guests</span>
               </button>
             </div>
