@@ -79,8 +79,16 @@ else:
         "Free/Community tier data will use local SQLite (prompthold_community.db) until Supabase credentials are provided."
     )
 
-neon_connect_args = {"check_same_thread": False} if NEON_DATABASE_URL.startswith("sqlite") else {}
-supabase_connect_args = {"check_same_thread": False} if SUPABASE_DATABASE_URL.startswith("sqlite") else {}
+neon_connect_args: dict[str, Any] = (
+    {"check_same_thread": False}
+    if NEON_DATABASE_URL.startswith("sqlite")
+    else {"prepare_threshold": None}
+)
+supabase_connect_args: dict[str, Any] = (
+    {"check_same_thread": False}
+    if SUPABASE_DATABASE_URL.startswith("sqlite")
+    else {"prepare_threshold": None}
+)
 
 engine_neon = create_engine(
     NEON_DATABASE_URL,
