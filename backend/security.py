@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import threading
 import time
 from collections import defaultdict, deque
@@ -23,6 +24,7 @@ TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").strip().lower() 
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "10"))
 MAX_UPLOAD_FILE_BYTES = int(os.getenv("MAX_UPLOAD_FILE_BYTES", str(1 * 1024 * 1024)))  # 1 MB per file
 MAX_BATCH_PROMPTS_PER_FILE = int(os.getenv("MAX_BATCH_PROMPTS_PER_FILE", "200"))
+AUTO_MIGRATE_DB = os.getenv("AUTO_MIGRATE_DB", "true").strip().lower() in {"1", "true", "yes"}
 
 
 def should_seed_demo_data() -> bool:
@@ -68,14 +70,14 @@ def get_client_ip(request: Request | None) -> str:
 
 
 class SlidingWindowRateLimiter:
-    """Thread-safe in-memory sliding-window rate limiter with automatic cleanup."""
+    """Thread-safe rate limiter with Redis sliding-window support and automatic in-memory fallback."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._last_cleanup = time.monotonic()
 
-    def _cleanup(self, now: float, max_window: float = 900.0) -> None:
+    def _cleanup_memory(self, now: float, max_window: float = 900.0) -> None:
         if now - self._last_cleanup < 120.0:
             return
         self._last_cleanup = now
@@ -86,11 +88,51 @@ class SlidingWindowRateLimiter:
         for key in stale_keys:
             self._hits.pop(key, None)
 
+    def _check_redis(self, bucket_key: str, limit: int, window_seconds: int, detail: str) -> bool:
+        """Attempt to check and record a rate limit hit in shared Redis.
+
+        Returns True if Redis evaluated the rate limit. Returns False if Redis is unconfigured or unavailable.
+        """
+        try:
+            from cache import _get_redis
+            client = _get_redis()
+            if client is None:
+                return False
+
+            now = time.time()
+            cutoff = now - window_seconds
+            redis_key = f"pv:rl:{bucket_key}"
+            member_id = f"{now:.6f}:{secrets.token_hex(4)}"
+
+            pipe = client.pipeline()
+            pipe.zremrangebyscore(redis_key, 0, cutoff)
+            pipe.zcard(redis_key)
+            pipe.zadd(redis_key, {member_id: now})
+            pipe.expire(redis_key, window_seconds + 5)
+            results = pipe.execute()
+
+            current_count = results[1]
+            if current_count >= limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail=detail,
+                    headers={"Retry-After": str(max(1, window_seconds))},
+                )
+            return True
+        except HTTPException:
+            raise
+        except Exception:
+            # Fall back cleanly to in-memory limiter on Redis connection issues
+            return False
+
     def check(self, bucket_key: str, limit: int, window_seconds: int, detail: str = "Too many requests. Please wait and try again.") -> None:
+        if self._check_redis(bucket_key, limit, window_seconds, detail):
+            return
+
         now = time.monotonic()
         cutoff = now - window_seconds
         with self._lock:
-            self._cleanup(now)
+            self._cleanup_memory(now)
             q = self._hits[bucket_key]
             while q and q[0] <= cutoff:
                 q.popleft()
@@ -104,11 +146,39 @@ class SlidingWindowRateLimiter:
             q.append(now)
 
     def record_hit(self, bucket_key: str) -> None:
+        try:
+            from cache import _get_redis
+            client = _get_redis()
+            if client is not None:
+                now = time.time()
+                redis_key = f"pv:rl:{bucket_key}"
+                pipe = client.pipeline()
+                pipe.zadd(redis_key, {f"{now:.6f}:{secrets.token_hex(4)}": now})
+                pipe.expire(redis_key, 3600)
+                pipe.execute()
+        except Exception:
+            pass
+
         now = time.monotonic()
         with self._lock:
             self._hits[bucket_key].append(now)
 
     def count_recent(self, bucket_key: str, window_seconds: int) -> int:
+        try:
+            from cache import _get_redis
+            client = _get_redis()
+            if client is not None:
+                now = time.time()
+                cutoff = now - window_seconds
+                redis_key = f"pv:rl:{bucket_key}"
+                pipe = client.pipeline()
+                pipe.zremrangebyscore(redis_key, 0, cutoff)
+                pipe.zcard(redis_key)
+                results = pipe.execute()
+                return int(results[1])
+        except Exception:
+            pass
+
         now = time.monotonic()
         cutoff = now - window_seconds
         with self._lock:
@@ -120,6 +190,14 @@ class SlidingWindowRateLimiter:
             return len(q)
 
     def clear_bucket(self, bucket_key: str) -> None:
+        try:
+            from cache import _get_redis
+            client = _get_redis()
+            if client is not None:
+                client.delete(f"pv:rl:{bucket_key}")
+        except Exception:
+            pass
+
         with self._lock:
             self._hits.pop(bucket_key, None)
 
@@ -198,6 +276,58 @@ def sanitize_filename(raw_filename: str | None) -> str:
     if not name or name in {".", ".."}:
         return "upload.txt"
     return name[:255]
+
+
+DISALLOWED_BINARY_PREFIXES: tuple[bytes, ...] = (
+    b"\x7fELF",              # Linux ELF executables
+    b"MZ",                   # Windows DOS / PE / EXE / DLL
+    b"\xca\xfe\xba\xbe",      # Java class / Mach-O Fat Binary
+    b"\xfe\xed\xfa\xce",      # Mach-O 32-bit binary
+    b"\xfe\xed\xfa\xcf",      # Mach-O 64-bit binary
+    b"\xce\xfa\xed\xfe",      # Mach-O reverse byte order
+    b"\xcf\xfa\xed\xfe",      # Mach-O reverse byte order
+    b"\x1f\x8b",              # GZIP compressed archive
+    b"PK\x03\x04",            # ZIP / JAR archive
+    b"\xd0\xcf\x11\xe0",      # OLE Compound Document (legacy MS Office binary)
+    b"\x25\x50\x44\x46",      # %PDF document
+)
+
+ALLOWED_TEXT_EXTENSIONS: set[str] = {".txt", ".md", ".json", ".csv"}
+
+
+def validate_text_upload_content(raw: bytes, filename: str) -> str:
+    """Validate that uploaded file is authentic text (not a disguised executable or binary).
+
+    Returns decoded UTF-8 text if valid, raises HTTPException(400) otherwise.
+    """
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_TEXT_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{filename} has an unsupported file extension '{suffix}'. Only .txt, .md, .csv, and .json files are supported.",
+        )
+
+    for prefix in DISALLOWED_BINARY_PREFIXES:
+        if raw.startswith(prefix):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{filename} appears to be a binary, executable, or compressed archive file, which is not permitted.",
+            )
+
+    # Null bytes are never valid in plain text, markdown, json, or csv prompt files
+    if b"\x00" in raw:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{filename} contains binary null bytes and cannot be parsed as text.",
+        )
+
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{filename} must be valid UTF-8 encoded text.",
+        ) from exc
 
 
 def record_audit_log(

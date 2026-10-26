@@ -50,9 +50,10 @@ from schemas import (AssignMemberRequest, CreateApiKeyRequest, CreateDiffShareRe
                      FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest, PlanUpdateRequest,
                      PromptCreateRequest, PromptDuplicateRequest, PromptUpdateRequest, ProposalCreateRequest,
                      RegisterRequest)
-from security import (IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES, MAX_UPLOAD_FILE_BYTES,
-                      SecurityHeadersMiddleware, escape_like, get_allowed_origins, get_client_ip, rate_limiter,
-                      record_audit_log, sanitize_filename, should_seed_demo_data)
+from security import (AUTO_MIGRATE_DB, IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES,
+                      MAX_UPLOAD_FILE_BYTES, SecurityHeadersMiddleware, escape_like, get_allowed_origins,
+                      get_client_ip, rate_limiter, record_audit_log, sanitize_filename, should_seed_demo_data,
+                      validate_text_upload_content)
 from seed import seed_initial_data
 from mcp_server import mcp
 
@@ -63,24 +64,41 @@ mcp_asgi = mcp.http_app(path="/")
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    # 1. Initialize Neon tables & schema upgrades (Paid Tiers)
-    Base.metadata.create_all(bind=engine_neon)
-    upgrade_schema(engine_neon)
+    if AUTO_MIGRATE_DB:
+        # 1. Initialize Neon tables & schema upgrades (Paid Tiers)
+        try:
+            Base.metadata.create_all(bind=engine_neon)
+            upgrade_schema(engine_neon)
+        except Exception as exc:
+            import logging
+            logging.getLogger("uvicorn.error").warning("Neon automatic DDL migration skipped: %s", exc)
 
-    # 2. Initialize Supabase tables & schema upgrades (Free/Community Tier)
-    Base.metadata.create_all(bind=engine_supabase)
-    upgrade_schema(engine_supabase)
+        # 2. Initialize Supabase tables & schema upgrades (Free/Community Tier)
+        try:
+            Base.metadata.create_all(bind=engine_supabase)
+            upgrade_schema(engine_supabase)
+        except Exception as exc:
+            import logging
+            logging.getLogger("uvicorn.error").warning("Supabase automatic DDL migration skipped: %s", exc)
 
     # 3. Seed Neon database with demo team accounts if enabled
-    with SessionNeon() as db_neon:
-        if should_seed_demo_data():
-            seed_initial_data(db_neon)
-            ensure_demo_passwords(db_neon)
-        ensure_all_personal_groups(db_neon)
+    try:
+        with SessionNeon() as db_neon:
+            if should_seed_demo_data():
+                seed_initial_data(db_neon)
+                ensure_demo_passwords(db_neon)
+            ensure_all_personal_groups(db_neon)
+    except Exception as exc:
+        import logging
+        logging.getLogger("uvicorn.error").warning("Neon seed initialization warning: %s", exc)
 
     # 4. Ensure personal spaces in Supabase as well
-    with SessionSupabase() as db_supa:
-        ensure_all_personal_groups(db_supa)
+    try:
+        with SessionSupabase() as db_supa:
+            ensure_all_personal_groups(db_supa)
+    except Exception as exc:
+        import logging
+        logging.getLogger("uvicorn.error").warning("Supabase personal space initialization warning: %s", exc)
 
     async with mcp_asgi.router.lifespan_context(application):
         yield
@@ -92,7 +110,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url=None if IS_PRODUCTION else "/docs",
     redoc_url=None if IS_PRODUCTION else "/redoc",
-    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+    openapi_url="/openapi.json",
 )
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
@@ -104,6 +122,12 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "If-None-Match"],
     expose_headers=["ETag"],
 )
+
+
+@app.get("/api/openapi.json", include_in_schema=False)
+def get_api_openapi_json() -> dict:
+    """Provide /api/openapi.json as an alias for Custom GPT and tool-calling agents."""
+    return app.openapi()
 
 
 def _bearer_token(authorization: str | None) -> str | None:
@@ -1153,10 +1177,7 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                     status_code=413,
                     detail=f"{filename} exceeds the maximum allowed size of {MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MB.",
                 )
-            try:
-                text = raw.decode("utf-8-sig")
-            except UnicodeDecodeError as exc:
-                raise HTTPException(status_code=400, detail=f"{filename} must be UTF-8 encoded.") from exc
+            text = validate_text_upload_content(raw, filename)
             if suffix in {".txt", ".md"}:
                 if len(text) > 100_000:
                     raise HTTPException(status_code=400, detail=f"{filename} exceeds 100,000 characters.")
@@ -1253,6 +1274,10 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported file type: {filename}")
         db.commit()
+    except HTTPException:
+        if created or updated or proposed:
+            db.rollback()
+        raise
     except Exception:
         db.rollback()
         raise

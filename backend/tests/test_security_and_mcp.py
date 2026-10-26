@@ -227,4 +227,42 @@ def test_mcp_server_tools(db: Session, test_users_and_groups, monkeypatch):
     assert "proposal_id" in member_save
 
 
+@pytest.mark.asyncio
+async def test_upload_binary_content_rejected(client: AsyncClient, test_users_and_groups):
+    """Verify that disguised binary/executable uploads are rejected with HTTP 400."""
+    fixtures = test_users_and_groups
+    owner_token = fixtures["tokens"]["owner"]
+    team_group = fixtures["team_group"]
+    headers = {"Authorization": f"Bearer {owner_token}"}
+
+    # 1. Disguised ELF binary as .txt
+    elf_payload = b"\x7fELF\x02\x01\x01\x00some_compiled_code"
+    files = [("files", ("exploit.txt", elf_payload, "text/plain"))]
+    data = {"group_id": team_group.id, "change_note": "malicious upload"}
+    res = await client.post("/api/prompts/upload-files", data=data, files=files, headers=headers)
+    assert res.status_code == 400
+    assert "binary, executable, or compressed archive" in res.json()["detail"]
+
+    # 2. Disguised Windows EXE as .md
+    exe_payload = b"MZ\x90\x00\x03\x00\x00\x00dos_header"
+    files = [("files", ("malware.md", exe_payload, "text/markdown"))]
+    res = await client.post("/api/prompts/upload-files", data=data, files=files, headers=headers)
+    assert res.status_code == 400
+    assert "binary, executable, or compressed archive" in res.json()["detail"]
+
+    # 3. Text file containing null bytes
+    null_payload = b"Prompt header\x00hidden binary payload"
+    files = [("files", ("null_byte.txt", null_payload, "text/plain"))]
+    res = await client.post("/api/prompts/upload-files", data=data, files=files, headers=headers)
+    assert res.status_code == 400
+    assert "contains binary null bytes" in res.json()["detail"]
+
+    # 4. Valid text upload succeeds
+    valid_payload = b"A valid prompt with {{variable}} for test."
+    files = [("files", ("valid_prompt.md", valid_payload, "text/markdown"))]
+    res = await client.post("/api/prompts/upload-files", data=data, files=files, headers=headers)
+    assert res.status_code == 201
+    assert len(res.json()["created_prompt_ids"]) == 1
+
+
 

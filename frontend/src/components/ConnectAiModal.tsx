@@ -98,7 +98,7 @@ const PROVIDERS: ProviderTab[] = [
   {
     id: 'claude',
     name: 'Claude',
-    subtitle: 'Desktop & Code',
+    subtitle: 'Desktop, Web & CLI',
     Icon: ClaudeIcon,
     iconColor: 'text-amber-600 dark:text-amber-400',
     activeRing: 'border-amber-500 ring-2 ring-amber-500/20 dark:border-amber-400',
@@ -107,7 +107,7 @@ const PROVIDERS: ProviderTab[] = [
   {
     id: 'chatgpt',
     name: 'ChatGPT',
-    subtitle: 'Custom GPTs & Actions',
+    subtitle: 'Web, GPTs & Desktop',
     Icon: ChatGptIcon,
     iconColor: 'text-emerald-600 dark:text-emerald-400',
     activeRing: 'border-emerald-500 ring-2 ring-emerald-500/20 dark:border-emerald-400',
@@ -116,7 +116,7 @@ const PROVIDERS: ProviderTab[] = [
   {
     id: 'gemini',
     name: 'Gemini',
-    subtitle: 'Google AI Studio',
+    subtitle: 'Python SDK & Vertex',
     Icon: GeminiIcon,
     iconColor: 'text-indigo-600 dark:text-indigo-400',
     activeRing: 'border-indigo-500 ring-2 ring-indigo-500/20 dark:border-indigo-400',
@@ -156,9 +156,10 @@ export default function ConnectAiModal({
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   // Sub-mode options for each provider
-  const [claudeMode, setClaudeMode] = useState<'desktop' | 'cli'>('desktop')
+  const [claudeMode, setClaudeMode] = useState<'desktop' | 'web' | 'cli'>('desktop')
   const [claudeOs, setClaudeOs] = useState<'mac' | 'windows' | 'linux'>('mac')
-  const [chatgptMode, setChatgptMode] = useState<'action' | 'url'>('action')
+  const [chatgptMode, setChatgptMode] = useState<'web' | 'desktop'>('web')
+  const [geminiMode, setGeminiMode] = useState<'sdk' | 'vertex'>('sdk')
   const [cursorMode, setCursorMode] = useState<'cursor' | 'vscode'>('cursor')
   const [apiMode, setApiMode] = useState<'curl' | 'python'>('curl')
 
@@ -182,9 +183,11 @@ export default function ConnectAiModal({
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null)
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null)
 
-  const baseOrigin = window.location.origin.replace(':5173', `:${import.meta.env.VITE_BACKEND_PORT || '8002'}`)
+  const configuredPort = import.meta.env.VITE_BACKEND_PORT || import.meta.env.BACKEND_PORT || '8002'
+  const baseOrigin = window.location.origin.replace(':5173', `:${configuredPort}`)
   const mcpUrl = `${baseOrigin}/mcp`
   const restUrl = `${baseOrigin}/api`
+  const openApiUrl = `${baseOrigin}/openapi.json`
   const snippetKey = newKey?.raw_key ?? 'YOUR_API_KEY'
 
   const loadKeys = useCallback(async () => {
@@ -282,7 +285,8 @@ export default function ConnectAiModal({
     {
       mcpServers: {
         prompthold: {
-          url: mcpUrl,
+          command: 'npx',
+          args: ['-y', 'mcp-remote', mcpUrl],
         },
       },
     },
@@ -294,6 +298,7 @@ export default function ConnectAiModal({
     {
       mcpServers: {
         prompthold: {
+          type: 'streamableHttp',
           url: mcpUrl,
         },
       },
@@ -301,6 +306,20 @@ export default function ConnectAiModal({
     null,
     2
   )
+
+  const chatgptDesktopConfigJson = JSON.stringify(
+    {
+      mcpServers: {
+        prompthold: {
+          url: mcpUrl,
+        },
+      },
+    },
+    null,
+    2
+  )
+
+  const geminiPythonSnippet = `import requests\nfrom google import genai\n\n# 1. Fetch active prompt templates from PromptHold\nheaders = {"Authorization": "Bearer ${snippetKey}"}\nresp = requests.get("${restUrl}/prompts", headers=headers)\nprompts = resp.json()\n\n# 2. Extract selected prompt\ntemplate = prompts[0]["content"] if prompts else "You are an AI assistant."\n\n# 3. Generate response with Gemini 2.5\nclient = genai.Client()\nresponse = client.models.generate_content(\n    model="gemini-2.5-flash",\n    contents=f"System Template:\\n{template}\\n\\nTask: Generate response based on this prompt",\n)\nprint(response.text)`
 
   const curlSnippet = `curl -X GET "${restUrl}/prompts" \\\n  -H "Authorization: Bearer ${snippetKey}"`
 
@@ -645,7 +664,7 @@ export default function ConnectAiModal({
                   <div>
                     <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Anthropic Claude</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Use prompts directly from Claude Desktop or terminal with Claude Code.
+                      Claude Desktop and Claude Web use distinct configurations. Select your client below:
                     </p>
                   </div>
                 </div>
@@ -661,6 +680,13 @@ export default function ConnectAiModal({
                   </button>
                   <button
                     type="button"
+                    onClick={() => setClaudeMode('web')}
+                    className={`segmented-item text-xs ${claudeMode === 'web' ? 'segmented-item-active' : ''}`}
+                  >
+                    Claude.ai (Web)
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setClaudeMode('cli')}
                     className={`segmented-item text-xs ${claudeMode === 'cli' ? 'segmented-item-active' : ''}`}
                   >
@@ -671,6 +697,11 @@ export default function ConnectAiModal({
 
               {claudeMode === 'desktop' ? (
                 <div className="space-y-3 pt-1">
+                  <div className="rounded-lg border border-amber-200/60 bg-amber-50/50 p-2.5 text-xs text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-200">
+                    <span className="font-semibold">Claude Desktop Architecture: </span>
+                    Claude Desktop manages local stdio processes. The configuration below uses <code>mcp-remote</code> via <code>npx</code> to bridge Claude Desktop with PromptHold’s HTTP/SSE server. Node.js is required.
+                  </div>
+
                   <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
                     <li className="flex gap-2">
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
@@ -710,7 +741,7 @@ export default function ConnectAiModal({
 
                     <li className="flex gap-2">
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>Paste the PromptHold server configuration below into your config file:</span>
+                      <span>Paste the PromptHold bridge configuration into your config file:</span>
                     </li>
                   </ol>
 
@@ -739,13 +770,53 @@ export default function ConnectAiModal({
                     </li>
                   </ol>
                 </div>
+              ) : claudeMode === 'web' ? (
+                /* Claude.ai Web Mode */
+                <div className="space-y-3 pt-1">
+                  <div className="rounded-lg border border-amber-200/60 bg-amber-50/50 p-2.5 text-xs text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-200">
+                    <span className="font-semibold">Claude.ai Cloud Requirement: </span>
+                    Claude.ai runs in Anthropic’s cloud and connects via Custom Connectors. Because requests originate over the internet, your PromptHold server must be reachable via a public HTTPS URL (use your deployed production domain or a Cloudflare Tunnel/ngrok for local dev).
+                  </div>
+
+                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
+                      <span>
+                        In <strong>claude.ai</strong>, open <strong>Settings</strong> → <strong>Connectors</strong> (or <strong>Customize</strong> → <strong>Connectors</strong>).
+                      </span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
+                      <span>Click <strong>Add Custom Connector</strong> and set the Name to <strong>PromptHold</strong>.</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>Enter your PromptHold MCP Server URL:</span>
+                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                            {mcpUrl}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(mcpUrl, 'claude-web-url', 'URL copied')}
+                            className="btn-ghost btn-xs shrink-0"
+                          >
+                            {copiedId === 'claude-web-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  </ol>
+                </div>
               ) : (
                 /* Claude Code CLI */
                 <div className="space-y-3 pt-1">
                   <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
                     <li className="flex gap-2">
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
-                      <span>Run this command in your terminal to add PromptHold as an MCP server:</span>
+                      <span>Run this command in your terminal to add PromptHold with HTTP transport:</span>
                     </li>
                   </ol>
 
@@ -754,7 +825,7 @@ export default function ConnectAiModal({
                       <span>Terminal command</span>
                       <button
                         type="button"
-                        onClick={() => void copy(`claude mcp add prompthold ${mcpUrl}`, 'claude-cli', 'Command copied')}
+                        onClick={() => void copy(`claude mcp add --transport http prompthold ${mcpUrl}`, 'claude-cli', 'Command copied')}
                         className="btn-ghost btn-sm h-7 px-2 text-xs"
                       >
                         {copiedId === 'claude-cli' ? <Check size={13} className="text-amber-600 dark:text-amber-400" /> : <Copy size={13} />}
@@ -762,7 +833,7 @@ export default function ConnectAiModal({
                       </button>
                     </div>
                     <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-emerald-300 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-emerald-400">
-                      <code>claude mcp add prompthold {mcpUrl}</code>
+                      <code>claude mcp add --transport http prompthold {mcpUrl}</code>
                     </pre>
                   </div>
 
@@ -797,7 +868,7 @@ export default function ConnectAiModal({
                   <div>
                     <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to OpenAI ChatGPT</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Add PromptHold to Custom GPTs via GPT Actions or MCP web connector.
+                      Use Custom GPT Actions (synced to Web, Desktop &amp; Mobile) or Desktop App Native MCP.
                     </p>
                   </div>
                 </div>
@@ -805,28 +876,33 @@ export default function ConnectAiModal({
                 <div className="segmented h-8 bg-white dark:bg-zinc-900">
                   <button
                     type="button"
-                    onClick={() => setChatgptMode('action')}
-                    className={`segmented-item text-xs ${chatgptMode === 'action' ? 'segmented-item-active' : ''}`}
+                    onClick={() => setChatgptMode('web')}
+                    className={`segmented-item text-xs ${chatgptMode === 'web' ? 'segmented-item-active' : ''}`}
                   >
-                    Custom GPT Action
+                    Custom GPT (Web &amp; Mobile)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setChatgptMode('url')}
-                    className={`segmented-item text-xs ${chatgptMode === 'url' ? 'segmented-item-active' : ''}`}
+                    onClick={() => setChatgptMode('desktop')}
+                    className={`segmented-item text-xs ${chatgptMode === 'desktop' ? 'segmented-item-active' : ''}`}
                   >
-                    MCP Connector
+                    ChatGPT Desktop App
                   </button>
                 </div>
               </div>
 
-              {chatgptMode === 'action' ? (
+              {chatgptMode === 'web' ? (
                 <div className="space-y-3 pt-1">
+                  <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-200">
+                    <span className="font-semibold">Automatic Cross-Device Sync: </span>
+                    Setting up a Custom GPT Action connects your PromptHold prompts across <strong>ChatGPT Web, Desktop app, and iOS/Android</strong> simultaneously.
+                  </div>
+
                   <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
                     <li className="flex gap-2">
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
                       <span>
-                        In <strong>chatgpt.com</strong>, go to <strong>Explore GPTs</strong> → <strong>Create a GPT</strong> (or edit) → click the <strong>Configure</strong> tab.
+                        In <strong>chatgpt.com</strong>, go to <strong>Explore GPTs</strong> → <strong>Create a GPT</strong> (or edit existing) → click the <strong>Configure</strong> tab.
                       </span>
                     </li>
                     <li className="flex gap-2">
@@ -839,7 +915,7 @@ export default function ConnectAiModal({
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
                       <div className="min-w-0 flex-1 space-y-1">
                         <span>
-                          Under <strong>Authentication</strong>, select <strong>API Key</strong>, choose <strong>Bearer</strong>, and paste your key:
+                          Under <strong>Authentication</strong>, select <strong>API Key</strong>, Auth Type: <strong>Bearer</strong>, and paste your key:
                         </span>
                         <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                           <code className="min-w-0 truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
@@ -864,49 +940,92 @@ export default function ConnectAiModal({
                         </span>
                         <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                           <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
-                            {restUrl}/openapi.json
+                            {openApiUrl}
                           </code>
                           <button
                             type="button"
-                            onClick={() => void copy(`${restUrl}/openapi.json`, 'gpt-schema', 'Schema URL copied')}
+                            onClick={() => void copy(openApiUrl, 'gpt-schema', 'Schema URL copied')}
                             className="btn-ghost btn-xs shrink-0"
                           >
                             {copiedId === 'gpt-schema' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
                             <span>{copiedId === 'gpt-schema' ? 'Copied' : 'Copy URL'}</span>
                           </button>
                         </div>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
+                          Note: OpenAI requires a publicly reachable HTTPS domain. If testing on localhost, use Cloudflare Tunnel or ngrok.
+                        </p>
                       </div>
                     </li>
                   </ol>
                 </div>
               ) : (
-                /* MCP Web Connector */
+                /* ChatGPT Desktop App Native MCP */
                 <div className="space-y-3 pt-1">
+                  <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-200">
+                    <span className="font-semibold">Native Desktop MCP: </span>
+                    The ChatGPT Desktop App (macOS &amp; Windows) supports local and remote MCP servers natively when Developer Mode is enabled.
+                  </div>
+
                   <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
                     <li className="flex gap-2">
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
-                      <span>In your AI chat workspace settings, add an external tool or MCP connector.</span>
+                      <span>
+                        In ChatGPT Desktop, open <strong>Settings</strong> (gear icon) → <strong>Features</strong> (or Security) → toggle on <strong>Developer Mode</strong>.
+                      </span>
                     </li>
                     <li className="flex gap-2">
                       <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>Paste the PromptHold MCP Server URL below:</span>
+                      <span>
+                        Click <strong>MCP Servers</strong> (or Apps &amp; Connectors) → <strong>+ Add Server</strong>.
+                      </span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
+                      <span>Enter the server configuration:</span>
                     </li>
                   </ol>
 
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Name</div>
+                      <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">prompthold</code>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Transport</div>
+                      <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">Streamable HTTP</code>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Server URL</span>
+                        <button
+                          type="button"
+                          onClick={() => void copy(mcpUrl, 'chatgpt-desktop-url', 'URL copied')}
+                          className="btn-ghost btn-xs text-[10px]"
+                        >
+                          {copiedId === 'chatgpt-desktop-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                          <span>{copiedId === 'chatgpt-desktop-url' ? 'Copied' : 'Copy'}</span>
+                        </button>
+                      </div>
+                      <code className="truncate text-xs font-semibold text-slate-800 dark:text-zinc-200 block">
+                        {mcpUrl}
+                      </code>
+                    </div>
+                  </div>
+
                   <div>
                     <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      <span>MCP Server URL</span>
+                      <span>Or paste into ChatGPT config.json</span>
                       <button
                         type="button"
-                        onClick={() => void copy(mcpUrl, 'mcp-url-gpt', 'URL copied')}
+                        onClick={() => void copy(chatgptDesktopConfigJson, 'chatgpt-config-json', 'Configuration copied')}
                         className="btn-ghost btn-sm h-7 px-2 text-xs"
                       >
-                        {copiedId === 'mcp-url-gpt' ? <Check size={13} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={13} />}
-                        <span>{copiedId === 'mcp-url-gpt' ? 'Copied' : 'Copy URL'}</span>
+                        {copiedId === 'chatgpt-config-json' ? <Check size={13} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={13} />}
+                        <span>{copiedId === 'chatgpt-config-json' ? 'Copied' : 'Copy config'}</span>
                       </button>
                     </div>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-emerald-300 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-emerald-400">
-                      <code>{mcpUrl}</code>
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                      <code>{chatgptDesktopConfigJson}</code>
                     </pre>
                   </div>
                 </div>
@@ -918,7 +1037,7 @@ export default function ConnectAiModal({
                 <div>
                   <span className="font-semibold">Example prompt to ask ChatGPT: </span>
                   <em className="text-slate-800 dark:text-zinc-200 font-sans">
-                    “Search PromptHold for the 'Client Onboarding' template and substitute client_name='Acme Corp'”
+                    “Search PromptHold for the 'Client Onboarding' template using key {snippetKey} and substitute client_name='Acme Corp'”
                   </em>
                 </div>
               </div>
@@ -928,66 +1047,101 @@ export default function ConnectAiModal({
           {/* PROVIDER 3: GEMINI */}
           {provider === 'gemini' && (
             <div className="space-y-4 rounded-xl border border-indigo-200/80 bg-gradient-to-b from-indigo-50/40 to-slate-50/60 p-4 dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-zinc-950/40">
-              <div className="flex items-center gap-2">
-                <GeminiIcon className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Google Gemini</h4>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400">
-                    Connect Google AI Studio, Vertex AI, or Gemini agents using external tool calling.
-                  </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <GeminiIcon className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Google Gemini</h4>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">
+                      Query PromptHold dynamically in Google GenAI SDK scripts or Vertex AI agent extensions.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                  <button
+                    type="button"
+                    onClick={() => setGeminiMode('sdk')}
+                    className={`segmented-item text-xs ${geminiMode === 'sdk' ? 'segmented-item-active' : ''}`}
+                  >
+                    Google GenAI SDK (Python)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGeminiMode('vertex')}
+                    className={`segmented-item text-xs ${geminiMode === 'vertex' ? 'segmented-item-active' : ''}`}
+                  >
+                    Vertex AI &amp; REST Tools
+                  </button>
                 </div>
               </div>
 
-              <div className="space-y-3 pt-1">
-                <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
-                  <li className="flex gap-2">
-                    <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <span>In Google AI Studio or your Gemini project, add PromptHold as an external REST tool:</span>
-                      <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                        <code className="min-w-0 truncate font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
-                          {restUrl}/prompts
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => void copy(`${restUrl}/prompts`, 'gemini-endpoint', 'Endpoint copied')}
-                          className="btn-ghost btn-xs shrink-0"
-                        >
-                          {copiedId === 'gemini-endpoint' ? <Check size={11} className="text-indigo-600" /> : <Copy size={11} />}
-                          <span>{copiedId === 'gemini-endpoint' ? 'Copied' : 'Copy URL'}</span>
-                        </button>
-                      </div>
+              {geminiMode === 'sdk' ? (
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                        Python (google-genai SDK)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void copy(geminiPythonSnippet, 'gemini-sdk', 'Code copied')}
+                        className="btn-ghost btn-sm h-7 px-2 text-xs"
+                      >
+                        {copiedId === 'gemini-sdk' ? <Check size={13} className="text-indigo-600 dark:text-indigo-400" /> : <Copy size={13} />}
+                        <span>{copiedId === 'gemini-sdk' ? 'Copied' : 'Copy code'}</span>
+                      </button>
                     </div>
-                  </li>
-
-                  <li className="flex gap-2">
-                    <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <span>Add the Authorization Header with your API key:</span>
-                      <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                        <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
-                          Authorization: Bearer {snippetKey}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => void copy(`Authorization: Bearer ${snippetKey}`, 'gemini-auth', 'Header copied')}
-                          className="btn-ghost btn-xs shrink-0"
-                        >
-                          {copiedId === 'gemini-auth' ? <Check size={11} className="text-indigo-600" /> : <Copy size={11} />}
-                          <span>{copiedId === 'gemini-auth' ? 'Copied' : 'Copy header'}</span>
-                        </button>
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                      <code>{geminiPythonSnippet}</code>
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 pt-1">
+                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>In Vertex AI Agent Builder, add PromptHold as an OpenAPI tool using:</span>
+                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <code className="min-w-0 truncate font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
+                            {openApiUrl}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(openApiUrl, 'gemini-schema', 'Schema copied')}
+                            className="btn-ghost btn-xs shrink-0"
+                          >
+                            {copiedId === 'gemini-schema' ? <Check size={11} className="text-indigo-600" /> : <Copy size={11} />}
+                            <span>{copiedId === 'gemini-schema' ? 'Copied' : 'Copy URL'}</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </li>
+                    </li>
 
-                  <li className="flex gap-2">
-                    <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
-                    <span>
-                      In your system instructions, instruct Gemini: <em className="text-slate-800 dark:text-zinc-200">“Fetch prompt templates from PromptHold whenever generating user-requested assets.”</em>
-                    </span>
-                  </li>
-                </ol>
-              </div>
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>Add the Authorization Header with your API key:</span>
+                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
+                            Authorization: Bearer {snippetKey}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(`Authorization: Bearer ${snippetKey}`, 'gemini-auth', 'Header copied')}
+                            className="btn-ghost btn-xs shrink-0"
+                          >
+                            {copiedId === 'gemini-auth' ? <Check size={11} className="text-indigo-600" /> : <Copy size={11} />}
+                            <span>{copiedId === 'gemini-auth' ? 'Copied' : 'Copy header'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  </ol>
+                </div>
+              )}
 
               {/* Try in chat tip */}
               <div className="flex items-start gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50/80 p-2.5 text-xs text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
@@ -995,7 +1149,7 @@ export default function ConnectAiModal({
                 <div>
                   <span className="font-semibold">Example prompt to ask Gemini: </span>
                   <em className="text-slate-800 dark:text-zinc-200 font-sans">
-                    “Get the active version of my Product Launch prompt from PromptHold”
+                    “Get the active version of my Product Launch prompt from PromptHold using key {snippetKey}”
                   </em>
                 </div>
               </div>
@@ -1095,7 +1249,7 @@ export default function ConnectAiModal({
 
                   <div>
                     <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      <span>mcpSettings.json</span>
+                      <span>cline_mcp_settings.json</span>
                       <button
                         type="button"
                         onClick={() => void copy(vscodeMcpJson, 'vscode-mcp', 'Configuration copied')}
@@ -1118,7 +1272,7 @@ export default function ConnectAiModal({
                 <div>
                   <span className="font-semibold">Example prompt to ask in Cursor Chat: </span>
                   <em className="text-slate-800 dark:text-zinc-200 font-sans">
-                    “Use PromptHold to fetch the 'Code Review Guidelines' prompt and review this file”
+                    “Use PromptHold to fetch the 'Code Review Guidelines' prompt using key {snippetKey} and review this file”
                   </em>
                 </div>
               </div>
