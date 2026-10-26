@@ -27,6 +27,7 @@ from database import (
     engine_neon,
     engine_supabase,
     get_db,
+    get_db_bind_url,
     get_db_for_plan,
     get_sessionmaker_for_plan,
     is_community_plan,
