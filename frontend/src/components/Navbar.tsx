@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, Sparkles, Users, X } from 'lucide-react'
+import { ArrowRight, BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, Sparkles, Users, X } from 'lucide-react'
 import type { Group, PromptItem, User } from '../types'
 import { accessFor, spaceName } from '../access'
 import RoleBadge from './ui/RoleBadge'
@@ -24,6 +24,7 @@ type Props = {
   onOpenRoles: () => void
   onOpenFeedback?: () => void
   onOpenPricing?: () => void
+  onOpenPricingPage?: () => void
   onLogout: () => void
 }
 
@@ -59,7 +60,7 @@ function MenuItem({ icon, children, onClick, tone = 'default' }: { icon: ReactNo
 }
 
 function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
-  const { activeUser, groups, prompts, page, selectedSpaceId, pendingReviewsCount, onNavigate, onSelectSpace, onNewGroup, onConnect, onStartTour, onOpenRoles, onOpenFeedback, onOpenPricing, onLogout, onAfterNavigate } = props
+  const { activeUser, groups, prompts, page, selectedSpaceId, pendingReviewsCount, onNavigate, onSelectSpace, onNewGroup, onConnect, onStartTour, onOpenRoles, onOpenFeedback, onOpenPricing, onOpenPricingPage, onLogout, onAfterNavigate } = props
   const [helpOpen, setHelpOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const helpRef = useDismiss<HTMLDivElement>(helpOpen, () => setHelpOpen(false))
@@ -178,10 +179,79 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
           type="button"
           data-tour="connect-ai"
           onClick={() => { onConnect(); after() }}
-          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-900/70 dark:hover:text-zinc-200"
+          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-900/70 dark:hover:text-zinc-200 cursor-pointer"
         >
           <PlugZap size={17} className="text-slate-400 dark:text-zinc-500" /> Connect to AI
         </button>
+
+        {/* Dedicated Price & Plan Section */}
+        <div
+          data-tour="price-and-plan"
+          className="group/plan my-1.5 rounded-xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/80 to-brand-50/25 p-2.5 shadow-2xs transition-all hover:border-brand-300 hover:shadow-xs dark:border-zinc-800 dark:from-zinc-900/90 dark:via-zinc-900/60 dark:to-brand-950/20 dark:hover:border-zinc-700"
+        >
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-500/20 dark:bg-brand-950/80 dark:text-brand-300 dark:ring-brand-500/30">
+                <Sparkles size={14} className="transition-transform group-hover/plan:scale-110" />
+              </span>
+              <div className="min-w-0 leading-tight">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold capitalize text-slate-900 dark:text-zinc-100 truncate">
+                    {activeUser?.plan || 'Community'}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[10px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
+                    Plan
+                  </span>
+                </div>
+                <p className="truncate text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                  {activeUser?.plan === 'team'
+                    ? '500 prompts · Approval gates'
+                    : activeUser?.plan === 'pro'
+                    ? '100 prompts · BYOS & diffs'
+                    : activeUser?.plan === 'enterprise'
+                    ? 'Unlimited scale · VPC'
+                    : 'Free tier · 20 prompts'}
+                </p>
+              </div>
+            </div>
+
+            {onOpenPricing && (
+              <button
+                type="button"
+                onClick={() => { onOpenPricing(); after() }}
+                aria-label="Manage or upgrade plan"
+                className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition active:scale-95 cursor-pointer ${
+                  activeUser?.plan && activeUser.plan !== 'community'
+                    ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700'
+                    : 'bg-brand-600 text-white shadow-2xs hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-600'
+                }`}
+              >
+                {activeUser?.plan && activeUser.plan !== 'community' ? 'Manage' : 'Upgrade'}
+              </button>
+            )}
+          </div>
+
+          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px] dark:border-zinc-800/80">
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenPricingPage) {
+                  onOpenPricingPage()
+                } else if (onOpenPricing) {
+                  onOpenPricing()
+                }
+                after()
+              }}
+              className="inline-flex items-center gap-1 font-medium text-slate-500 transition hover:text-brand-600 dark:text-zinc-400 dark:hover:text-brand-300 cursor-pointer"
+            >
+              <span>Compare all plans</span>
+              <ArrowRight size={11} />
+            </button>
+            <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+              {activeUser?.plan === 'community' || !activeUser?.plan ? 'Starts at $0' : 'Active'}
+            </span>
+          </div>
+        </div>
 
         <div ref={helpRef} className="relative">
           <button
@@ -290,6 +360,16 @@ export default function Navbar(props: Props) {
         </button>
         <div className="flex items-center gap-1.5">
           <ThemeToggleButton className="h-8 w-8" />
+          {props.onOpenPricing && (
+            <button
+              type="button"
+              onClick={props.onOpenPricing}
+              className="btn-ghost px-2 text-brand-600 dark:text-brand-400"
+              aria-label="Plans & pricing"
+            >
+              <Sparkles size={18} />
+            </button>
+          )}
           <button type="button" onClick={props.onConnect} className="btn-ghost px-2.5" aria-label="Connect to AI"><PlugZap size={18} /></button>
           <button type="button" onClick={() => setDrawer(true)} className="btn-ghost px-2.5" aria-label="Open navigation"><Menu size={20} /></button>
         </div>

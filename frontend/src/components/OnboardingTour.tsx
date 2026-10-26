@@ -54,6 +54,11 @@ function buildSteps(user: User): Step[] {
       body: 'Connect your desktop AI clients, coding assistants, or custom agents using MCP or the REST API to pull in prompts and save new versions automatically.',
     },
     {
+      target: 'price-and-plan',
+      title: 'Plans & prompt quotas',
+      body: 'Check your current plan, monitor prompt limits, and upgrade to unlock team approval workflows or bring-your-own-storage whenever you are ready.',
+    },
+    {
       target: 'help',
       title: 'Help is always here',
       body: 'Replay this tour or open the roles guide any time.',

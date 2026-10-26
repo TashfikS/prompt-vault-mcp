@@ -347,6 +347,7 @@ export default function App() {
             }}
             onOpenRoles={() => setRolesOpen(true)}
             onOpenPricing={() => setPricingOpen(true)}
+            onOpenPricingPage={() => setPricingPageOpen(true)}
             onOpenFeedback={() => setFeedbackOpen(true)}
             onLogout={() => void signOut()}
           />
@@ -454,6 +455,10 @@ export default function App() {
               onContactSales={() => {
                 setPricingOpen(false)
                 setFeedbackOpen(true)
+              }}
+              onViewFullPage={() => {
+                setPricingOpen(false)
+                setPricingPageOpen(true)
               }}
             />
           )}

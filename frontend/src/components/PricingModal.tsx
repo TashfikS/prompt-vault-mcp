@@ -107,9 +107,10 @@ type Props = {
   onClose: () => void
   onPlanUpdated?: (newPlan: PricingPlanId) => void
   onContactSales?: () => void
+  onViewFullPage?: () => void
 }
 
-export default function PricingModal({ activeUser, onClose, onPlanUpdated, onContactSales }: Props) {
+export default function PricingModal({ activeUser, onClose, onPlanUpdated, onContactSales, onViewFullPage }: Props) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [pricing, setPricing] = useState<PricingResponse | null>(null)
   const [loadingTier, setLoadingTier] = useState<PricingPlanId | null>(null)
@@ -376,6 +377,22 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
             </div>
           </div>
         </div>
+
+        {onViewFullPage && (
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs dark:border-zinc-800">
+            <span className="text-slate-500 dark:text-zinc-400">
+              Need detailed feature breakdowns &amp; FAQ?
+            </span>
+            <button
+              type="button"
+              onClick={onViewFullPage}
+              className="inline-flex items-center gap-1.5 font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 cursor-pointer"
+            >
+              <span>View Full Comparison Page</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
     </Modal>
   )
