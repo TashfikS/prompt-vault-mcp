@@ -43,3 +43,6 @@ Thumbs.db
 *.swp
 *.swo
 .neon
+
+# Supabase CLI temp files
+supabase/.temp/
