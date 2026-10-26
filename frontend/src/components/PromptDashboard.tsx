@@ -111,6 +111,7 @@ export default function PromptDashboard({
             type="button"
             onClick={onUpload}
             className="btn-secondary"
+            title="Import prompts (.txt, .md, .csv, .json • max 1 MB per file, up to 10 files)"
           >
             <UploadCloud size={15} /> Upload files
           </button>

@@ -374,6 +374,7 @@ export default function PromptEditorAndHistory({
                           type="button"
                           onClick={() => setUploadOpen(true)}
                           className="btn-secondary"
+                          title="Upload a text or Markdown file (.txt, .md • max 1 MB) as the new version"
                         >
                           <FileUp size={15} /> {isProposalWorkflow ? 'Upload file for review' : 'Upload file as version'}
                         </button>
