@@ -9,7 +9,13 @@ services:
         value: production
       - key: SEED_DEMO_DATA
         value: "true"
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
       - key: DATABASE_URL
+        sync: false
+      - key: NEON_DATABASE_URL
+        sync: false
+      - key: SUPABASE_DATABASE_URL
         sync: false
       - key: REDIS_URL
         sync: false
@@ -21,3 +27,4 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+
