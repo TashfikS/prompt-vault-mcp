@@ -552,7 +552,7 @@ export default {
 
     // 1. Optional multi-pod upstream forwarding (Render + Edge Failover)
     const pods = [env.RENDER_ORIGIN, env.BACKEND_POD_1, env.BACKEND_POD_2].filter(Boolean);
-    if (pods.length > 0 && (path.startsWith("/api/") || path.startsWith("/mcp"))) {
+    if (pods.length > 0 && (path.startsWith("/api/") || path.startsWith("/mcp") || path.startsWith("/sse"))) {
       for (const pod of pods) {
         try {
           const targetUrl = new URL(path + url.search, pod);

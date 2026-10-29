@@ -59,12 +59,14 @@ from security import (AUTO_MIGRATE_DB, IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE
                       MAX_UPLOAD_FILE_BYTES, SecurityHeadersMiddleware, escape_like, get_allowed_origins,
                       get_client_ip, rate_limiter, record_audit_log, sanitize_filename, should_seed_demo_data,
                       validate_text_upload_content)
+from fastmcp.server.http import create_sse_app
 from seed import seed_initial_data
 from mcp_server import mcp
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 SESSION_COOKIE_NAME = "ph_session"
 mcp_asgi = mcp.http_app(path="/")
+mcp_sse_asgi = create_sse_app(server=mcp, message_path="/messages", sse_path="/sse")
 
 
 @asynccontextmanager
@@ -108,8 +110,9 @@ async def lifespan(application: FastAPI):
         import logging
         logging.getLogger("uvicorn.error").warning("Supabase seed initialization warning: %s", exc)
 
-    async with mcp_asgi.router.lifespan_context(application):
-        yield
+    async with mcp_asgi.lifespan(application):
+        async with mcp_sse_asgi.lifespan(application):
+            yield
 
 
 app = FastAPI(
@@ -2169,14 +2172,7 @@ def share_fallback(share_id: str):
     return FileResponse(FRONTEND_DIST / "index.html")
 
 
-@app.api_route("/mcp", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
-def mcp_root_redirect(request: Request):
-    """Ensure /mcp cleanly redirects to /mcp/ preserving HTTP method, headers, and body."""
-    from fastapi.responses import RedirectResponse
-    redirect_url = request.url.replace(path="/mcp/")
-    return RedirectResponse(url=str(redirect_url), status_code=307)
-
-
+app.mount("/sse", mcp_sse_asgi, name="sse")
 app.mount("/mcp", mcp_asgi, name="mcp")
 if FRONTEND_DIST.exists():
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

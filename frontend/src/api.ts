@@ -1,6 +1,35 @@
 import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, BillingConfigResponse, CheckoutSessionResponse, CreatedApiKeyResponse, CustomerPortalResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, PromptVersionItem, SharedDiffPayload, User } from './types'
 
 const TOKEN_KEY = 'prompt-vault-session'
+
+export function getBackendBaseUrl(): string {
+  if (import.meta.env.VITE_API_BASE) return import.meta.env.VITE_API_BASE
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname.includes('pages.dev')) {
+      return 'https://prompt-vault-gateway.tashfiks.workers.dev'
+    }
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    if (isLocalhost) {
+      const port = import.meta.env.VITE_BACKEND_PORT || import.meta.env.BACKEND_PORT || '8002'
+      return `${window.location.protocol}//${window.location.hostname}:${port}`
+    }
+    if (!window.location.hostname.includes('onrender.com') && !window.location.hostname.includes('workers.dev')) {
+      return 'https://prompt-vault-gateway.tashfiks.workers.dev'
+    }
+    return window.location.origin
+  }
+  return 'https://prompt-vault-gateway.tashfiks.workers.dev'
+}
+
+export function getMcpUrl(): string {
+  return `${getBackendBaseUrl()}/mcp`
+}
+
+export function getSseUrl(): string {
+  return `${getBackendBaseUrl()}/sse/sse`
+}
+
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
   import.meta.env.VITE_API_BASE_URL ||

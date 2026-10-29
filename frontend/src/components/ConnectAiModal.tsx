@@ -2,16 +2,22 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   Check,
   Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
   Globe,
   Info,
   KeyRound,
   LockKeyhole,
   PlugZap,
   Plus,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
   Terminal,
   Users,
 } from 'lucide-react'
-import { createApiKey, getApiKeys, revokeApiKey } from '../api'
+import { createApiKey, getApiKeys, getBackendBaseUrl, getMcpUrl, getSseUrl, revokeApiKey } from '../api'
 import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, CreatedApiKeyResponse, Group, User } from '../types'
 import GroupSelectDropdown from './GroupSelectDropdown'
 import Modal from './ui/Modal'
@@ -98,7 +104,7 @@ const PROVIDERS: ProviderTab[] = [
   {
     id: 'claude',
     name: 'Claude',
-    subtitle: 'Desktop, Web & CLI',
+    subtitle: 'Desktop & Web',
     Icon: ClaudeIcon,
     iconColor: 'text-amber-600 dark:text-amber-400',
     activeRing: 'border-amber-500 ring-2 ring-amber-500/20 dark:border-amber-400',
@@ -107,7 +113,7 @@ const PROVIDERS: ProviderTab[] = [
   {
     id: 'chatgpt',
     name: 'ChatGPT',
-    subtitle: 'Web, GPTs & Desktop',
+    subtitle: 'Web, Mobile & Desktop',
     Icon: ChatGptIcon,
     iconColor: 'text-emerald-600 dark:text-emerald-400',
     activeRing: 'border-emerald-500 ring-2 ring-emerald-500/20 dark:border-emerald-400',
@@ -116,7 +122,7 @@ const PROVIDERS: ProviderTab[] = [
   {
     id: 'gemini',
     name: 'Gemini',
-    subtitle: 'Python SDK & Vertex',
+    subtitle: 'Web, Mobile App & SDK',
     Icon: GeminiIcon,
     iconColor: 'text-indigo-600 dark:text-indigo-400',
     activeRing: 'border-indigo-500 ring-2 ring-indigo-500/20 dark:border-indigo-400',
@@ -124,8 +130,8 @@ const PROVIDERS: ProviderTab[] = [
   },
   {
     id: 'cursor',
-    name: 'Cursor',
-    subtitle: 'IDEs & Coding',
+    name: 'Cursor & IDEs',
+    subtitle: 'Cursor, Cline & VS Code',
     Icon: CursorIcon,
     iconColor: 'text-cyan-600 dark:text-cyan-400',
     activeRing: 'border-cyan-500 ring-2 ring-cyan-500/20 dark:border-cyan-400',
@@ -133,8 +139,8 @@ const PROVIDERS: ProviderTab[] = [
   },
   {
     id: 'api',
-    name: 'API / Code',
-    subtitle: 'cURL & Python',
+    name: 'API & Scripts',
+    subtitle: 'Python & cURL',
     Icon: props => <Terminal className={props.className} />,
     iconColor: 'text-slate-700 dark:text-zinc-300',
     activeRing: 'border-slate-500 ring-2 ring-slate-500/20 dark:border-zinc-400',
@@ -156,12 +162,12 @@ export default function ConnectAiModal({
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   // Sub-mode options for each provider
-  const [claudeMode, setClaudeMode] = useState<'desktop' | 'web' | 'cli'>('desktop')
+  const [claudeMode, setClaudeMode] = useState<'desktop' | 'cli' | 'web'>('desktop')
   const [claudeOs, setClaudeOs] = useState<'mac' | 'windows' | 'linux'>('mac')
   const [chatgptMode, setChatgptMode] = useState<'web' | 'desktop'>('web')
-  const [geminiMode, setGeminiMode] = useState<'sdk' | 'vertex'>('sdk')
+  const [geminiMode, setGeminiMode] = useState<'app' | 'sdk'>('app')
   const [cursorMode, setCursorMode] = useState<'cursor' | 'vscode'>('cursor')
-  const [apiMode, setApiMode] = useState<'curl' | 'python'>('curl')
+  const [apiMode, setApiMode] = useState<'python' | 'curl'>('python')
 
   // Keys state
   const [keys, setKeys] = useState<ApiKeyItem[]>([])
@@ -176,19 +182,21 @@ export default function ConnectAiModal({
   const [selectedGroupId, setSelectedGroupId] = useState<string>(() => groups[0]?.id ?? '')
   const [formError, setFormError] = useState('')
 
-  // Newly created key (shown once with raw string)
+  // Newly created key with privacy & mask controls
   const [newKey, setNewKey] = useState<CreatedApiKeyResponse | null>(null)
+  const [isKeyCopied, setIsKeyCopied] = useState(false)
+  const [showRawKey, setShowRawKey] = useState(true)
 
   // Inline confirmation state
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null)
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null)
 
-  const configuredPort = import.meta.env.VITE_BACKEND_PORT || import.meta.env.BACKEND_PORT || '8002'
-  const baseOrigin = window.location.origin.replace(':5173', `:${configuredPort}`)
-  const mcpUrl = `${baseOrigin}/mcp`
-  const restUrl = `${baseOrigin}/api`
-  const openApiUrl = `${baseOrigin}/openapi.json`
-  const snippetKey = newKey?.raw_key ?? 'YOUR_API_KEY'
+  // Dynamic public backend URLs
+  const baseBackend = getBackendBaseUrl()
+  const mcpUrl = getMcpUrl()
+  const sseUrl = getSseUrl()
+  const restUrl = `${baseBackend}/api`
+  const openApiUrl = `${baseBackend}/openapi.json`
 
   const loadKeys = useCallback(async () => {
     setLoadingKeys(true)
@@ -222,12 +230,22 @@ export default function ConnectAiModal({
     window.setTimeout(() => setCopiedId(prev => (prev === id ? null : prev)), 2000)
   }
 
+  async function handleCopyNewKey() {
+    if (!newKey) return
+    await navigator.clipboard.writeText(newKey.raw_key)
+    setIsKeyCopied(true)
+    setShowRawKey(false) // IMMEDIATELY mask with stars once copied for security!
+    setCopiedId('new-key')
+    toast('API key copied & masked for security!', { tone: 'success' })
+    window.setTimeout(() => setCopiedId(prev => (prev === 'new-key' ? null : prev)), 2000)
+  }
+
   async function handleGenerateKey(e: React.FormEvent) {
     e.preventDefault()
     setFormError('')
     const trimmedName = keyName.trim()
     if (!trimmedName) {
-      setFormError('Give this key a short name (for example, Claude Desktop Key).')
+      setFormError('Give this key a friendly name (for example, "My Claude Key" or "Gemini Mobile").')
       return
     }
     if (scopeType === 'GROUP' && !selectedGroupId) {
@@ -244,6 +262,8 @@ export default function ConnectAiModal({
         group_id: scopeType === 'GROUP' ? selectedGroupId : null,
       })
       setNewKey(created)
+      setIsKeyCopied(false)
+      setShowRawKey(true)
       setKeys(prev => [created, ...prev])
       setKeyName('')
       setScopeType('GLOBAL')
@@ -281,6 +301,7 @@ export default function ConnectAiModal({
     linux: '~/.config/Claude/claude_desktop_config.json',
   }
 
+  // Modern MCP Bridge config using mcp-remote
   const claudeConfigJson = JSON.stringify(
     {
       mcpServers: {
@@ -294,12 +315,12 @@ export default function ConnectAiModal({
     2
   )
 
-  const vscodeMcpJson = JSON.stringify(
+  const cursorMcpConfigJson = JSON.stringify(
     {
       mcpServers: {
         prompthold: {
-          type: 'streamableHttp',
-          url: mcpUrl,
+          command: 'npx',
+          args: ['-y', 'mcp-remote', mcpUrl],
         },
       },
     },
@@ -307,11 +328,12 @@ export default function ConnectAiModal({
     2
   )
 
-  const chatgptDesktopConfigJson = JSON.stringify(
+  const clineConfigJson = JSON.stringify(
     {
       mcpServers: {
         prompthold: {
-          url: mcpUrl,
+          command: 'npx',
+          args: ['-y', 'mcp-remote', mcpUrl],
         },
       },
     },
@@ -319,17 +341,49 @@ export default function ConnectAiModal({
     2
   )
 
-  const geminiPythonSnippet = `import requests\nfrom google import genai\n\n# 1. Fetch active prompt templates from PromptHold\nheaders = {"Authorization": "Bearer ${snippetKey}"}\nresp = requests.get("${restUrl}/prompts", headers=headers)\nprompts = resp.json()\n\n# 2. Extract selected prompt\ntemplate = prompts[0]["content"] if prompts else "You are an AI assistant."\n\n# 3. Generate response with Gemini 2.5\nclient = genai.Client()\nresponse = client.models.generate_content(\n    model="gemini-2.5-flash",\n    contents=f"System Template:\\n{template}\\n\\nTask: Generate response based on this prompt",\n)\nprint(response.text)`
+  const keyPlaceholder = 'YOUR_API_KEY'
+  const displaySnippetKey = newKey && !isKeyCopied ? newKey.raw_key : 'pvh_••••••••••••••••••••••••••••••••'
+  const copySnippetKey = newKey ? newKey.raw_key : keyPlaceholder
 
-  const curlSnippet = `curl -X GET "${restUrl}/prompts" \\\n  -H "Authorization: Bearer ${snippetKey}"`
+  const geminiPythonSnippet = `import requests
+from google import genai
 
-  const pythonSnippet = `import requests\n\nheaders = {"Authorization": "Bearer ${snippetKey}"}\nresponse = requests.get("${restUrl}/prompts", headers=headers)\nprompts = response.json()\n\nfor p in prompts:\n    print(f"[{p.get('group_name')}] {p.get('title')}")`
+# 1. Fetch prompts from PromptHold Backend API
+headers = {"Authorization": "Bearer ${copySnippetKey}"}
+response = requests.get("${restUrl}/prompts", headers=headers)
+prompts = response.json()
+
+# 2. Extract active prompt template
+template = prompts[0]["content"] if prompts else "You are a helpful assistant."
+
+# 3. Generate response with Gemini 2.5
+client = genai.Client()
+result = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents=f"System Template:\\n{template}\\n\\nTask: Assist the user based on the prompt.",
+)
+print(result.text)`
+
+  const pythonSnippet = `import requests
+
+# Query your prompts using the live PromptHold Backend API
+headers = {"Authorization": "Bearer ${copySnippetKey}"}
+response = requests.get("${restUrl}/prompts", headers=headers)
+
+# Parse JSON response
+prompts = response.json()
+print(f"Loaded {len(prompts)} prompts:")
+for p in prompts:
+    print(f"• [{p.get('group_name', 'Personal')}] {p.get('title')} (v{p.get('current_version_number', 1)})")`
+
+  const curlSnippet = `curl -X GET "${restUrl}/prompts" \\
+  -H "Authorization: Bearer ${copySnippetKey}"`
 
   return (
     <Modal
-      title="Connect to AI"
-      description="Connect your prompts directly to your AI assistants, MCP clients, or automated workflows."
-      icon={<PlugZap size={18} />}
+      title="Connect PromptHold to Your AI"
+      description="Use your saved prompts directly inside Claude, ChatGPT, Gemini, Cursor, or your custom scripts."
+      icon={<PlugZap size={18} className="text-brand-600 dark:text-brand-400" />}
       size="xl"
       onClose={onClose}
       footer={
@@ -339,15 +393,16 @@ export default function ConnectAiModal({
       }
     >
       <div className="max-h-[75vh] space-y-6 overflow-y-auto pr-1 custom-scrollbar">
-        {/* STEP 1: API KEYS */}
+        {/* STEP 1: API KEY SECTION */}
         <section aria-labelledby="connect-keys-heading" className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 id="connect-keys-heading" className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                1. Your API keys
+              <h3 id="connect-keys-heading" className="text-sm font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5">
+                <KeyRound size={15} className="text-brand-600 dark:text-brand-400" />
+                Step 1: Your Security Key
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Generate keys to authenticate your AI assistants with specific spaces or permissions.
+                This key gives your AI assistants secure permission to read or update your prompts.
               </p>
             </div>
             {!showCreateForm && (
@@ -360,53 +415,78 @@ export default function ConnectAiModal({
                 className="btn-secondary btn-sm"
               >
                 <Plus size={14} />
-                <span>New key</span>
+                <span>Create New Key</span>
               </button>
             )}
           </div>
 
-          {/* One-time reveal banner when a key is just created */}
+          {/* Newly Created Key Banner (Shown once, stars after copy) */}
           {newKey && (
             <div
               role="region"
               aria-label="New API key"
-              className="animate-pop-in rounded-xl border border-brand-300 bg-brand-50/70 p-3.5 dark:border-brand-900/60 dark:bg-brand-950/30"
+              className="animate-pop-in rounded-xl border border-brand-300 bg-brand-50/80 p-3.5 dark:border-brand-900/60 dark:bg-brand-950/40"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs font-medium text-brand-900 dark:text-brand-200">
-                  <KeyRound size={14} className="text-brand-700 dark:text-brand-400" aria-hidden />
+                  <ShieldCheck size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <span>
-                    Save your key for <strong>{newKey.name}</strong> — it’s only shown once and auto-filled below.
+                    New key created for <strong>{newKey.name}</strong>.
+                    {isKeyCopied
+                      ? ' Copied to clipboard! Masked for security.'
+                      : ' Copy it now — for security, it is hidden once copied!'}
                   </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isKeyCopied && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRawKey(prev => !prev)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:text-brand-900 dark:text-brand-300 dark:hover:text-brand-100"
+                    >
+                      {showRawKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                      <span>{showRawKey ? 'Hide key' : 'Peek key'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setNewKey(null)}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1 relative flex items-center">
+                  <code
+                    className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-300 select-all dark:border-zinc-800 dark:bg-black dark:text-emerald-400 tracking-wider truncate"
+                    style={{ overflowWrap: 'anywhere' }}
+                  >
+                    {showRawKey ? newKey.raw_key : '••••••••••••••••••••••••••••••••••••••••••••••••'}
+                  </code>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setNewKey(null)}
-                  className="text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-                >
-                  Dismiss
-                </button>
-              </div>
-              <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
-                <code
-                  className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-300 select-all dark:border-zinc-800 dark:bg-black dark:text-emerald-400"
-                  style={{ overflowWrap: 'anywhere' }}
-                >
-                  {newKey.raw_key}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => void copy(newKey.raw_key, 'new-key', 'API key copied')}
+                  onClick={() => void handleCopyNewKey()}
                   className="btn-primary btn-sm shrink-0"
                 >
-                  {copiedId === 'new-key' ? <Check size={14} /> : <Copy size={14} />}
-                  <span>{copiedId === 'new-key' ? 'Copied' : 'Copy key'}</span>
+                  {isKeyCopied ? <Check size={14} /> : <Copy size={14} />}
+                  <span>{isKeyCopied ? 'Copied' : 'Copy Key'}</span>
                 </button>
               </div>
+
+              {isKeyCopied && (
+                <p className="mt-2 text-[11px] text-slate-600 dark:text-zinc-400 flex items-center gap-1">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Saved to clipboard.</span>
+                  PromptHold never displays the full key again to protect your account.
+                </p>
+              )}
             </div>
           )}
 
-          {/* Compact Create Key Form */}
+          {/* Simple Create Key Form */}
           {showCreateForm && (
             <form
               onSubmit={e => void handleGenerateKey(e)}
@@ -415,47 +495,47 @@ export default function ConnectAiModal({
               <div className="grid gap-3 sm:grid-cols-[1fr,auto,auto]">
                 <div>
                   <label htmlFor="api-key-name" className="field-label text-xs">
-                    Key name
+                    Key Friendly Name
                   </label>
                   <input
                     id="api-key-name"
                     value={keyName}
                     onChange={e => setKeyName(e.target.value)}
-                    placeholder="e.g. Claude Desktop Key, ChatGPT Action"
+                    placeholder="e.g. My Claude Desktop, Gemini Phone App"
                     maxLength={120}
                     className="field bg-white dark:bg-zinc-900"
                   />
                 </div>
 
                 <div>
-                  <span className="field-label text-xs">Access</span>
+                  <span className="field-label text-xs">Allowed Spaces</span>
                   <div className="segmented h-[38px] bg-white dark:bg-zinc-900">
                     <button
                       type="button"
                       onClick={() => setScopeType('GLOBAL')}
                       className={`segmented-item text-xs ${scopeType === 'GLOBAL' ? 'segmented-item-active' : ''}`}
                     >
-                      All spaces
+                      All My Spaces
                     </button>
                     <button
                       type="button"
                       onClick={() => setScopeType('GROUP')}
                       className={`segmented-item text-xs ${scopeType === 'GROUP' ? 'segmented-item-active' : ''}`}
                     >
-                      One space
+                      One Space Only
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <span className="field-label text-xs">Permissions</span>
+                  <span className="field-label text-xs">Permission</span>
                   <div className="segmented h-[38px] bg-white dark:bg-zinc-900">
                     <button
                       type="button"
                       onClick={() => setAccessLevel('READ_WRITE')}
                       className={`segmented-item text-xs ${accessLevel === 'READ_WRITE' ? 'segmented-item-active' : ''}`}
                     >
-                      Read &amp; write
+                      Read &amp; Save
                     </button>
                     <button
                       type="button"
@@ -470,7 +550,7 @@ export default function ConnectAiModal({
 
               {scopeType === 'GROUP' && (
                 <div>
-                  <label className="field-label text-xs">Space</label>
+                  <label className="field-label text-xs">Select Space</label>
                   <GroupSelectDropdown
                     groups={groups}
                     value={selectedGroupId}
@@ -498,19 +578,19 @@ export default function ConnectAiModal({
                 )}
                 <button type="submit" disabled={creatingKey} className="btn-primary btn-sm">
                   <KeyRound size={14} />
-                  <span>{creatingKey ? 'Creating…' : 'Create key'}</span>
+                  <span>{creatingKey ? 'Creating Key…' : 'Generate Key'}</span>
                 </button>
               </div>
             </form>
           )}
 
-          {/* Active Keys List */}
+          {/* Active Keys List (Shows only masked prefixes) */}
           {loadingKeys ? (
-            <p className="py-3 text-xs text-slate-400 dark:text-zinc-500">Loading keys…</p>
+            <p className="py-2 text-xs text-slate-400 dark:text-zinc-500">Loading your keys…</p>
           ) : activeKeys.length === 0 ? (
             !showCreateForm && (
               <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
-                No active keys yet. Create one above to authenticate your AI assistant.
+                No active keys found. Create a key above to get started!
               </p>
             )
           ) : (
@@ -522,7 +602,7 @@ export default function ConnectAiModal({
                 return (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 text-sm">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="font-medium text-slate-900 dark:text-zinc-100">{item.name}</span>
+                      <span className="font-semibold text-slate-900 dark:text-zinc-100">{item.name}</span>
                       <ScopePill item={item} />
                       <span
                         className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${
@@ -531,7 +611,7 @@ export default function ConnectAiModal({
                             : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                         }`}
                       >
-                        {isReadOnly ? 'Read-only' : 'Read & write'}
+                        {isReadOnly ? 'Read-only' : 'Read & Write'}
                       </span>
                       <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
                         {item.key_prefix}
@@ -576,18 +656,19 @@ export default function ConnectAiModal({
           )}
         </section>
 
-        {/* STEP 2: ASSISTANT SELECTOR & SETUP GUIDE */}
+        {/* STEP 2: CHOOSE AI ASSISTANT */}
         <section aria-labelledby="connect-setup-heading" className="space-y-4 border-t border-slate-100 pt-5 dark:border-zinc-800">
           <div>
-            <h3 id="connect-setup-heading" className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-              2. Select your AI assistant or client
+            <h3 id="connect-setup-heading" className="text-sm font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5">
+              <Sparkles size={15} className="text-brand-600 dark:text-brand-400" />
+              Step 2: Choose Your AI Assistant
             </h3>
             <p className="text-xs text-slate-500 dark:text-zinc-400">
-              Choose the tool you want to connect to view its tailored setup steps and ready-to-copy configuration.
+              Select the tool you use every day for simple 3-step setup instructions.
             </p>
           </div>
 
-          {/* Platform Tab Buttons */}
+          {/* AI Provider Tabs */}
           <div role="tablist" aria-label="AI assistants" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {PROVIDERS.map(item => {
               const Icon = item.Icon
@@ -613,49 +694,47 @@ export default function ConnectAiModal({
                   </div>
                   <div>
                     <div className="font-semibold text-xs text-slate-900 dark:text-zinc-100">{item.name}</div>
-                    <div className="text-[10px] text-slate-500 dark:text-zinc-400">{item.subtitle}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-zinc-400 truncate">{item.subtitle}</div>
                   </div>
                 </button>
               )
             })}
           </div>
 
-          {/* Key Context Banner */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-950/40">
+          {/* Key Status Pill */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-950/40">
             <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white text-slate-700 shadow-xs dark:bg-zinc-900 dark:text-zinc-200">
-                <KeyRound size={13} />
-              </div>
-              <div className="min-w-0">
-                <span className="text-slate-500 dark:text-zinc-400">Authentication Key: </span>
+              <KeyRound size={13} className="text-slate-500 dark:text-zinc-400 shrink-0" />
+              <div className="min-w-0 text-slate-600 dark:text-zinc-300 truncate">
+                Active Key:{' '}
                 {newKey ? (
                   <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                    {newKey.name} (live key loaded)
+                    {newKey.name} (ready to use)
                   </span>
                 ) : activeKeys.length > 0 ? (
                   <span className="font-medium text-slate-800 dark:text-zinc-200">
-                    {activeKeys[0].name} <code className="font-mono text-[11px] text-slate-500 dark:text-zinc-400">({activeKeys[0].key_prefix})</code>
+                    {activeKeys[0].name} <code className="text-[11px] text-slate-500 dark:text-zinc-400">({activeKeys[0].key_prefix})</code>
                   </span>
                 ) : (
                   <span className="font-medium text-amber-700 dark:text-amber-400">
-                    No active key — create one in Step 1 first
+                    Please create a key in Step 1 first
                   </span>
                 )}
               </div>
             </div>
-            {(newKey || activeKeys.length > 0) && (
+            {newKey && (
               <button
                 type="button"
-                onClick={() => void copy(newKey?.raw_key || 'YOUR_API_KEY', 'pill-copy-key', 'API key copied')}
+                onClick={() => void handleCopyNewKey()}
                 className="btn-secondary btn-sm h-7 shrink-0 text-xs"
               >
-                {copiedId === 'pill-copy-key' ? <Check size={12} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={12} />}
-                <span>{copiedId === 'pill-copy-key' ? 'Copied' : (newKey ? 'Copy raw key' : 'Copy key placeholder')}</span>
+                {copiedId === 'new-key' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                <span>{isKeyCopied ? 'Copy key again' : 'Copy key'}</span>
               </button>
             )}
           </div>
 
-          {/* PROVIDER 1: CLAUDE */}
+          {/* ==================== PROVIDER 1: CLAUDE ==================== */}
           {provider === 'claude' && (
             <div className="space-y-4 rounded-xl border border-amber-200/80 bg-gradient-to-b from-amber-50/40 to-slate-50/60 p-4 dark:border-amber-900/40 dark:from-amber-950/20 dark:to-zinc-950/40">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -664,49 +743,48 @@ export default function ConnectAiModal({
                   <div>
                     <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Anthropic Claude</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Claude Desktop and Claude Web use distinct configurations. Select your client below:
+                      Choose Claude Desktop (easiest), Claude Code CLI, or Claude.ai Web:
                     </p>
                   </div>
                 </div>
 
-                {/* Submode toggle */}
                 <div className="segmented h-8 bg-white dark:bg-zinc-900">
                   <button
                     type="button"
                     onClick={() => setClaudeMode('desktop')}
                     className={`segmented-item text-xs ${claudeMode === 'desktop' ? 'segmented-item-active' : ''}`}
                   >
-                    Claude Desktop
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setClaudeMode('web')}
-                    className={`segmented-item text-xs ${claudeMode === 'web' ? 'segmented-item-active' : ''}`}
-                  >
-                    Claude.ai (Web)
+                    Claude Desktop (Recommended)
                   </button>
                   <button
                     type="button"
                     onClick={() => setClaudeMode('cli')}
                     className={`segmented-item text-xs ${claudeMode === 'cli' ? 'segmented-item-active' : ''}`}
                   >
-                    Claude Code (CLI)
+                    Claude Code CLI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClaudeMode('web')}
+                    className={`segmented-item text-xs ${claudeMode === 'web' ? 'segmented-item-active' : ''}`}
+                  >
+                    Claude.ai Web
                   </button>
                 </div>
               </div>
 
-              {claudeMode === 'desktop' ? (
+              {claudeMode === 'desktop' && (
                 <div className="space-y-3 pt-1">
-                  <div className="rounded-lg border border-amber-200/60 bg-amber-50/50 p-2.5 text-xs text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-200">
-                    <span className="font-semibold">Claude Desktop Architecture: </span>
-                    Claude Desktop manages local stdio processes. The configuration below uses <code>mcp-remote</code> via <code>npx</code> to bridge Claude Desktop with PromptHold’s HTTP/SSE server. Node.js is required.
+                  <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/60 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200 flex items-center gap-2">
+                    <Sparkles size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span><strong>No complex sign-in required!</strong> Claude Desktop connects instantly in 30 seconds on macOS, Windows, and Linux.</span>
                   </div>
 
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+                  <ol className="space-y-3 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
                       <div className="min-w-0 flex-1 space-y-1.5">
-                        <span>Open your Claude Desktop config file:</span>
+                        <span>Locate your Claude Desktop config file:</span>
                         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                           {(['mac', 'windows', 'linux'] as const).map(os => (
                             <button
@@ -740,83 +818,42 @@ export default function ConnectAiModal({
                     </li>
 
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>Paste the PromptHold bridge configuration into your config file:</span>
-                    </li>
-                  </ol>
-
-                  {/* Config JSON Box */}
-                  <div>
-                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      <span>claude_desktop_config.json</span>
-                      <button
-                        type="button"
-                        onClick={() => void copy(claudeConfigJson, 'claude-json', 'Configuration copied')}
-                        className="btn-ghost btn-sm h-7 px-2 text-xs"
-                      >
-                        {copiedId === 'claude-json' ? <Check size={13} className="text-amber-600 dark:text-amber-400" /> : <Copy size={13} />}
-                        <span>{copiedId === 'claude-json' ? 'Copied' : 'Copy config'}</span>
-                      </button>
-                    </div>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
-                      <code>{claudeConfigJson}</code>
-                    </pre>
-                  </div>
-
-                  <ol start={3} className="space-y-1 text-xs text-slate-600 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
-                      <span>Restart Claude Desktop. In chat, Claude can now list, fill, and save prompts!</span>
-                    </li>
-                  </ol>
-                </div>
-              ) : claudeMode === 'web' ? (
-                /* Claude.ai Web Mode */
-                <div className="space-y-3 pt-1">
-                  <div className="rounded-lg border border-amber-200/60 bg-amber-50/50 p-2.5 text-xs text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-200">
-                    <span className="font-semibold">Claude.ai Cloud Requirement: </span>
-                    Claude.ai runs in Anthropic’s cloud and connects via Custom Connectors. Because requests originate over the internet, your PromptHold server must be reachable via a public HTTPS URL (use your deployed production domain or a Cloudflare Tunnel/ngrok for local dev).
-                  </div>
-
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
-                      <span>
-                        In <strong>claude.ai</strong>, open <strong>Settings</strong> → <strong>Connectors</strong> (or <strong>Customize</strong> → <strong>Connectors</strong>).
-                      </span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>Click <strong>Add Custom Connector</strong> and set the Name to <strong>PromptHold</strong>.</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>Enter your PromptHold MCP Server URL:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                            {mcpUrl}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(mcpUrl, 'claude-web-url', 'URL copied')}
-                            className="btn-ghost btn-xs shrink-0"
-                          >
-                            {copiedId === 'claude-web-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                            <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
+                        <span>Paste this configuration into the file:</span>
+                        <div className="mt-1">
+                          <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
+                            <span>claude_desktop_config.json</span>
+                            <button
+                              type="button"
+                              onClick={() => void copy(claudeConfigJson, 'claude-json', 'Configuration copied')}
+                              className="btn-ghost btn-sm h-7 px-2 text-xs"
+                            >
+                              {copiedId === 'claude-json' ? <Check size={13} className="text-amber-600 dark:text-amber-400" /> : <Copy size={13} />}
+                              <span>{copiedId === 'claude-json' ? 'Copied' : 'Copy config'}</span>
+                            </button>
+                          </div>
+                          <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                            <code>{claudeConfigJson}</code>
+                          </pre>
                         </div>
                       </div>
                     </li>
+
+                    <li className="flex gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
+                      <span>Restart Claude Desktop. In any chat, Claude can now list, fill, and save your prompts!</span>
+                    </li>
                   </ol>
                 </div>
-              ) : (
-                /* Claude Code CLI */
+              )}
+
+              {claudeMode === 'cli' && (
                 <div className="space-y-3 pt-1">
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
-                      <span>Run this command in your terminal to add PromptHold with HTTP transport:</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
+                      <span>Run this one command in your terminal:</span>
                     </li>
                   </ol>
 
@@ -837,29 +874,71 @@ export default function ConnectAiModal({
                     </pre>
                   </div>
 
-                  <ol start={2} className="space-y-1 text-xs text-slate-600 dark:text-zinc-300">
+                  <p className="text-xs text-slate-600 dark:text-zinc-300">
+                    Start Claude Code with <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">claude</code> and run <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">/mcp</code> to see your PromptHold tools.
+                  </p>
+                </div>
+              )}
+
+              {claudeMode === 'web' && (
+                <div className="space-y-3 pt-1">
+                  {/* Explanation for why Claude Web shows OAuth errors */}
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200 space-y-1.5">
+                    <div className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-100">
+                      <Info size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                      <span>Why Claude.ai Web asks for an OAuth Client ID:</span>
+                    </div>
+                    <p>
+                      Anthropic requires a registered <strong>OAuth 2.0 Organization Client ID</strong> for custom connectors inside the web browser.
+                      If you see <em>"Couldn't register with sign-in service"</em>, we strongly recommend using <strong>Claude Desktop</strong> above, which connects directly with zero OAuth required!
+                    </p>
+                  </div>
+
+                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>Launch Claude Code (<code className="font-mono">claude</code>) and verify with <code className="font-mono">/mcp</code>.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
+                      <span>If you have an Anthropic Enterprise account with custom OAuth connectors:</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>Use the live PromptHold Backend Server URL:</span>
+                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                            {mcpUrl}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(mcpUrl, 'claude-web-url', 'URL copied')}
+                            className="btn-ghost btn-xs shrink-0"
+                          >
+                            {copiedId === 'claude-web-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
+                          ⚠️ Note: Do not use <code>prompthold.pages.dev</code> as the connector address — that is the frontend web app. Always use the live backend gateway URL shown above.
+                        </p>
+                      </div>
                     </li>
                   </ol>
                 </div>
               )}
 
-              {/* Try in chat tip */}
+              {/* In-chat example */}
               <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-                <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <Sparkles size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
                 <div>
-                  <span className="font-semibold">Example prompt to ask Claude: </span>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans">
-                    “List my available prompts in PromptHold using key {snippetKey}”
+                  <span className="font-semibold">What to ask Claude in chat: </span>
+                  <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
+                    “Show my available prompt templates in PromptHold using key {displaySnippetKey}”
                   </em>
                 </div>
               </div>
             </div>
           )}
 
-          {/* PROVIDER 2: CHATGPT */}
+          {/* ==================== PROVIDER 2: CHATGPT ==================== */}
           {provider === 'chatgpt' && (
             <div className="space-y-4 rounded-xl border border-emerald-200/80 bg-gradient-to-b from-emerald-50/40 to-slate-50/60 p-4 dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-zinc-950/40">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -868,7 +947,7 @@ export default function ConnectAiModal({
                   <div>
                     <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to OpenAI ChatGPT</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Use Custom GPT Actions (synced to Web, Desktop &amp; Mobile) or Desktop App Native MCP.
+                      Use Custom GPTs (syncs automatically to Web, iPhone &amp; Android) or the Desktop app:
                     </p>
                   </div>
                 </div>
@@ -886,58 +965,52 @@ export default function ConnectAiModal({
                     onClick={() => setChatgptMode('desktop')}
                     className={`segmented-item text-xs ${chatgptMode === 'desktop' ? 'segmented-item-active' : ''}`}
                   >
-                    ChatGPT Desktop App
+                    Desktop App
                   </button>
                 </div>
               </div>
 
-              {chatgptMode === 'web' ? (
+              {chatgptMode === 'web' && (
                 <div className="space-y-3 pt-1">
-                  <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-200">
-                    <span className="font-semibold">Automatic Cross-Device Sync: </span>
-                    Setting up a Custom GPT Action connects your PromptHold prompts across <strong>ChatGPT Web, Desktop app, and iOS/Android</strong> simultaneously.
+                  <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/60 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200 flex items-center gap-2">
+                    <Smartphone size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span><strong>Cross-device sync:</strong> Setting this up once in ChatGPT Web makes your PromptHold prompts available on your iPhone and Android too!</span>
                   </div>
 
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+                  <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
                       <span>
-                        In <strong>chatgpt.com</strong>, go to <strong>Explore GPTs</strong> → <strong>Create a GPT</strong> (or edit existing) → click the <strong>Configure</strong> tab.
+                        On <strong>chatgpt.com</strong>, click <strong>Explore GPTs</strong> → <strong>+ Create</strong> (or edit your GPT) → click the <strong>Configure</strong> tab.
                       </span>
                     </li>
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>
-                        Scroll down to <strong>Actions</strong> and click <strong>Create new action</strong>.
-                      </span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
+                      <span>Scroll down to <strong>Actions</strong> and click <strong>Create new action</strong>.</span>
                     </li>
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>
-                          Under <strong>Authentication</strong>, select <strong>API Key</strong>, Auth Type: <strong>Bearer</strong>, and paste your key:
-                        </span>
+                        <span>Under <strong>Authentication</strong>, choose <strong>API Key</strong> (Auth Type: <strong>Bearer</strong>) and paste your key:</span>
                         <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                           <code className="min-w-0 truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
-                            {snippetKey}
+                            {displaySnippetKey}
                           </code>
                           <button
                             type="button"
-                            onClick={() => void copy(snippetKey, 'gpt-key', 'API key copied')}
+                            onClick={() => void copy(copySnippetKey, 'gpt-key', 'API key copied')}
                             className="btn-ghost btn-xs shrink-0"
                           >
                             {copiedId === 'gpt-key' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                            <span>{copiedId === 'gpt-key' ? 'Copied' : 'Copy key'}</span>
+                            <span>{copiedId === 'gpt-key' ? 'Copied' : 'Copy Key'}</span>
                           </button>
                         </div>
                       </div>
                     </li>
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">4.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">4</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>
-                          Under <strong>Schema</strong>, import or paste the PromptHold OpenAPI schema URL:
-                        </span>
+                        <span>Under <strong>Schema</strong>, import this OpenAPI URL:</span>
                         <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                           <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
                             {openApiUrl}
@@ -951,48 +1024,29 @@ export default function ConnectAiModal({
                             <span>{copiedId === 'gpt-schema' ? 'Copied' : 'Copy URL'}</span>
                           </button>
                         </div>
-                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
-                          Note: OpenAI requires a publicly reachable HTTPS domain. If testing on localhost, use Cloudflare Tunnel or ngrok.
-                        </p>
                       </div>
                     </li>
                   </ol>
                 </div>
-              ) : (
-                /* ChatGPT Desktop App Native MCP */
-                <div className="space-y-3 pt-1">
-                  <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-200">
-                    <span className="font-semibold">Native Desktop MCP: </span>
-                    The ChatGPT Desktop App (macOS &amp; Windows) supports local and remote MCP servers natively when Developer Mode is enabled.
-                  </div>
+              )}
 
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+              {chatgptMode === 'desktop' && (
+                <div className="space-y-3 pt-1">
+                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
-                      <span>
-                        In ChatGPT Desktop, open <strong>Settings</strong> (gear icon) → <strong>Features</strong> (or Security) → toggle on <strong>Developer Mode</strong>.
-                      </span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
+                      <span>In ChatGPT Desktop, open <strong>Settings</strong> → <strong>Developer Mode</strong> (toggle ON).</span>
                     </li>
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>
-                        Click <strong>MCP Servers</strong> (or Apps &amp; Connectors) → <strong>+ Add Server</strong>.
-                      </span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
-                      <span>Enter the server configuration:</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
+                      <span>Click <strong>MCP Servers</strong> → <strong>+ Add Server</strong> with:</span>
                     </li>
                   </ol>
 
-                  <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
                       <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Name</div>
                       <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">prompthold</code>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Transport</div>
-                      <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">Streamable HTTP</code>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
                       <div className="flex items-center justify-between">
@@ -1011,40 +1065,23 @@ export default function ConnectAiModal({
                       </code>
                     </div>
                   </div>
-
-                  <div>
-                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      <span>Or paste into ChatGPT config.json</span>
-                      <button
-                        type="button"
-                        onClick={() => void copy(chatgptDesktopConfigJson, 'chatgpt-config-json', 'Configuration copied')}
-                        className="btn-ghost btn-sm h-7 px-2 text-xs"
-                      >
-                        {copiedId === 'chatgpt-config-json' ? <Check size={13} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={13} />}
-                        <span>{copiedId === 'chatgpt-config-json' ? 'Copied' : 'Copy config'}</span>
-                      </button>
-                    </div>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
-                      <code>{chatgptDesktopConfigJson}</code>
-                    </pre>
-                  </div>
                 </div>
               )}
 
-              {/* Try in chat tip */}
+              {/* In-chat example */}
               <div className="flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50/80 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-                <Info size={14} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <div>
-                  <span className="font-semibold">Example prompt to ask ChatGPT: </span>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans">
-                    “Search PromptHold for the 'Client Onboarding' template using key {snippetKey} and substitute client_name='Acme Corp'”
+                  <span className="font-semibold">What to ask ChatGPT in chat: </span>
+                  <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
+                    “Search PromptHold for the 'Customer Onboarding' prompt using key {displaySnippetKey} and substitute client_name='Acme Corp'”
                   </em>
                 </div>
               </div>
             </div>
           )}
 
-          {/* PROVIDER 3: GEMINI */}
+          {/* ==================== PROVIDER 3: GOOGLE GEMINI ==================== */}
           {provider === 'gemini' && (
             <div className="space-y-4 rounded-xl border border-indigo-200/80 bg-gradient-to-b from-indigo-50/40 to-slate-50/60 p-4 dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-zinc-950/40">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1053,7 +1090,7 @@ export default function ConnectAiModal({
                   <div>
                     <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Google Gemini</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Query PromptHold dynamically in Google GenAI SDK scripts or Vertex AI agent extensions.
+                      Use in Gemini Web &amp; Mobile App, or in Python scripts via GenAI SDK:
                     </p>
                   </div>
                 </div>
@@ -1061,27 +1098,84 @@ export default function ConnectAiModal({
                 <div className="segmented h-8 bg-white dark:bg-zinc-900">
                   <button
                     type="button"
-                    onClick={() => setGeminiMode('sdk')}
-                    className={`segmented-item text-xs ${geminiMode === 'sdk' ? 'segmented-item-active' : ''}`}
+                    onClick={() => setGeminiMode('app')}
+                    className={`segmented-item text-xs ${geminiMode === 'app' ? 'segmented-item-active' : ''}`}
                   >
-                    Google GenAI SDK (Python)
+                    Gemini App (Web, Android &amp; iPhone)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setGeminiMode('vertex')}
-                    className={`segmented-item text-xs ${geminiMode === 'vertex' ? 'segmented-item-active' : ''}`}
+                    onClick={() => setGeminiMode('sdk')}
+                    className={`segmented-item text-xs ${geminiMode === 'sdk' ? 'segmented-item-active' : ''}`}
                   >
-                    Vertex AI &amp; REST Tools
+                    Python SDK (Developers)
                   </button>
                 </div>
               </div>
 
-              {geminiMode === 'sdk' ? (
+              {geminiMode === 'app' && (
+                <div className="space-y-3 pt-1">
+                  <div className="rounded-lg border border-indigo-200/70 bg-indigo-50/60 p-2.5 text-xs text-indigo-900 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-200 flex items-center gap-2">
+                    <Smartphone size={15} className="shrink-0 text-indigo-600 dark:text-indigo-400" />
+                    <span><strong>Gemini Connected Apps:</strong> Link once at <strong>gemini.google.com</strong> and use PromptHold across both Gemini Web and the Gemini Mobile App on Android and iOS!</span>
+                  </div>
+
+                  <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                    <li className="flex gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200">1</span>
+                      <span>
+                        Open <strong><a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="underline font-semibold text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-0.5">gemini.google.com <ExternalLink size={10} /></a></strong> on your computer or mobile browser.
+                      </span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200">2</span>
+                      <span>
+                        Click <strong>Settings ⚙️</strong> → <strong>Connected Apps</strong> (or Extensions) → click <strong>Add Connected App</strong>.
+                      </span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200">3</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>Set Name to <strong>PromptHold</strong> and enter your Server URL:</span>
+                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <code className="min-w-0 truncate font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
+                            {mcpUrl}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(mcpUrl, 'gemini-url', 'Server URL copied')}
+                            className="btn-ghost btn-xs shrink-0"
+                          >
+                            {copiedId === 'gemini-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            <span>{copiedId === 'gemini-url' ? 'Copied' : 'Copy URL'}</span>
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
+                          When prompted for authentication, paste your PromptHold API key from Step 1.
+                        </p>
+                      </div>
+                    </li>
+                  </ol>
+
+                  {/* In-chat example */}
+                  <div className="flex items-start gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50/80 p-2.5 text-xs text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
+                    <Sparkles size={14} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                    <div>
+                      <span className="font-semibold">What to ask Gemini on Web or Mobile: </span>
+                      <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
+                        “@PromptHold show my active Marketing templates using key {displaySnippetKey}”
+                      </em>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {geminiMode === 'sdk' && (
                 <div className="space-y-3 pt-1">
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
-                        Python (google-genai SDK)
+                        Python script (google-genai SDK)
                       </span>
                       <button
                         type="button"
@@ -1097,66 +1191,11 @@ export default function ConnectAiModal({
                     </pre>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-3 pt-1">
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span>In Vertex AI Agent Builder, add PromptHold as an OpenAPI tool using:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
-                            {openApiUrl}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(openApiUrl, 'gemini-schema', 'Schema copied')}
-                            className="btn-ghost btn-xs shrink-0"
-                          >
-                            {copiedId === 'gemini-schema' ? <Check size={11} className="text-indigo-600" /> : <Copy size={11} />}
-                            <span>{copiedId === 'gemini-schema' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span>Add the Authorization Header with your API key:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
-                            Authorization: Bearer {snippetKey}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(`Authorization: Bearer ${snippetKey}`, 'gemini-auth', 'Header copied')}
-                            className="btn-ghost btn-xs shrink-0"
-                          >
-                            {copiedId === 'gemini-auth' ? <Check size={11} className="text-indigo-600" /> : <Copy size={11} />}
-                            <span>{copiedId === 'gemini-auth' ? 'Copied' : 'Copy header'}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  </ol>
-                </div>
               )}
-
-              {/* Try in chat tip */}
-              <div className="flex items-start gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50/80 p-2.5 text-xs text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
-                <Info size={14} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
-                <div>
-                  <span className="font-semibold">Example prompt to ask Gemini: </span>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans">
-                    “Get the active version of my Product Launch prompt from PromptHold using key {snippetKey}”
-                  </em>
-                </div>
-              </div>
             </div>
           )}
 
-          {/* PROVIDER 4: CURSOR & IDES */}
+          {/* ==================== PROVIDER 4: CURSOR & IDES ==================== */}
           {provider === 'cursor' && (
             <div className="space-y-4 rounded-xl border border-cyan-200/80 bg-gradient-to-b from-cyan-50/40 to-slate-50/60 p-4 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-zinc-950/40">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1165,7 +1204,7 @@ export default function ConnectAiModal({
                   <div>
                     <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Cursor &amp; Coding IDEs</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Query and insert prompt templates directly inside Cursor, VS Code, or Windsurf.
+                      Use prompts directly in Cursor Chat, Composer, or VS Code Cline:
                     </p>
                   </div>
                 </div>
@@ -1188,61 +1227,83 @@ export default function ConnectAiModal({
                 </div>
               </div>
 
-              {cursorMode === 'cursor' ? (
+              {cursorMode === 'cursor' && (
                 <div className="space-y-3 pt-1">
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+                  <div className="rounded-lg border border-cyan-200/70 bg-cyan-50/60 p-2.5 text-xs text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-200 flex items-center gap-2">
+                    <Sparkles size={15} className="shrink-0 text-cyan-600 dark:text-cyan-400" />
+                    <span><strong>1-Click Desktop Bridge:</strong> Using <code>mcp-remote</code> handles background reconnection and SSL handshakes seamlessly without network drops.</span>
+                  </div>
+
+                  <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-200">1</span>
                       <span>
                         In Cursor, open <strong>Settings</strong> (gear icon or <code className="font-mono">Cmd+,</code> / <code className="font-mono">Ctrl+,</code>) → <strong>Features</strong> → <strong>MCP Servers</strong>.
                       </span>
                     </li>
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">2.</span>
-                      <span>Click <strong>+ Add New MCP Server</strong> and enter:</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-200">2</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>Click <strong>+ Add New MCP Server</strong> and enter:</span>
+                        <div className="grid gap-2 sm:grid-cols-3 pt-1">
+                          <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                            <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Name</div>
+                            <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">prompthold</code>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                            <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Type</div>
+                            <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">command</code>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Command</span>
+                              <button
+                                type="button"
+                                onClick={() => void copy(`npx -y mcp-remote ${mcpUrl}`, 'cursor-cmd', 'Command copied')}
+                                className="btn-ghost btn-xs text-[10px]"
+                              >
+                                {copiedId === 'cursor-cmd' ? <Check size={11} className="text-cyan-600" /> : <Copy size={11} />}
+                                <span>{copiedId === 'cursor-cmd' ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
+                            <code className="truncate text-xs font-semibold text-slate-800 dark:text-zinc-200 block">
+                              npx -y mcp-remote {mcpUrl}
+                            </code>
+                          </div>
+                        </div>
+                      </div>
                     </li>
                   </ol>
 
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Name</div>
-                      <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">prompthold</code>
+                  {/* Or config JSON */}
+                  <div className="pt-1">
+                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
+                      <span>Or paste into <code>~/.cursor/mcp.json</code>:</span>
+                      <button
+                        type="button"
+                        onClick={() => void copy(cursorMcpConfigJson, 'cursor-json', 'Config copied')}
+                        className="btn-ghost btn-sm h-7 px-2 text-xs"
+                      >
+                        {copiedId === 'cursor-json' ? <Check size={13} className="text-cyan-600 dark:text-cyan-400" /> : <Copy size={13} />}
+                        <span>{copiedId === 'cursor-json' ? 'Copied' : 'Copy config'}</span>
+                      </button>
                     </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Type</div>
-                      <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">sse</code>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Server URL</span>
-                        <button
-                          type="button"
-                          onClick={() => void copy(mcpUrl, 'cursor-url', 'URL copied')}
-                          className="btn-ghost btn-xs text-[10px]"
-                        >
-                          {copiedId === 'cursor-url' ? <Check size={11} className="text-cyan-600" /> : <Copy size={11} />}
-                          <span>{copiedId === 'cursor-url' ? 'Copied' : 'Copy'}</span>
-                        </button>
-                      </div>
-                      <code className="truncate text-xs font-semibold text-slate-800 dark:text-zinc-200 block">
-                        {mcpUrl}
-                      </code>
-                    </div>
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                      <code>{cursorMcpConfigJson}</code>
+                    </pre>
                   </div>
 
-                  <ol start={3} className="space-y-1 text-xs text-slate-600 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">3.</span>
-                      <span>Open Cursor Chat (<code className="font-mono">Cmd+L</code>) or Composer (<code className="font-mono">Cmd+I</code>) to use your prompts!</span>
-                    </li>
-                  </ol>
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                    💡 If using direct SSE mode: set <strong>Type: sse</strong> and URL to <code className="font-mono text-cyan-600 dark:text-cyan-400">{sseUrl}</code>.
+                  </p>
                 </div>
-              ) : (
-                /* VS Code Cline/Roo */
+              )}
+
+              {cursorMode === 'vscode' && (
                 <div className="space-y-3 pt-1">
-                  <ol className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">1.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-200">1</span>
                       <span>In Cline or Roo Code settings, paste this into your MCP configuration:</span>
                     </li>
                   </ol>
@@ -1252,43 +1313,43 @@ export default function ConnectAiModal({
                       <span>cline_mcp_settings.json</span>
                       <button
                         type="button"
-                        onClick={() => void copy(vscodeMcpJson, 'vscode-mcp', 'Configuration copied')}
+                        onClick={() => void copy(clineConfigJson, 'cline-json', 'Configuration copied')}
                         className="btn-ghost btn-sm h-7 px-2 text-xs"
                       >
-                        {copiedId === 'vscode-mcp' ? <Check size={13} className="text-cyan-600 dark:text-cyan-400" /> : <Copy size={13} />}
-                        <span>{copiedId === 'vscode-mcp' ? 'Copied' : 'Copy'}</span>
+                        {copiedId === 'cline-json' ? <Check size={13} className="text-cyan-600 dark:text-cyan-400" /> : <Copy size={13} />}
+                        <span>{copiedId === 'cline-json' ? 'Copied' : 'Copy config'}</span>
                       </button>
                     </div>
                     <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
-                      <code>{vscodeMcpJson}</code>
+                      <code>{clineConfigJson}</code>
                     </pre>
                   </div>
                 </div>
               )}
 
-              {/* Try in chat tip */}
+              {/* In-chat example */}
               <div className="flex items-start gap-2.5 rounded-lg border border-cyan-200 bg-cyan-50/80 p-2.5 text-xs text-cyan-900 dark:border-cyan-900/50 dark:bg-cyan-950/30 dark:text-cyan-200">
-                <Info size={14} className="mt-0.5 shrink-0 text-cyan-600 dark:text-cyan-400" />
+                <Sparkles size={14} className="mt-0.5 shrink-0 text-cyan-600 dark:text-cyan-400" />
                 <div>
-                  <span className="font-semibold">Example prompt to ask in Cursor Chat: </span>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans">
-                    “Use PromptHold to fetch the 'Code Review Guidelines' prompt using key {snippetKey} and review this file”
+                  <span className="font-semibold">What to ask in Cursor Chat (Cmd+L): </span>
+                  <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
+                    “Use PromptHold to load my 'Code Review' prompt using key {displaySnippetKey} and review this file”
                   </em>
                 </div>
               </div>
             </div>
           )}
 
-          {/* PROVIDER 5: API / CODE */}
+          {/* ==================== PROVIDER 5: API & SCRIPTS ==================== */}
           {provider === 'api' && (
             <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Terminal className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">REST API &amp; Custom Scripts</h4>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">REST API &amp; Python Scripts</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Query, substitute variables, and update prompts from Python, LangChain, or cURL.
+                      Query prompts and substitute variables from your own automated pipelines:
                     </p>
                   </div>
                 </div>
@@ -1296,30 +1357,42 @@ export default function ConnectAiModal({
                 <div className="segmented h-8 bg-white dark:bg-zinc-900">
                   <button
                     type="button"
-                    onClick={() => setApiMode('curl')}
-                    className={`segmented-item text-xs ${apiMode === 'curl' ? 'segmented-item-active' : ''}`}
-                  >
-                    cURL
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setApiMode('python')}
                     className={`segmented-item text-xs ${apiMode === 'python' ? 'segmented-item-active' : ''}`}
                   >
                     Python
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setApiMode('curl')}
+                    className={`segmented-item text-xs ${apiMode === 'curl' ? 'segmented-item-active' : ''}`}
+                  >
+                    cURL
+                  </button>
                 </div>
+              </div>
+
+              {/* Notice explaining why previous python code returned HTML */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-3 text-xs text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200 space-y-1">
+                <div className="flex items-center gap-1.5 font-semibold text-blue-950 dark:text-blue-100">
+                  <Info size={14} className="shrink-0 text-blue-600 dark:text-blue-400" />
+                  <span>Always use the live API gateway URL:</span>
+                </div>
+                <p>
+                  If a script ever returned an HTML webpage instead of JSON, it was hitting the static frontend (<code>prompthold.pages.dev</code>).
+                  The script below queries the real backend API (<code>{restUrl}</code>) which always returns clean JSON.
+                </p>
               </div>
 
               <div className="space-y-3 pt-1">
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      {apiMode === 'curl' ? 'cURL request' : 'Python script'}
+                      {apiMode === 'python' ? 'Python script' : 'cURL command'}
                     </span>
                     <button
                       type="button"
-                      onClick={() => void copy(apiMode === 'curl' ? curlSnippet : pythonSnippet, `code-${apiMode}`, 'Code copied')}
+                      onClick={() => void copy(apiMode === 'python' ? pythonSnippet : curlSnippet, `code-${apiMode}`, 'Code copied')}
                       className="btn-ghost btn-sm h-7 px-2 text-xs"
                     >
                       {copiedId === `code-${apiMode}` ? <Check size={13} className="text-brand-600 dark:text-brand-400" /> : <Copy size={13} />}
@@ -1327,13 +1400,13 @@ export default function ConnectAiModal({
                     </button>
                   </div>
                   <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
-                    <code>{apiMode === 'curl' ? curlSnippet : pythonSnippet}</code>
+                    <code>{apiMode === 'python' ? pythonSnippet : curlSnippet}</code>
                   </pre>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
                   <p>
-                    <strong>API Tip:</strong> Filter prompts by space with <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?group_id=&lt;id&gt;</code> or search titles using <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?search=&lt;query&gt;</code>.
+                    <strong>API Filtering:</strong> Filter prompts by space using <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?group_id=&lt;id&gt;</code> or search titles with <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?search=&lt;query&gt;</code>.
                   </p>
                 </div>
               </div>
