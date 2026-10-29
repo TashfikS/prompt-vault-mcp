@@ -78,7 +78,7 @@ class SlidingWindowRateLimiter:
         self._last_cleanup = time.monotonic()
 
     def _cleanup_memory(self, now: float, max_window: float = 900.0) -> None:
-        if now - self._last_cleanup < 120.0:
+        if now - self._last_cleanup < 120.0 and len(self._hits) < 5000:
             return
         self._last_cleanup = now
         stale_keys = [

@@ -71,6 +71,14 @@ _raw_supabase_url = (os.getenv("SUPABASE_DATABASE_URL") or os.getenv("SUPABASE_D
 if is_supabase_configured():
     SUPABASE_DATABASE_URL = normalize_db_url(_raw_supabase_url)
     logger.info("Supabase database configured for Free/Community tier.")
+elif NEON_DATABASE_URL and not NEON_DATABASE_URL.startswith("sqlite"):
+    # Single-database deployment mode: when a persistent PostgreSQL database is provided (Neon or custom DB)
+    # but separate Supabase credentials are not, share the persistent PostgreSQL DB across all tiers
+    # so data is never lost on ephemeral container restarts (e.g. Render / Hugging Face free tiers).
+    SUPABASE_DATABASE_URL = NEON_DATABASE_URL
+    logger.info(
+        "[PromptHold DB Router] SUPABASE_DATABASE_URL not set; using persistent PostgreSQL database for Community tier."
+    )
 else:
     # Safe local fallback until user inputs Supabase credentials in .env
     SUPABASE_DATABASE_URL = "sqlite:///./prompthold_community.db"
@@ -82,27 +90,37 @@ else:
 neon_connect_args: dict[str, Any] = (
     {"check_same_thread": False}
     if NEON_DATABASE_URL.startswith("sqlite")
-    else {"prepare_threshold": None}
+    else {"prepare_threshold": None, "connect_timeout": 5}
 )
 supabase_connect_args: dict[str, Any] = (
     {"check_same_thread": False}
     if SUPABASE_DATABASE_URL.startswith("sqlite")
-    else {"prepare_threshold": None}
+    else {"prepare_threshold": None, "connect_timeout": 5}
 )
 
-engine_neon = create_engine(
-    NEON_DATABASE_URL,
-    connect_args=neon_connect_args,
-    pool_pre_ping=True,
-    pool_recycle=300 if not NEON_DATABASE_URL.startswith("sqlite") else -1,
-)
+neon_engine_kwargs: dict[str, Any] = {
+    "connect_args": neon_connect_args,
+    "pool_pre_ping": True,
+}
+if not NEON_DATABASE_URL.startswith("sqlite"):
+    neon_engine_kwargs["pool_recycle"] = 300
+    neon_engine_kwargs["pool_size"] = 5
+    neon_engine_kwargs["max_overflow"] = 5
+    neon_engine_kwargs["pool_timeout"] = 10
 
-engine_supabase = create_engine(
-    SUPABASE_DATABASE_URL,
-    connect_args=supabase_connect_args,
-    pool_pre_ping=True,
-    pool_recycle=300 if not SUPABASE_DATABASE_URL.startswith("sqlite") else -1,
-)
+engine_neon = create_engine(NEON_DATABASE_URL, **neon_engine_kwargs)
+
+supabase_engine_kwargs: dict[str, Any] = {
+    "connect_args": supabase_connect_args,
+    "pool_pre_ping": True,
+}
+if not SUPABASE_DATABASE_URL.startswith("sqlite"):
+    supabase_engine_kwargs["pool_recycle"] = 300
+    supabase_engine_kwargs["pool_size"] = 5
+    supabase_engine_kwargs["max_overflow"] = 5
+    supabase_engine_kwargs["pool_timeout"] = 10
+
+engine_supabase = create_engine(SUPABASE_DATABASE_URL, **supabase_engine_kwargs)
 
 # Primary default engine and sessionmaker (for backward compatibility)
 engine = engine_neon
@@ -164,6 +182,7 @@ def is_test_session(db: Session) -> bool:
 # 3. In-Memory Token-to-Tier Routing Cache
 # -----------------------------------------------------------------------------
 
+_MAX_TOKEN_CACHE_SIZE = 2048
 _token_plan_cache: dict[str, str] = {}
 
 
@@ -173,6 +192,9 @@ def cache_token_plan(token: str, plan: str) -> None:
         return
     clean_token = token.strip()
     clean_plan = plan.strip().lower()
+    if len(_token_plan_cache) >= _MAX_TOKEN_CACHE_SIZE:
+        for _ in range(min(128, len(_token_plan_cache))):
+            _token_plan_cache.pop(next(iter(_token_plan_cache)), None)
     _token_plan_cache[clean_token] = clean_plan
     token_h = hashlib.sha256(clean_token.encode("utf-8")).hexdigest()
     _token_plan_cache[token_h] = clean_plan
@@ -252,6 +274,7 @@ def resolve_token_plan(token: str) -> str:
     except Exception:
         pass
 
+    cache_token_plan(token, COMMUNITY_PLAN)
     return COMMUNITY_PLAN
 
 

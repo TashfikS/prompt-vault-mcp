@@ -597,7 +597,30 @@ export default {
           const email = (body.email || "").trim().toLowerCase();
           const users = await sql`SELECT * FROM users WHERE LOWER(email) = ${email} LIMIT 1`;
           const user = users[0];
-          if (!user || !verifyPassword(body.password || "", user.password_hash)) {
+          if (!user) {
+            return errorResponse("Invalid email or password.", 401);
+          }
+          if (user.password_hash && user.password_hash.startsWith("$argon2")) {
+            // Argon2id hashes require primary backend verification.
+            // When edge failover is active, proxy upstream with extended timeout to avoid false 401.
+            const origin = env.RENDER_ORIGIN || env.BACKEND_POD_1;
+            if (origin) {
+              try {
+                const upstreamResp = await fetch(new URL(path, origin).toString(), {
+                  method: "POST",
+                  headers: request.headers,
+                  body: JSON.stringify(body),
+                  signal: AbortSignal.timeout(6000),
+                });
+                return new Response(upstreamResp.body, {
+                  status: upstreamResp.status,
+                  headers: { ...getCorsHeaders(request), "Content-Type": "application/json" },
+                });
+              } catch {}
+            }
+            return errorResponse("Backend authentication service is spinning up. Please retry in a few moments.", 503);
+          }
+          if (!verifyPassword(body.password || "", user.password_hash)) {
             return errorResponse("Invalid email or password.", 401);
           }
           await ensurePersonalGroup(sql, user);
@@ -619,8 +642,8 @@ export default {
           const name = (body.name || "").trim();
           const email = (body.email || "").trim().toLowerCase();
           const password = body.password || "";
-          if (!name || !email || password.length < 4) {
-            return errorResponse("Name, valid email, and password (min 4 chars) are required.", 400);
+          if (!name || !email || password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+            return errorResponse("Name, valid email, and password (min 8 chars with letters & numbers) are required.", 400);
           }
           const existing = await sql`SELECT id FROM users WHERE LOWER(email) = ${email} LIMIT 1`;
           if (existing.length > 0) {

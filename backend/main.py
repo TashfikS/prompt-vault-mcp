@@ -117,7 +117,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
-    allow_origin_regex=r"https://.*\.(pages\.dev|workers\.dev|hf\.space|onrender\.com)",
+    allow_origin_regex=r"https://(prompthold|prompt-vault)(-[a-z0-9_-]+)?((\.[a-z0-9_-]+)?)\.(pages\.dev|workers\.dev|onrender\.com|hf\.space)",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "If-None-Match"],
