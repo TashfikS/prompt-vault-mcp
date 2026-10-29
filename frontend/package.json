@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "node tests/browser-e2e.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
@@ -26,6 +27,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "puppeteer-core": "^24.4.0",
     "tailwindcss": "^3.4.16",
     "typescript": "~5.6.3",
     "vite": "^5.4.11"

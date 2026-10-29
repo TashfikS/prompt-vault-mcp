@@ -540,19 +540,28 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname === "/mcp" ? "/mcp/" : url.pathname;
 
+    // Buffer request body so it can be re-used across upstream attempts and Edge failover without stream exhaustion
+    let rawBody = null;
+    if (!["GET", "HEAD"].includes(request.method)) {
+      try {
+        rawBody = await request.arrayBuffer();
+      } catch {
+        rawBody = null;
+      }
+    }
+
     // 1. Optional multi-pod upstream forwarding (Render + Edge Failover)
     const pods = [env.RENDER_ORIGIN, env.BACKEND_POD_1, env.BACKEND_POD_2].filter(Boolean);
     if (pods.length > 0 && (path.startsWith("/api/") || path.startsWith("/mcp"))) {
       for (const pod of pods) {
         try {
           const targetUrl = new URL(path + url.search, pod);
-          const reqBody = ["GET", "HEAD"].includes(request.method) ? undefined : request.body;
           const upstreamReq = new Request(targetUrl.toString(), {
             method: request.method,
             headers: request.headers,
-            body: reqBody,
+            body: rawBody ? rawBody.slice(0) : undefined,
             redirect: "follow",
-            signal: AbortSignal.timeout(2800),
+            signal: AbortSignal.timeout(4500),
           });
           const resp = await fetch(upstreamReq);
           if (resp.status < 502) {
@@ -566,6 +575,16 @@ export default {
           // Failover to next pod or built-in Edge Neon execution
         }
       }
+    }
+
+    // Reconstruct request for Direct Edge execution so request.json() has fresh body
+    if (rawBody) {
+      request = new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: rawBody.slice(0),
+      });
+      activeRequest = request;
     }
 
     // 2. Direct Edge execution against Neon Lakebase Postgres
