@@ -104,7 +104,7 @@ Render hosts the Docker container running FastAPI, FastMCP server, and backgroun
 4. Configure service details:
    * **Name:** `prompthold-backend`
    * **Region:** Ohio (or region matching Neon)
-   * **Branch:** `main`
+   * **Branch:** `dev`
    * **Runtime:** `Docker`
    * **Instance Type:** `Free`
    * **Health Check Path:** `/api/health`

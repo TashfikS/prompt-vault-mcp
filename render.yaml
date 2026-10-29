@@ -3,6 +3,7 @@ services:
     name: prompthold-mcp
     runtime: docker
     plan: free
+    branch: dev
     healthCheckPath: /api/health
     envVars:
       - key: PROMPT_HOLD_ENV
