@@ -49,10 +49,12 @@ from permissions import (can_access_group_with_key, can_user_approve_proposals, 
 from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, Prompt, PromptChunk, PromptProposal, PromptVersion,
                     ProposalApproval, SharedDiffLink, User)
 from search import hybrid_search_prompts, sync_prompt_embeddings
-from schemas import (AssignMemberRequest, ChangePasswordRequest, CreateApiKeyRequest, CreateDiffShareRequest,
+from schemas import (AssignMemberRequest, ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, CreateDiffShareRequest,
                      FeedbackCreateRequest, FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest,
                      PlanUpdateRequest, PromptCreateRequest, PromptDuplicateRequest, PromptUpdateRequest,
                      ProposalCreateRequest, RegisterRequest, UpdateProfileRequest)
+from polar_billing import (create_checkout_session, create_customer_portal_session, is_polar_configured,
+                           process_polar_event, verify_polar_webhook_signature)
 from security import (AUTO_MIGRATE_DB, IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES,
                       MAX_UPLOAD_FILE_BYTES, SecurityHeadersMiddleware, escape_like, get_allowed_origins,
                       get_client_ip, rate_limiter, record_audit_log, sanitize_filename, should_seed_demo_data,
@@ -986,6 +988,49 @@ def update_my_plan(payload: PlanUpdateRequest, request: Request, db: Session = D
             "is_workspace_admin": user.is_workspace_admin,
         },
     }
+
+
+@app.get("/api/billing/config")
+def get_billing_configuration() -> dict:
+    """Return public Polar billing configuration status."""
+    return {
+        "provider": "polar",
+        "configured": is_polar_configured(),
+        "environment": os.getenv("POLAR_ENVIRONMENT", "sandbox").strip().lower(),
+    }
+
+
+@app.post("/api/billing/checkout")
+def create_billing_checkout(
+    payload: CheckoutSessionRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict:
+    """Generate a Polar checkout session URL to upgrade to a paid subscription."""
+    _require_web_session(user)
+    return create_checkout_session(user=user, plan=payload.plan, success_url=payload.success_url)
+
+
+@app.post("/api/billing/portal")
+def create_billing_portal(
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict:
+    """Generate a Polar customer portal session URL to self-manage or cancel subscriptions."""
+    _require_web_session(user)
+    return create_customer_portal_session(user=user)
+
+
+@app.post("/api/webhooks/polar")
+async def handle_polar_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Receive and process incoming verified webhooks from Polar.sh."""
+    raw_body = await request.body()
+    headers_dict = dict(request.headers)
+    event_dict = verify_polar_webhook_signature(raw_body, headers_dict)
+    return process_polar_event(event_dict, db)
 
 
 @app.get("/api/api-keys")

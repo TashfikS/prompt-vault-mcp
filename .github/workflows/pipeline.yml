@@ -2,10 +2,14 @@ name: CI/CD Pipeline (Test & Deploy)
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - dev
+      - release
     tags: ["v*.*.*"]
   pull_request:
-    branches: [main, master]
+    branches:
+      - dev
+      - release
   workflow_dispatch:
 
 concurrency:
@@ -223,12 +227,12 @@ jobs:
   # STAGE 2: CONTINUOUS DEPLOYMENT (Only triggers after ALL tests pass on main)
   # ============================================================================
 
-  # 2.1 Publish Multi-Platform Image to GitHub Container Registry (GHCR)
+  # 2.1 Publish Multi-Platform Image to GitHub Container Registry (GHCR) (Production)
   publish-ghcr:
-    name: 5. Deploy Docker Image to GHCR
+    name: 5. Deploy Docker Image to GHCR (Production)
     runs-on: ubuntu-latest
     needs: [backend-lint-security, backend-tests, frontend-verify, docker-smoke-test]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: (github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/v')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -266,10 +270,10 @@ jobs:
 
   # 2.2 Trigger Render Production Deployment
   deploy-render:
-    name: 6. Deploy to Render Backend Web Service
+    name: 6. Deploy to Render Backend Web Service (Production)
     runs-on: ubuntu-latest
     needs: [publish-ghcr]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: (github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/v')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Trigger Render Deploy Hook
         env:
@@ -287,52 +291,95 @@ jobs:
             fi
           fi
 
-  # 2.3 Deploy to Cloudflare Pages & Cloudflare Worker Gateway
-  deploy-cloudflare:
-    name: 7. Deploy to Cloudflare Pages & Worker
+  # 2.3 Deploy Dev to Cloudflare Pages (Development Account - dev branch)
+  deploy-cloudflare-dev:
+    name: 7. Deploy to Cloudflare Pages (Dev Environment)
     runs-on: ubuntu-latest
     needs: [backend-lint-security, backend-tests, frontend-verify, docker-smoke-test]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/dev' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Cloudflare credentials
-        id: check_cf
+      - name: Check Cloudflare Dev credentials
+        id: check_cf_dev
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+          if [ -z "${CF_API_TOKEN}" ]; then
             echo "configured=false" >> $GITHUB_OUTPUT
-            echo "CLOUDFLARE_API_TOKEN secret not set. Skipping Cloudflare deploy."
+            echo "Neither CLOUDFLARE_DEV_API_TOKEN nor CLOUDFLARE_API_TOKEN is set. Skipping Dev deploy."
           else
             echo "configured=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Set up Node.js 22
-        if: steps.check_cf.outputs.configured == 'true'
+        if: steps.check_cf_dev.outputs.configured == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Deploy Frontend to Cloudflare Pages
-        if: steps.check_cf.outputs.configured == 'true'
+      - name: Deploy Frontend to Cloudflare Pages (Dev Branch)
+        if: steps.check_cf_dev.outputs.configured == 'true'
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           cd frontend
           npm ci
           npm run build
-          npx wrangler pages deploy dist --project-name prompthold --branch main
+          npx wrangler pages deploy dist --project-name prompthold --branch dev
+          echo "Successfully deployed to Dev Cloudflare Pages (*.pages.dev)!"
 
-      - name: Deploy Gateway to Cloudflare Worker
-        if: steps.check_cf.outputs.configured == 'true'
+  # 2.4 Deploy Production to Cloudflare Pages & Gateway (Production Account - release branch)
+  deploy-cloudflare-prod:
+    name: 8. Deploy to Cloudflare Pages & Gateway (Production Environment)
+    runs-on: ubuntu-latest
+    needs: [backend-lint-security, backend-tests, frontend-verify, docker-smoke-test]
+    if: (github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/v')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Cloudflare Prod credentials
+        id: check_cf_prod
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_PROD_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "${CF_API_TOKEN}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "Neither CLOUDFLARE_PROD_API_TOKEN nor CLOUDFLARE_API_TOKEN is set. Skipping Production deploy."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node.js 22
+        if: steps.check_cf_prod.outputs.configured == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy Frontend to Cloudflare Pages (Production)
+        if: steps.check_cf_prod.outputs.configured == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PROD_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PROD_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          npx wrangler pages deploy dist --project-name prompthold --branch release
+          echo "Successfully deployed frontend to Production Cloudflare Pages (release branch)!"
+
+      - name: Deploy Gateway & Automated Cron Triggers to Cloudflare Worker
+        if: steps.check_cf_prod.outputs.configured == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PROD_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PROD_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           cd cloudflare-worker
           npm ci
           npx wrangler deploy
+          echo "Successfully deployed Cloudflare Worker gateway and scheduled cron triggers to Production!"
+
 

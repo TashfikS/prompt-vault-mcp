@@ -246,6 +246,10 @@ def upgrade_schema(engine: Engine) -> None:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN NOT NULL DEFAULT {bool_false}"))
         if "plan" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR(32) NOT NULL DEFAULT 'community'"))
+        if "polar_customer_id" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN polar_customer_id VARCHAR(100)"))
+        if "polar_subscription_id" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN polar_subscription_id VARCHAR(100)"))
         if "failed_login_attempts" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0"))
         if "locked_until" not in user_columns:

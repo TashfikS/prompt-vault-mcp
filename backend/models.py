@@ -24,6 +24,8 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255))
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     plan: Mapped[str] = mapped_column(String(32), default="community", nullable=False)
+    polar_customer_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    polar_subscription_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -180,3 +180,8 @@ class PlanUpdateRequest(BaseModel):
     plan: Literal["community", "pro", "team", "enterprise"]
 
 
+class CheckoutSessionRequest(BaseModel):
+    plan: Literal["pro", "team"]
+    success_url: str | None = Field(default=None, max_length=500)
+
+

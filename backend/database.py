@@ -322,6 +322,8 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
                 password_hash=src_user.password_hash,
                 onboarding_completed=src_user.onboarding_completed,
                 plan=to_plan,
+                polar_customer_id=getattr(src_user, "polar_customer_id", None),
+                polar_subscription_id=getattr(src_user, "polar_subscription_id", None),
                 failed_login_attempts=getattr(src_user, "failed_login_attempts", 0) or 0,
                 locked_until=getattr(src_user, "locked_until", None),
                 last_login_at=getattr(src_user, "last_login_at", None),
@@ -331,6 +333,8 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
         else:
             dst_user.plan = to_plan
             dst_user.name = src_user.name
+            dst_user.polar_customer_id = getattr(src_user, "polar_customer_id", None)
+            dst_user.polar_subscription_id = getattr(src_user, "polar_subscription_id", None)
             dst_user.password_hash = src_user.password_hash
             dst_user.failed_login_attempts = getattr(src_user, "failed_login_attempts", 0) or 0
             dst_user.locked_until = getattr(src_user, "locked_until", None)

@@ -264,6 +264,10 @@ prompt-vault-mcp/
 | `POST` | `/api/proposals/{id}/reject` | Reject a review request | Yes (Owner/Member) |
 | `POST` | `/api/diff-shares` | Create a shareable diff comparison link | Yes |
 | `GET` | `/api/diff-shares/{share_id}` | Retrieve pre-configured diff data for zero-config view | Open |
+| `GET` | `/api/billing/config` | Inspect Polar billing configuration status | Open |
+| `POST` | `/api/billing/checkout` | Create Polar checkout session URL for paid plan upgrade | Yes |
+| `POST` | `/api/billing/portal` | Create Polar customer portal session URL | Yes |
+| `POST` | `/api/webhooks/polar` | Receive verified Polar webhooks & auto-migrate tiers | Open (HMAC) |
 
 ---
 

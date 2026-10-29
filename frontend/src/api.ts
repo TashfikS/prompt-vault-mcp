@@ -1,5 +1,4 @@
-/// <reference types="vite/client" />
-import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, CreatedApiKeyResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, PromptVersionItem, SharedDiffPayload, User } from './types'
+import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, BillingConfigResponse, CheckoutSessionResponse, CreatedApiKeyResponse, CustomerPortalResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, PromptVersionItem, SharedDiffPayload, User } from './types'
 
 const TOKEN_KEY = 'prompt-vault-session'
 const API_BASE =
@@ -104,3 +103,12 @@ export const updateProfile = (data: { name: string }) =>
 
 export const changePassword = (data: { current_password: string; new_password: string }) =>
   api<{ message: string }>('/api/me/change-password', { method: 'POST', body: JSON.stringify(data) })
+
+export const getBillingConfig = () => api<BillingConfigResponse>('/api/billing/config')
+export const createBillingCheckout = (plan: PricingPlanId, successUrl?: string) =>
+  api<CheckoutSessionResponse>('/api/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify({ plan, success_url: successUrl }),
+  })
+export const openBillingPortal = () =>
+  api<CustomerPortalResponse>('/api/billing/portal', { method: 'POST' })

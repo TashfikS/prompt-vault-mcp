@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, Check, CreditCard, HardDrive, Loader2, Users } from 'lucide-react'
 import Modal from './ui/Modal'
-import { getPricing, updatePlan } from '../api'
+import { createBillingCheckout, getPricing, openBillingPortal, updatePlan } from '../api'
 import type { PricingPlanId, PricingResponse, PricingTier, User } from '../types'
 import { useToast } from './ui/Toast'
 
@@ -143,6 +143,24 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
 
     setLoadingTier(tierId)
     try {
+      if (tierId === 'pro' || tierId === 'team') {
+        const checkout = await createBillingCheckout(tierId)
+        if (checkout.checkout_url) {
+          window.location.href = checkout.checkout_url
+          return
+        }
+        if (checkout.mode === 'mock') {
+          if (activeUser?.is_workspace_admin) {
+            const res = await updatePlan(tierId)
+            toast(res.message || `Switched to ${tierId.toUpperCase()} plan (Dev Admin Mode)`, { tone: 'success' })
+            onPlanUpdated?.(tierId)
+          } else {
+            toast(checkout.message || 'Polar checkout ready. Configure POLAR_ACCESS_TOKEN in .env to activate live payments.', { tone: 'info' })
+          }
+          return
+        }
+      }
+
       const res = await updatePlan(tierId)
       toast(res.message || `Switched to ${tierId.toUpperCase()} plan!`, { tone: 'success' })
       onPlanUpdated?.(tierId)
@@ -150,6 +168,19 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
       toast(e instanceof Error ? e.message : 'Could not change plan.', { tone: 'error' })
     } finally {
       setLoadingTier(null)
+    }
+  }
+
+  async function handleOpenPortal() {
+    try {
+      const res = await openBillingPortal()
+      if (res.portal_url) {
+        window.location.href = res.portal_url
+      } else {
+        toast(res.message || 'Billing portal not yet available.', { tone: 'info' })
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not open billing portal.', { tone: 'error' })
     }
   }
 
@@ -382,14 +413,25 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
             <span className="text-slate-500 dark:text-zinc-400">
               Need detailed feature breakdowns &amp; FAQ?
             </span>
-            <button
-              type="button"
-              onClick={onViewFullPage}
-              className="inline-flex items-center gap-1.5 font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 cursor-pointer"
-            >
-              <span>View Full Comparison Page</span>
-              <ArrowRight size={13} />
-            </button>
+            <div className="flex items-center gap-4">
+              {(currentPlan === 'pro' || currentPlan === 'team') && (
+                <button
+                  type="button"
+                  onClick={handleOpenPortal}
+                  className="font-medium text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 cursor-pointer underline"
+                >
+                  Manage Billing
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onViewFullPage}
+                className="inline-flex items-center gap-1.5 font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 cursor-pointer"
+              >
+                <span>View Full Comparison Page</span>
+                <ArrowRight size={13} />
+              </button>
+            </div>
           </div>
         )}
       </div>

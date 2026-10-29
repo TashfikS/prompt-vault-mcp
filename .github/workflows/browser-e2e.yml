@@ -2,9 +2,13 @@ name: Browser E2E QA Pipeline
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - dev
+      - release
   pull_request:
-    branches: [main, master]
+    branches:
+      - dev
+      - release
   workflow_dispatch:
 
 concurrency:

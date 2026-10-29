@@ -38,6 +38,24 @@ export type PricingResponse = {
     max_prompts: number
   } | null
 }
+export type BillingConfigResponse = {
+  provider: string
+  configured: boolean
+  environment: string
+}
+export type CheckoutSessionResponse = {
+  checkout_url: string | null
+  session_id: string
+  mode: 'live' | 'mock'
+  plan: PricingPlanId
+  configured?: boolean
+  message?: string
+}
+export type CustomerPortalResponse = {
+  portal_url: string | null
+  mode: 'live' | 'mock'
+  message?: string
+}
 export type GroupMember = { user_id: string; name: string; email: string; role: GroupRole; added_at?: string }
 export type Group = {
   id: string

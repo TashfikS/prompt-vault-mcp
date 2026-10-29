@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, ArrowRight, Check, CreditCard, HardDrive, HelpCircle, Loader2, Users } from 'lucide-react'
-import { getPricing, updatePlan } from '../api'
+import { createBillingCheckout, getPricing, updatePlan } from '../api'
 import type { PricingPlanId, PricingResponse, PricingTier, User } from '../types'
 import { ThemeToggleButton } from '../theme'
 import { Logo } from './ui/Brand'
@@ -162,6 +162,24 @@ export default function PricingPage({
 
     setLoadingTier(tierId)
     try {
+      if (tierId === 'pro' || tierId === 'team') {
+        const checkout = await createBillingCheckout(tierId)
+        if (checkout.checkout_url) {
+          window.location.href = checkout.checkout_url
+          return
+        }
+        if (checkout.mode === 'mock') {
+          if (activeUser?.is_workspace_admin) {
+            const res = await updatePlan(tierId)
+            toast(res.message || `Switched to ${tierId.toUpperCase()} plan (Dev Admin Mode)`, { tone: 'success' })
+            onPlanUpdated?.(tierId)
+          } else {
+            toast(checkout.message || 'Polar checkout ready. Configure POLAR_ACCESS_TOKEN in .env to activate live payments.', { tone: 'info' })
+          }
+          return
+        }
+      }
+
       const res = await updatePlan(tierId)
       toast(res.message || `Switched to ${tierId.toUpperCase()} plan!`, { tone: 'success' })
       onPlanUpdated?.(tierId)
