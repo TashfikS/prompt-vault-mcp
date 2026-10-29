@@ -98,9 +98,13 @@ def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list
         })
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key={api_key}"
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json",
+    }
     try:
         with httpx.Client(timeout=15.0) as client:
-            resp = client.post(url, json={"requests": requests})
+            resp = client.post(url, json={"requests": requests}, headers=headers)
             if resp.status_code != 200:
                 logger.warning("Gemini batch embedding API returned %s: %s", resp.status_code, resp.text[:200])
                 return []
