@@ -1,15 +1,23 @@
 name: Browser E2E QA Pipeline
 
 on:
-  push:
-    branches:
-      - dev
-      - release
-  pull_request:
+  workflow_run:
+    workflows: ["CI/CD Pipeline (Test & Deploy)"]
+    types:
+      - completed
     branches:
       - dev
       - release
   workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Frontend base URL to test'
+        required: false
+        default: 'https://prompthold.pages.dev'
+      api_base:
+        description: 'API gateway base URL to test'
+        required: false
+        default: 'https://prompt-vault-gateway.tashfiks.workers.dev'
 
 concurrency:
   group: browser-e2e-${{ github.ref }}
@@ -20,21 +28,22 @@ jobs:
     name: Live Browser E2E QA (21 Features)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Verify Google Chrome installation
         run: |
@@ -44,7 +53,8 @@ jobs:
       - name: Run 21-Feature Browser E2E Live QA Suite
         working-directory: frontend
         env:
-          E2E_BASE_URL: https://prompthold.pages.dev
-          E2E_API_BASE: https://prompt-vault-gateway.tashfiks.workers.dev
+          E2E_BASE_URL: ${{ inputs.base_url || 'https://prompthold.pages.dev' }}
+          E2E_API_BASE: ${{ inputs.api_base || 'https://prompt-vault-gateway.tashfiks.workers.dev' }}
           CHROME_BIN: /usr/bin/google-chrome
         run: npm run test:e2e
+
