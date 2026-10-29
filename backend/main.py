@@ -20,9 +20,11 @@ from sqlalchemy.orm import Session
 
 from database import (
     Base,
+    PAID_PLANS,
     SessionLocal,
     SessionNeon,
     SessionSupabase,
+    cache_token_plan,
     engine,
     engine_neon,
     engine_supabase,
@@ -93,13 +95,16 @@ async def lifespan(application: FastAPI):
         import logging
         logging.getLogger("uvicorn.error").warning("Neon seed initialization warning: %s", exc)
 
-    # 4. Ensure personal spaces in Supabase as well
+    # 4. Ensure personal spaces and demo data in Supabase as well
     try:
         with SessionSupabase() as db_supa:
+            if should_seed_demo_data():
+                seed_initial_data(db_supa)
+                ensure_demo_passwords(db_supa)
             ensure_all_personal_groups(db_supa)
     except Exception as exc:
         import logging
-        logging.getLogger("uvicorn.error").warning("Supabase personal space initialization warning: %s", exc)
+        logging.getLogger("uvicorn.error").warning("Supabase seed initialization warning: %s", exc)
 
     async with mcp_asgi.router.lifespan_context(application):
         yield
@@ -282,6 +287,7 @@ def _require_write_permission(user: User) -> None:
 
 def _auth_response(db: Session, user: User, response: Response) -> dict:
     token = create_session(db, user)
+    cache_token_plan(token, getattr(user, "plan", "community") or "community")
     _set_session_cookie(response, token)
     return {"token": token,
             "user": {"id": user.id, "name": user.name, "email": user.email, "is_workspace_admin": user.is_workspace_admin}}
@@ -352,32 +358,42 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     if is_test_env:
         user = db.query(User).filter(User.email == email).first()
     else:
-        # Check Supabase first (free/community tier)
+        n_user = None
+        s_user = None
+        n_db = None
+        s_db = None
+        try:
+            n_db = SessionNeon()
+            n_user = n_db.query(User).filter(User.email == email).first()
+        except Exception:
+            if n_db:
+                n_db.close()
+                n_db = None
+
         try:
             s_db = SessionSupabase()
-            found = s_db.query(User).filter(User.email == email).first()
-            if found:
-                user = found
-                target_db = s_db
-                close_target = True
-            else:
-                s_db.close()
+            s_user = s_db.query(User).filter(User.email == email).first()
         except Exception:
-            pass
+            if s_db:
+                s_db.close()
+                s_db = None
 
-        # If not found in Supabase, check Neon (paid tiers)
-        if user is None:
-            try:
-                n_db = SessionNeon()
-                found = n_db.query(User).filter(User.email == email).first()
-                if found:
-                    user = found
-                    target_db = n_db
-                    close_target = True
-                else:
-                    n_db.close()
-            except Exception:
-                pass
+        if n_user and (not s_user or getattr(n_user, "plan", "") in PAID_PLANS):
+            user = n_user
+            target_db = n_db
+            close_target = True
+            if s_db:
+                s_db.close()
+        elif s_user:
+            user = s_user
+            target_db = s_db
+            close_target = True
+            if n_db:
+                n_db.close()
+        elif n_user:
+            user = n_user
+            target_db = n_db
+            close_target = True
 
     now_utc = datetime.utcnow()
     if user is not None and user.locked_until and user.locked_until > now_utc:
@@ -920,8 +936,12 @@ def update_my_plan(payload: PlanUpdateRequest, request: Request, db: Session = D
     if payload.plan not in PLAN_LIMITS_MAP:
         raise HTTPException(status_code=400, detail="Invalid plan selected.")
     old_plan = getattr(user, "plan", "community") or "community"
-
     is_test_env = is_test_session(db)
+    if not is_test_env and not user.is_workspace_admin and payload.plan in PAID_PLANS and user.plan != payload.plan:
+        raise HTTPException(
+            status_code=403,
+            detail="Upgrading to a paid subscription requires payment verification or workspace administrator authorization."
+        )
 
     # If transitioning across database tiers (Community <-> Paid), migrate the user's data!
     if not is_test_env and is_community_plan(old_plan) != is_community_plan(payload.plan):
@@ -1064,7 +1084,7 @@ def list_groups(db: Session = Depends(get_db), user: User = Depends(current_user
                        "is_personal": group.personal_owner_id is not None,
                        "required_approvals": getattr(group, "required_approvals", 1),
                        "members": [{"user_id": membership.user_id, "name": member.name, "email": member.email,
-                                    "role": membership.role, "added_at": membership.added_at.isoformat() + "Z"}
+                                    "role": membership.role, "added_at": (membership.added_at.isoformat() if getattr(membership, "added_at", None) else datetime.utcnow().isoformat()) + "Z"}
                                    for membership, member in members]})
     return result
 
@@ -1922,21 +1942,39 @@ def get_diff_share(share_id: str, request: Request, db: Session = Depends(get_db
     rate_limiter.check(f"diff_share_ip:{get_client_ip(request)}", limit=30, window_seconds=60,
                        detail="Too many shared comparison requests. Please wait a minute.")
     record = db.query(SharedDiffLink).filter_by(id=share_id[:64]).first()
-    if record is None or getattr(record, "is_revoked", False):
-        raise HTTPException(status_code=404, detail="Shared comparison not found or has been revoked.")
-    if record.expires_at and record.expires_at < datetime.utcnow():
-        raise HTTPException(status_code=410, detail="This shared comparison link has expired.")
-    prompt = db.query(Prompt).filter_by(id=record.prompt_id).first()
-    base = db.query(PromptVersion).filter_by(prompt_id=record.prompt_id, version_number=record.base_version).first()
-    target = db.query(PromptVersion).filter_by(prompt_id=record.prompt_id, version_number=record.target_version).first()
-    group = db.query(Group).filter_by(id=prompt.group_id).first() if prompt else None
-    if not prompt or not base or not target:
-        raise HTTPException(status_code=404, detail="The comparison versions are unavailable.")
-    return {"share_id": record.id, "prompt": {"id": prompt.id, "title": prompt.title, "group_id": prompt.group_id,
-             "group_name": group_display_name(group) if group else ""}, "base_version": _version_read(db, base),
-            "target_version": _version_read(db, target), "diff_granularity": record.diff_granularity,
-            "view_mode": record.view_mode,
-            "expires_at": (record.expires_at.isoformat() + "Z") if record.expires_at else None}
+    active_db = db
+    alt_db_to_close = None
+    if record is None and not is_test_session(db):
+        bind_url = get_db_bind_url(db)
+        alt_factory = SessionNeon if bind_url != str(engine_neon.url) else SessionSupabase
+        try:
+            alt_db = alt_factory()
+            alt_record = alt_db.query(SharedDiffLink).filter_by(id=share_id[:64]).first()
+            if alt_record is not None:
+                record = alt_record
+                active_db = alt_db
+                alt_db_to_close = alt_db
+        except Exception:
+            pass
+    try:
+        if record is None or getattr(record, "is_revoked", False):
+            raise HTTPException(status_code=404, detail="Shared comparison not found or has been revoked.")
+        if record.expires_at and record.expires_at < datetime.utcnow():
+            raise HTTPException(status_code=410, detail="This shared comparison link has expired.")
+        prompt = active_db.query(Prompt).filter_by(id=record.prompt_id).first()
+        base = active_db.query(PromptVersion).filter_by(prompt_id=record.prompt_id, version_number=record.base_version).first()
+        target = active_db.query(PromptVersion).filter_by(prompt_id=record.prompt_id, version_number=record.target_version).first()
+        group = active_db.query(Group).filter_by(id=prompt.group_id).first() if prompt else None
+        if not prompt or not base or not target:
+            raise HTTPException(status_code=404, detail="The comparison versions are unavailable.")
+        return {"share_id": record.id, "prompt": {"id": prompt.id, "title": prompt.title, "group_id": prompt.group_id,
+                 "group_name": group_display_name(group) if group else ""}, "base_version": _version_read(active_db, base),
+                "target_version": _version_read(active_db, target), "diff_granularity": record.diff_granularity,
+                "view_mode": record.view_mode,
+                "expires_at": (record.expires_at.isoformat() + "Z") if record.expires_at else None}
+    finally:
+        if alt_db_to_close is not None:
+            alt_db_to_close.close()
 
 
 @app.post("/api/feedback", status_code=201)
@@ -2084,6 +2122,14 @@ def share_fallback(share_id: str):
         raise HTTPException(status_code=404, detail="Build the frontend to open shared links directly.")
     from fastapi.responses import FileResponse
     return FileResponse(FRONTEND_DIST / "index.html")
+
+
+@app.api_route("/mcp", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
+def mcp_root_redirect(request: Request):
+    """Ensure /mcp cleanly redirects to /mcp/ preserving HTTP method, headers, and body."""
+    from fastapi.responses import RedirectResponse
+    redirect_url = request.url.replace(path="/mcp/")
+    return RedirectResponse(url=str(redirect_url), status_code=307)
 
 
 app.mount("/mcp", mcp_asgi, name="mcp")

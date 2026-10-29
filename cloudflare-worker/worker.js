@@ -538,7 +538,7 @@ export default {
     }
 
     const url = new URL(request.url);
-    const path = url.pathname;
+    const path = url.pathname === "/mcp" ? "/mcp/" : url.pathname;
 
     // 1. Optional multi-pod upstream forwarding (Render + Edge Failover)
     const pods = [env.RENDER_ORIGIN, env.BACKEND_POD_1, env.BACKEND_POD_2].filter(Boolean);

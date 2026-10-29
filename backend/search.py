@@ -87,24 +87,34 @@ def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list
     if not api_key or not texts:
         return []
 
-    # Prepare batch request payload
-    requests = []
-    for t in texts:
-        safe_text = t[:20_000]  # Avoid exceeding maximum payload limits
-        requests.append({
-            "model": "models/text-embedding-004",
-            "content": {"parts": [{"text": safe_text}]},
-            "taskType": task_type,
-        })
+    primary_model = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
+    fallback_model = "models/text-embedding-004"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key={api_key}"
+    def _build_payload(model_name: str) -> tuple[str, list[dict]]:
+        payload = []
+        for t in texts:
+            safe_text = t[:20_000]
+            payload.append({
+                "model": model_name,
+                "content": {"parts": [{"text": safe_text}]},
+                "taskType": task_type,
+            })
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:batchEmbedContents?key={api_key}"
+        return endpoint, payload
+
     headers = {
         "x-goog-api-key": api_key,
         "Content-Type": "application/json",
     }
     try:
         with httpx.Client(timeout=15.0) as client:
-            resp = client.post(url, json={"requests": requests}, headers=headers)
+            url, payload = _build_payload(primary_model)
+            resp = client.post(url, json={"requests": payload}, headers=headers)
+            if resp.status_code == 404 and primary_model != fallback_model:
+                # Fallback to legacy text-embedding-004 if gemini-embedding-001 is unavailable
+                url, payload = _build_payload(fallback_model)
+                resp = client.post(url, json={"requests": payload}, headers=headers)
+
             if resp.status_code != 200:
                 logger.warning("Gemini batch embedding API returned %s: %s", resp.status_code, resp.text[:200])
                 return []

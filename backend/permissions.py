@@ -22,6 +22,18 @@ def ensure_personal_group(db: Session, user: User) -> Group:
     """Return the user's private Personal space, creating it (with the user as its only manager) if needed."""
     group = db.query(Group).filter_by(personal_owner_id=user.id).first()
     if group is None:
+        db_user = db.query(User).filter_by(id=user.id).first()
+        if db_user is None:
+            db_user = User(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                is_workspace_admin=user.is_workspace_admin,
+                plan=getattr(user, "plan", "community") or "community",
+                password_hash=getattr(user, "password_hash", None),
+            )
+            db.add(db_user)
+            db.flush()
         group = Group(name=f"personal:{user.id}", description="Private prompts only you can see.",
                       created_by=user.id, personal_owner_id=user.id)
         db.add(group)
