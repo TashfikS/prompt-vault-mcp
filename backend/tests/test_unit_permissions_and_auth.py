@@ -41,17 +41,28 @@ def test_extract_variables():
 
 def test_password_hashing():
     password = "CorrectHorseBattery99!"
-    hashed = hash_password(password)
 
-    # Valid format: pbkdf2_sha256$iterations$salt$hash
-    parts = hashed.split("$")
+    # 1. Default Argon2id hashing
+    argon_hash = hash_password(password)
+    assert argon_hash.startswith("$argon2id$")
+    assert verify_password(password, argon_hash) is True
+    assert verify_password("WrongPassword123", argon_hash) is False
+
+    # 2. Legacy PBKDF2-SHA256 backward compatibility
+    pbkdf2_hash = hash_password(password, force_pbkdf2=True)
+    parts = pbkdf2_hash.split("$")
     assert len(parts) == 4
     assert parts[0] == "pbkdf2_sha256"
+    assert verify_password(password, pbkdf2_hash) is True
+    assert verify_password("WrongPassword123", pbkdf2_hash) is False
 
-    # Verifications
-    assert verify_password(password, hashed) is True
-    assert verify_password("WrongPassword123", hashed) is False
-    assert verify_password("", hashed) is False
+    # 3. Hash upgrade detection
+    from auth import is_hash_upgrade_needed
+    assert is_hash_upgrade_needed(pbkdf2_hash) is True
+    assert is_hash_upgrade_needed(argon_hash) is False
+
+    # 4. Edge cases
+    assert verify_password("", argon_hash) is False
     assert verify_password(password, None) is False
     assert verify_password(password, "invalid_hash_string") is False
 
@@ -191,4 +202,52 @@ def test_prompt_version_change_note_property_alias():
     v.change_note = "Updated via snake_case property"
     assert v.change_Note == "Updated via snake_case property"
     assert v.change_note == "Updated via snake_case property"
+
+
+def test_password_complexity_validation():
+    from schemas import validate_password_complexity
+    import pytest
+
+    # Valid passwords
+    assert validate_password_complexity("StrongP@ss123") == "StrongP@ss123"
+    assert validate_password_complexity("abcde12345") == "abcde12345"
+
+    # Too short
+    with pytest.raises(ValueError, match="at least 8 characters"):
+        validate_password_complexity("short1")
+
+    # Letters only (no digits)
+    with pytest.raises(ValueError, match="both letters and numbers"):
+        validate_password_complexity("alllettersonly")
+
+    # Digits only (no letters)
+    with pytest.raises(ValueError, match="both letters and numbers"):
+        validate_password_complexity("1234567890")
+
+
+def test_user_security_attributes(db: Session):
+    from datetime import datetime, timedelta
+    user = User(
+        name="Security Test User",
+        email="security_test@test.com",
+        password_hash=hash_password("Pass1234"),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    assert user.failed_login_attempts == 0
+    assert user.locked_until is None
+    assert user.last_login_at is None
+
+    # Simulate lockout
+    user.failed_login_attempts = 5
+    user.locked_until = datetime.utcnow() + timedelta(minutes=15)
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user)
+
+    assert user.failed_login_attempts == 5
+    assert user.locked_until is not None
+    assert user.last_login_at is not None
 

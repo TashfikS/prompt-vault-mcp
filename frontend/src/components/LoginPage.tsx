@@ -378,6 +378,11 @@ export default function LoginPage({
                   placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'}
                   className="field"
                 />
+                {mode === 'register' && (
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">
+                    Must be at least 8 characters with both letters and numbers.
+                  </p>
+                )}
               </div>
               {mode === 'register' && (
                 <div>

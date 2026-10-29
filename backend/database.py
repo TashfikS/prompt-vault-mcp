@@ -299,6 +299,9 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
                 password_hash=src_user.password_hash,
                 onboarding_completed=src_user.onboarding_completed,
                 plan=to_plan,
+                failed_login_attempts=getattr(src_user, "failed_login_attempts", 0) or 0,
+                locked_until=getattr(src_user, "locked_until", None),
+                last_login_at=getattr(src_user, "last_login_at", None),
                 created_at=src_user.created_at,
             )
             dst_db.add(dst_user)
@@ -306,6 +309,9 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
             dst_user.plan = to_plan
             dst_user.name = src_user.name
             dst_user.password_hash = src_user.password_hash
+            dst_user.failed_login_attempts = getattr(src_user, "failed_login_attempts", 0) or 0
+            dst_user.locked_until = getattr(src_user, "locked_until", None)
+            dst_user.last_login_at = getattr(src_user, "last_login_at", None)
         dst_db.flush()
 
         # 2. Migrate User's Groups (Personal space & created groups)

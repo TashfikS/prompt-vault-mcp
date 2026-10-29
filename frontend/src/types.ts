@@ -8,8 +8,12 @@ export type User = {
   plan?: PricingPlanId
   api_key?: string
   onboarding_completed?: boolean
+  last_login_at?: string | null
+  created_at?: string | null
   groups?: Array<{ id: string; name: string; role: GroupRole; is_personal: boolean }>
 }
+export type UpdateProfilePayload = { name: string }
+export type ChangePasswordPayload = { current_password: string; new_password: string }
 export type PricingTier = {
   id: PricingPlanId
   name: string

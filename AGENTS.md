@@ -78,6 +78,7 @@ prompt-vault-mcp/
 │   ├── schemas.py              # Pydantic v2 validation models
 │   ├── auth.py                 # Password hashing & session token management
 │   ├── permissions.py          # RBAC authorization helpers & variable parser
+│   ├── search.py               # Hybrid Search engine (Fuzzy + Gemini semantic embeddings)
 │   ├── seed.py                 # Initial demo seed data
 │   ├── mcp_server.py           # FastMCP server & MCP tools
 │   └── main.py                 # FastAPI application, REST routes & static mounts
@@ -201,6 +202,16 @@ prompt-vault-mcp/
   - `view_mode` (String: `"split"` or `"inline"`)
   - `created_by` (String, FK `users.id`)
   - `created_at` (DateTime, UTC)
+
+- **`PromptChunk` (`prompt_chunks`):**
+  - `id` (UUID4 string, PK)
+  - `prompt_id` (String, FK `prompts.id`, cascade delete, indexed)
+  - `version_id` (String, FK `prompt_versions.id`, cascade delete, indexed)
+  - `chunk_index` (Integer, default 0)
+  - `chunk_text` (Text, non-nullable chunk slice)
+  - `embedding_json` (Text, non-nullable JSON string of float vector)
+  - `created_at` (DateTime, UTC)
+  - Enforces the Active-Version-Only indexing rule (historical vectors pruned upon publishing new active versions)
 
 ---
 

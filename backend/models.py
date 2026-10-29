@@ -24,6 +24,9 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255))
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     plan: Mapped[str] = mapped_column(String(32), default="community", nullable=False)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     memberships: Mapped[list["GroupMembership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
@@ -98,6 +101,26 @@ class Prompt(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     versions: Mapped[list["PromptVersion"]] = relationship(back_populates="prompt", cascade="all, delete-orphan")
+    chunks: Mapped[list["PromptChunk"]] = relationship(back_populates="prompt", cascade="all, delete-orphan")
+
+
+class PromptChunk(Base):
+    """Search chunk and vector embedding for a prompt's active version."""
+    __tablename__ = "prompt_chunks"
+    __table_args__ = (
+        Index("ix_prompt_chunks_prompt_id", "prompt_id"),
+        Index("ix_prompt_chunks_version_id", "version_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    prompt_id: Mapped[str] = mapped_column(String(36), ForeignKey("prompts.id", ondelete="CASCADE"), nullable=False)
+    version_id: Mapped[str] = mapped_column(String(36), ForeignKey("prompt_versions.id", ondelete="CASCADE"), nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    prompt: Mapped[Prompt] = relationship(back_populates="chunks")
 
 
 class PromptVersion(Base):

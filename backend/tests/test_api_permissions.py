@@ -363,3 +363,92 @@ async def test_shared_diff_links(client: AsyncClient, test_users_and_groups):
     assert share_data["target_version"]["version_number"] == 2
 
 
+@pytest.mark.asyncio
+async def test_profile_update_and_change_password(client: AsyncClient, test_users_and_groups):
+    """Verify authenticated user can update display name and rotate password securely."""
+    fixtures = test_users_and_groups
+    tokens = fixtures["tokens"]
+    member_headers = {"Authorization": f"Bearer {tokens['member']}"}
+
+    # 1. Update Profile Display Name
+    update_res = await client.put(
+        "/api/me/profile",
+        headers=member_headers,
+        json={"name": "Updated Member Name"},
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["name"] == "Updated Member Name"
+
+    # Verify reflected in /api/me
+    me_res = await client.get("/api/me", headers=member_headers)
+    assert me_res.status_code == 200
+    assert me_res.json()["name"] == "Updated Member Name"
+
+    # 2. Change Password Failure - Wrong current password
+    fail_res = await client.post(
+        "/api/me/change-password",
+        headers=member_headers,
+        json={"current_password": "WrongPassword123", "new_password": "NewSecretPassword99!"},
+    )
+    assert fail_res.status_code == 400
+    assert "Current password is incorrect" in fail_res.json()["detail"]
+
+    # 3. Change Password Failure - Same password
+    same_res = await client.post(
+        "/api/me/change-password",
+        headers=member_headers,
+        json={"current_password": "Password123", "new_password": "Password123"},
+    )
+    assert same_res.status_code == 400
+    assert "must be different" in same_res.json()["detail"]
+
+    # 4. Change Password Success
+    success_res = await client.post(
+        "/api/me/change-password",
+        headers=member_headers,
+        json={"current_password": "Password123", "new_password": "NewSecretPassword99!"},
+    )
+    assert success_res.status_code == 200
+    assert "Password changed successfully" in success_res.json()["message"]
+
+    # 5. Verify sign in with new password works
+    login_new = await client.post(
+        "/api/auth/login",
+        json={"email": "member@test.com", "password": "NewSecretPassword99!"},
+    )
+    assert login_new.status_code == 200
+    assert "token" in login_new.json()
+
+
+@pytest.mark.asyncio
+async def test_persistent_account_lockout(client: AsyncClient, test_users_and_groups, db: Session):
+    """Verify 5 failed login attempts lock account persistently in DB."""
+    # Register a dedicated user for lockout testing
+    reg = await client.post(
+        "/api/auth/register",
+        json={
+            "name": "Lockout Candidate",
+            "email": "lockout_user@example.com",
+            "password": "InitialPassword123!",
+            "plan": "community",
+        },
+    )
+    assert reg.status_code == 201
+
+    # Attempt 5 incorrect logins
+    for i in range(5):
+        fail = await client.post(
+            "/api/auth/login",
+            json={"email": "lockout_user@example.com", "password": "WrongPassword123!"},
+        )
+        assert fail.status_code == 401
+
+    # 6th attempt should return 429 Locked
+    blocked = await client.post(
+        "/api/auth/login",
+        json={"email": "lockout_user@example.com", "password": "WrongPassword123!"},
+    )
+    assert blocked.status_code == 429
+    assert "temporarily locked" in blocked.json()["detail"]
+
+

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowRight, BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, CreditCard, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, Users, X } from 'lucide-react'
+import { ArrowRight, BookOpenCheck, ChevronsUpDown, CircleHelp, Compass, CreditCard, GitPullRequest, LibraryBig, LockKeyhole, LogOut, Menu, MessageSquarePlus, PlugZap, Plus, ShieldCheck, Users, X } from 'lucide-react'
 import type { Group, PromptItem, User } from '../types'
 import { accessFor, spaceName } from '../access'
 import RoleBadge from './ui/RoleBadge'
@@ -25,6 +25,7 @@ type Props = {
   onOpenFeedback?: () => void
   onOpenPricing?: () => void
   onOpenPricingPage?: () => void
+  onOpenProfile?: () => void
   onLogout: () => void
 }
 
@@ -60,7 +61,7 @@ function MenuItem({ icon, children, onClick, tone = 'default' }: { icon: ReactNo
 }
 
 function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
-  const { activeUser, groups, prompts, page, selectedSpaceId, pendingReviewsCount, onNavigate, onSelectSpace, onNewGroup, onConnect, onStartTour, onOpenRoles, onOpenFeedback, onOpenPricing, onOpenPricingPage, onLogout, onAfterNavigate } = props
+  const { activeUser, groups, prompts, page, selectedSpaceId, pendingReviewsCount, onNavigate, onSelectSpace, onNewGroup, onConnect, onStartTour, onOpenRoles, onOpenFeedback, onOpenPricing, onOpenPricingPage, onOpenProfile, onLogout, onAfterNavigate } = props
   const [helpOpen, setHelpOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const helpRef = useDismiss<HTMLDivElement>(helpOpen, () => setHelpOpen(false))
@@ -321,6 +322,9 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
                 </div>
                 {onOpenPricing && (
                   <MenuItem icon={<CreditCard size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setUserOpen(false); onOpenPricing(); after() }}>Plans &amp; pricing</MenuItem>
+                )}
+                {onOpenProfile && (
+                  <MenuItem icon={<ShieldCheck size={15} className="text-brand-600 dark:text-brand-400" />} onClick={() => { setUserOpen(false); onOpenProfile(); after() }}>Account &amp; Security</MenuItem>
                 )}
                 <div className="my-1 border-t border-slate-100 dark:border-zinc-800" />
                 <MenuItem icon={<LogOut size={15} />} tone="danger" onClick={() => { setUserOpen(false); onLogout() }}>Sign out</MenuItem>

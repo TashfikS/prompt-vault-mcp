@@ -17,6 +17,7 @@ import ConnectAiModal from './components/ConnectAiModal'
 import RolesGuideModal from './components/RolesGuideModal'
 import PricingModal from './components/PricingModal'
 import PricingPage from './components/PricingPage'
+import ProfileAndSecurityModal from './components/ProfileAndSecurityModal'
 import OnboardingTour from './components/OnboardingTour'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { ToastProvider } from './components/ui/Toast'
@@ -59,6 +60,7 @@ export default function App() {
   const [rolesOpen, setRolesOpen] = useState(false)
   const [pricingOpen, setPricingOpen] = useState(false)
   const [pricingPageOpen, setPricingPageOpen] = useState(isInitialPricingRoute)
+  const [profileOpen, setProfileOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState<boolean | undefined>(undefined)
   const [tourOpen, setTourOpen] = useState(false)
   const [error, setError] = useState('')
@@ -348,6 +350,7 @@ export default function App() {
             onOpenRoles={() => setRolesOpen(true)}
             onOpenPricing={() => setPricingOpen(true)}
             onOpenPricingPage={() => setPricingPageOpen(true)}
+            onOpenProfile={() => setProfileOpen(true)}
             onOpenFeedback={() => setFeedbackOpen(true)}
             onLogout={() => void signOut()}
           />
@@ -459,6 +462,18 @@ export default function App() {
               onViewFullPage={() => {
                 setPricingOpen(false)
                 setPricingPageOpen(true)
+              }}
+            />
+          )}
+
+          {profileOpen && (
+            <ProfileAndSecurityModal
+              activeUser={activeUser}
+              onClose={() => setProfileOpen(false)}
+              onUserUpdated={updated => setActiveUser(prev => prev ? { ...prev, ...updated } : prev)}
+              onOpenPricing={() => {
+                setProfileOpen(false)
+                setPricingOpen(true)
               }}
             />
           )}

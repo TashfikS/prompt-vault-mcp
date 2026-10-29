@@ -98,3 +98,9 @@ export const submitFeedback = (data: FeedbackCreatePayload) =>
 export const getPricing = () => api<PricingResponse>('/api/pricing')
 export const updatePlan = (plan: PricingPlanId) =>
   api<{ message: string; plan: PricingPlanId; user: User }>('/api/me/plan', { method: 'PATCH', body: JSON.stringify({ plan }) })
+
+export const updateProfile = (data: { name: string }) =>
+  api<{ id: string; name: string; email: string; is_workspace_admin: boolean; plan?: PricingPlanId }>('/api/me/profile', { method: 'PUT', body: JSON.stringify(data) })
+
+export const changePassword = (data: { current_password: string; new_password: string }) =>
+  api<{ message: string }>('/api/me/change-password', { method: 'POST', body: JSON.stringify(data) })

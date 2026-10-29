@@ -30,6 +30,7 @@ from permissions import (
     group_display_name,
 )
 from models import ApiKey, Group, Prompt, PromptProposal, PromptVersion, User
+from search import hybrid_search_prompts, sync_prompt_embeddings
 from security import escape_like, rate_limiter, record_audit_log
 
 mcp = FastMCP("PromptHold-Server")
@@ -125,8 +126,29 @@ def list_my_accessible_prompts(api_key: str, search_query: str = "", group_name:
             .filter(Prompt.group_id.in_(group_ids), Prompt.is_archived.is_(False))
         )
         if search_query.strip():
-            needle = f"%{escape_like(search_query.strip()[:200])}%"
-            query = query.filter(Prompt.title.ilike(needle, escape="\\") | Prompt.description.ilike(needle, escape="\\"))
+            target_group_ids = group_ids
+            if group_name.strip().lower() == "personal":
+                personal_grp = db.query(Group.id).filter(Group.personal_owner_id == user.id).first()
+                target_group_ids = [personal_grp[0]] if personal_grp else []
+            elif group_name.strip():
+                escaped_group = escape_like(group_name.strip()[:160])
+                named_grps = [
+                    g.id for g in db.query(Group.id).filter(
+                        Group.id.in_(group_ids),
+                        Group.name.ilike(escaped_group, escape="\\"),
+                        Group.personal_owner_id.is_(None),
+                    ).all()
+                ]
+                target_group_ids = named_grps
+
+            hybrid_results = hybrid_search_prompts(
+                db=db,
+                query_text=search_query.strip(),
+                accessible_group_ids=target_group_ids,
+                limit=200,
+            )
+            return {"prompts": hybrid_results}
+
         if group_name.strip().lower() == "personal":
             query = query.filter(Group.personal_owner_id == user.id)
         elif group_name.strip():
@@ -247,6 +269,7 @@ def save_prompt_version_from_chat(api_key: str, prompt_id: str, new_content: str
         invalidate_prompt_cache(prompt.id)
         set_cached_version_by_uuid(version.id, {"id": version.id, "content": version.content})
         set_cached_active_version_uuid(prompt.id, version.id)
+        sync_prompt_embeddings(db, prompt, version)
         record_audit_log(db, "MCP_PROMPT_WRITE", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"v{version.version_number} ({version.id}): {safe_note}")
         return {"prompt_id": prompt.id, "version_id": version.id, "version_number": version.version_number, "change_note": version.change_Note}
 
@@ -337,6 +360,7 @@ def duplicate_or_move_prompt(api_key: str, prompt_id: str, target_group_id: str,
         db.refresh(new_prompt)
         set_cached_version_by_uuid(v1.id, {"id": v1.id, "content": v1.content})
         set_cached_active_version_uuid(new_prompt.id, v1.id)
+        sync_prompt_embeddings(db, new_prompt, v1)
         record_audit_log(db, "MCP_PROMPT_DUPLICATED", user_id=user.id, target_type="prompt", target_id=new_prompt.id, details=f"Duplicated from {prompt.id} to {target_group.id}")
         return {
             "id": new_prompt.id,

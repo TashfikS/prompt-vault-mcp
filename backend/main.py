@@ -36,20 +36,21 @@ from database import (
     migrate_user_tier,
 )
 from auth import (DUMMY_PASSWORD_HASH, SESSION_LIFETIME, create_api_key_record, create_session,
-                  delete_all_user_sessions, delete_session, ensure_demo_passwords, hash_password, resolve_api_key,
-                  upgrade_schema, user_for_session_token, verify_firebase_id_token, verify_password)
+                  delete_all_user_sessions, delete_session, ensure_demo_passwords, hash_password, is_hash_upgrade_needed,
+                  resolve_api_key, upgrade_schema, user_for_session_token, verify_firebase_id_token, verify_password)
 from cache import (create_github_issue_for_feedback, invalidate_prompt_cache, set_cached_active_version_uuid,
                    set_cached_version_by_uuid)
 from permissions import (can_access_group_with_key, can_user_approve_proposals, can_user_direct_write_prompt,
                          can_user_manage_group_members, can_user_view_group, ensure_all_personal_groups,
                          ensure_personal_group, extract_variables, get_scoped_group_ids, get_user_group_ids,
                          get_user_group_role, group_display_name, require_workspace_admin)
-from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, Prompt, PromptProposal, PromptVersion,
+from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, Prompt, PromptChunk, PromptProposal, PromptVersion,
                     ProposalApproval, SharedDiffLink, User)
-from schemas import (AssignMemberRequest, CreateApiKeyRequest, CreateDiffShareRequest, FeedbackCreateRequest,
-                     FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest, PlanUpdateRequest,
-                     PromptCreateRequest, PromptDuplicateRequest, PromptUpdateRequest, ProposalCreateRequest,
-                     RegisterRequest)
+from search import hybrid_search_prompts, sync_prompt_embeddings
+from schemas import (AssignMemberRequest, ChangePasswordRequest, CreateApiKeyRequest, CreateDiffShareRequest,
+                     FeedbackCreateRequest, FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest,
+                     PlanUpdateRequest, PromptCreateRequest, PromptDuplicateRequest, PromptUpdateRequest,
+                     ProposalCreateRequest, RegisterRequest, UpdateProfileRequest)
 from security import (AUTO_MIGRATE_DB, IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES,
                       MAX_UPLOAD_FILE_BYTES, SecurityHeadersMiddleware, escape_like, get_allowed_origins,
                       get_client_ip, rate_limiter, record_audit_log, sanitize_filename, should_seed_demo_data,
@@ -378,14 +379,38 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
             except Exception:
                 pass
 
+    now_utc = datetime.utcnow()
+    if user is not None and user.locked_until and user.locked_until > now_utc:
+        remaining_secs = int((user.locked_until - now_utc).total_seconds())
+        remaining_mins = max(1, (remaining_secs + 59) // 60)
+        record_audit_log(target_db, "AUTH_LOGIN_BLOCKED_LOCKED", user_id=user.id, ip_address=client_ip,
+                         details=f"Account locked until {user.locked_until}")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Account is temporarily locked due to repeated failed sign-in attempts. Please try again in {remaining_mins} minute(s)."
+        )
+
     try:
         password_ok = verify_password(payload.password, user.password_hash if user else DUMMY_PASSWORD_HASH)
         if user is None or not password_ok:
             rate_limiter.record_hit(lockout_bucket)
+            if user is not None:
+                user.failed_login_attempts = (getattr(user, "failed_login_attempts", 0) or 0) + 1
+                if user.failed_login_attempts >= 5:
+                    user.locked_until = now_utc + timedelta(minutes=15)
+                    record_audit_log(target_db, "AUTH_ACCOUNT_LOCKED", user_id=user.id, ip_address=client_ip,
+                                     details=f"Locked after {user.failed_login_attempts} failed attempts")
+                target_db.commit()
             record_audit_log(target_db, "AUTH_LOGIN_FAILED", user_id=user.id if user else None, ip_address=client_ip, details=f"Failed login for {email}")
             raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
         rate_limiter.clear_bucket(lockout_bucket)
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        user.last_login_at = now_utc
+        if is_hash_upgrade_needed(user.password_hash):
+            user.password_hash = hash_password(payload.password)
+        target_db.commit()
         record_audit_log(target_db, "AUTH_LOGIN_SUCCESS", user_id=user.id, ip_address=client_ip, details=f"Signed in {email}")
         return _auth_response(target_db, user, response)
     finally:
@@ -660,6 +685,7 @@ def _create_prompt(db: Session, user: User, group_id: str, title: str, content: 
     prompt.current_version_id = v1.id
     set_cached_version_by_uuid(v1.id, {"id": v1.id, "content": v1.content})
     set_cached_active_version_uuid(prompt.id, v1.id)
+    sync_prompt_embeddings(db, prompt, v1)
     return prompt
 
 
@@ -774,12 +800,97 @@ def get_me(db: Session = Depends(get_db), user: User = Depends(current_user)) ->
     memberships = db.query(GroupMembership, Group).join(Group).filter(GroupMembership.user_id == user.id).all()
     latest_key = db.query(ApiKey).filter_by(user_id=user.id, is_active=True).order_by(ApiKey.created_at.desc()).first()
     plan_name = getattr(user, "plan", "community") or "community"
-    return {"id": user.id, "name": user.name, "email": user.email, "is_workspace_admin": user.is_workspace_admin,
-            "plan": plan_name,
-            "api_key": latest_key.key_prefix if latest_key else None,
-            "onboarding_completed": bool(user.onboarding_completed),
-            "groups": [{"id": m.group_id, "name": group_display_name(group), "role": m.role,
-                        "is_personal": group.personal_owner_id is not None} for m, group in memberships]}
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "is_workspace_admin": user.is_workspace_admin,
+        "plan": plan_name,
+        "api_key": latest_key.key_prefix if latest_key else None,
+        "onboarding_completed": bool(user.onboarding_completed),
+        "last_login_at": user.last_login_at.isoformat() if getattr(user, "last_login_at", None) else None,
+        "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
+        "groups": [
+            {"id": m.group_id, "name": group_display_name(group), "role": m.role,
+             "is_personal": group.personal_owner_id is not None}
+            for m, group in memberships
+        ],
+    }
+
+
+@app.put("/api/me/profile")
+@app.put("/api/users/profile")
+def update_profile(
+    payload: UpdateProfileRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict:
+    """Update profile details (e.g. display name) for the authenticated user."""
+    _require_web_session(user)
+    new_name = payload.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be blank.")
+    user.name = new_name
+    db.commit()
+    db.refresh(user)
+    record_audit_log(
+        db,
+        "USER_PROFILE_UPDATED",
+        user_id=user.id,
+        ip_address=get_client_ip(request),
+        details=f"Updated display name to '{new_name}'",
+    )
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "is_workspace_admin": user.is_workspace_admin,
+        "plan": getattr(user, "plan", "community") or "community",
+    }
+
+
+@app.post("/api/me/change-password")
+@app.post("/api/users/change-password")
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict:
+    """Safely rotate password after verifying current credentials and complexity requirements."""
+    _require_web_session(user)
+    client_ip = get_client_ip(request)
+
+    # 1. Verify current password
+    if not verify_password(payload.current_password, user.password_hash):
+        record_audit_log(
+            db,
+            "AUTH_PASSWORD_CHANGE_FAILED",
+            user_id=user.id,
+            ip_address=client_ip,
+            details="Incorrect current password submitted",
+        )
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    # 2. Check that new password is not identical to current
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from your current password.")
+
+    # 3. Update password hash (using Argon2id) and reset any lockout state
+    user.password_hash = hash_password(payload.new_password)
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    db.commit()
+
+    record_audit_log(
+        db,
+        "AUTH_PASSWORD_CHANGED",
+        user_id=user.id,
+        ip_address=client_ip,
+        details="Password rotated successfully",
+    )
+    return {"message": "Password changed successfully."}
 
 
 @app.get("/api/pricing")
@@ -1089,8 +1200,13 @@ def list_prompts(
     if group_id:
         query = query.filter(Prompt.group_id == group_id)
     if search.strip():
-        needle = f"%{escape_like(search.strip()[:200])}%"
-        query = query.filter(Prompt.title.ilike(needle, escape="\\") | Prompt.description.ilike(needle, escape="\\"))
+        return hybrid_search_prompts(
+            db=db,
+            query_text=search.strip(),
+            accessible_group_ids=accessible_ids,
+            group_id_filter=group_id,
+            limit=500,
+        )
 
     rows = query.order_by(Prompt.updated_at.desc()).limit(500).all()
 
@@ -1227,6 +1343,7 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                             },
                         )
                         set_cached_active_version_uuid(target.id, new_ver.id)
+                        sync_prompt_embeddings(db, target, new_ver)
                         updated.append(target.id)
                 else:
                     _check_prompt_quota(db, user, group_id, 1)
@@ -1350,6 +1467,7 @@ def update_prompt(prompt_id: str, payload: PromptUpdateRequest, db: Session = De
         },
     )
     set_cached_active_version_uuid(prompt.id, version.id)
+    sync_prompt_embeddings(db, prompt, version)
     return _version_read(db, version, author_name=user.name)
 
 
@@ -1370,6 +1488,7 @@ def rollback_prompt(prompt_id: str, version_number: int, request: Request, db: S
 
     invalidate_prompt_cache(prompt.id)
     set_cached_active_version_uuid(prompt.id, target.id)
+    sync_prompt_embeddings(db, prompt, target)
     record_audit_log(db, "PROMPT_ROLLBACK", user_id=user.id, ip_address=get_client_ip(request), target_type="prompt", target_id=prompt.id, details=f"Switched active version to v{version_number} ({target.id})")
     return _version_read(db, target)
 
@@ -1678,6 +1797,7 @@ def approve_proposal(proposal_id: str, db: Session = Depends(get_db), user: User
             },
         )
         set_cached_active_version_uuid(prompt.id, new_version.id)
+        sync_prompt_embeddings(db, prompt, new_version)
         return {
             "status": "APPROVED",
             "merged": True,

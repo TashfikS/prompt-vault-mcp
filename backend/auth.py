@@ -9,7 +9,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from models import ApiKey, AuthSession, Group, User
+from models import ApiKey, AuthSession, Group, PromptChunk, User
 
 PBKDF2_ITERATIONS = 100_000
 SESSION_LIFETIME = timedelta(days=14)
@@ -31,8 +31,24 @@ DEMO_EMAILS = (
 )
 
 
-def hash_password(password: str) -> str:
-    """Return a self-describing PBKDF2-SHA256 hash string: pbkdf2_sha256$iterations$salt$hash."""
+try:
+    from argon2 import PasswordHasher
+    from argon2.exceptions import InvalidHashError, VerifyMismatchError
+    _argon2_hasher: PasswordHasher | None = PasswordHasher(
+        time_cost=3,
+        memory_cost=65536,
+        parallelism=4,
+        hash_len=32,
+        salt_len=16,
+    )
+except ImportError:  # pragma: no cover
+    _argon2_hasher = None
+
+
+def hash_password(password: str, force_pbkdf2: bool = False) -> str:
+    """Return an OWASP-recommended Argon2id hash, falling back to PBKDF2-SHA256 if requested or if argon2-cffi is absent."""
+    if _argon2_hasher is not None and not force_pbkdf2:
+        return _argon2_hasher.hash(password)
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), PBKDF2_ITERATIONS)
     return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
@@ -41,9 +57,32 @@ def hash_password(password: str) -> str:
 DUMMY_PASSWORD_HASH = hash_password("pv_constant_time_dummy_secret_key_0123456789")
 
 
-def verify_password(password: str, stored_hash: str | None) -> bool:
+def is_hash_upgrade_needed(stored_hash: str | None) -> bool:
+    """Check if a stored password hash should be transparently migrated to Argon2id upon successful sign-in."""
     if not stored_hash:
         return False
+    if not stored_hash.startswith("$argon2"):
+        return _argon2_hasher is not None
+    if _argon2_hasher is not None:
+        try:
+            return _argon2_hasher.check_needs_rehash(stored_hash)
+        except Exception:
+            return False
+    return False
+
+
+def verify_password(password: str, stored_hash: str | None) -> bool:
+    """Verify password against either Argon2id or legacy PBKDF2-SHA256 hashes in constant time."""
+    if not stored_hash:
+        return False
+    if stored_hash.startswith("$argon2"):
+        if _argon2_hasher is None:
+            return False
+        try:
+            return _argon2_hasher.verify(stored_hash, password)
+        except (VerifyMismatchError, InvalidHashError, Exception):
+            return False
+
     try:
         algorithm, iterations, salt, expected = stored_hash.split("$")
     except ValueError:
@@ -207,6 +246,12 @@ def upgrade_schema(engine: Engine) -> None:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN NOT NULL DEFAULT {bool_false}"))
         if "plan" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR(32) NOT NULL DEFAULT 'community'"))
+        if "failed_login_attempts" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0"))
+        if "locked_until" not in user_columns:
+            connection.execute(text(f"ALTER TABLE users ADD COLUMN locked_until {ts_type}"))
+        if "last_login_at" not in user_columns:
+            connection.execute(text(f"ALTER TABLE users ADD COLUMN last_login_at {ts_type}"))
         if "personal_owner_id" not in group_columns:
             connection.execute(text("ALTER TABLE groups ADD COLUMN personal_owner_id VARCHAR(36) REFERENCES users(id)"))
         if "required_approvals" not in group_columns:
@@ -230,6 +275,17 @@ def upgrade_schema(engine: Engine) -> None:
             )
             WHERE current_version_id IS NULL
         """))
+        # Ensure prompt_chunks table exists for hybrid search
+        PromptChunk.__table__.create(bind=connection, checkfirst=True)
+        if is_postgres:
+            try:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            except Exception:
+                pass
+            try:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            except Exception:
+                pass
 
 
 def verify_firebase_id_token(id_token: str) -> dict[str, str] | None:

@@ -6,6 +6,14 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def validate_password_complexity(v: str) -> str:
+    if len(v) < 8:
+        raise ValueError("Password must be at least 8 characters long.")
+    if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
+        raise ValueError("Password must include both letters and numbers.")
+    return v
+
+
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -15,14 +23,26 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, v: str) -> str:
-        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
-            raise ValueError("Password must be at least 8 characters and include both letters and numbers.")
-        return v
+        return validate_password_complexity(v)
 
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=1, max_length=320)
     password: str = Field(min_length=1, max_length=200)
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password_strength(cls, v: str) -> str:
+        return validate_password_complexity(v)
 
 
 class GroupCreate(BaseModel):
