@@ -9,7 +9,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from models import ApiKey, AuthSession, Group, PromptChunk, User
+from models import ApiKey, AuthSession, Group, OAuthAuthorizationCode, OAuthClient, PromptChunk, ProposalComment, User
 
 PBKDF2_ITERATIONS = 100_000
 SESSION_LIFETIME = timedelta(days=14)
@@ -260,6 +260,8 @@ def upgrade_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE groups ADD COLUMN personal_owner_id VARCHAR(36) REFERENCES users(id)"))
         if "required_approvals" not in group_columns:
             connection.execute(text("ALTER TABLE groups ADD COLUMN required_approvals INTEGER DEFAULT 1"))
+        if "allow_self_approval" not in group_columns:
+            connection.execute(text(f"ALTER TABLE groups ADD COLUMN allow_self_approval BOOLEAN NOT NULL DEFAULT {bool_false}"))
         if "access_level" not in api_key_columns:
             connection.execute(text("ALTER TABLE api_keys ADD COLUMN access_level VARCHAR(32) NOT NULL DEFAULT 'READ_WRITE'"))
         if "expires_at" not in diff_share_columns:
@@ -279,8 +281,11 @@ def upgrade_schema(engine: Engine) -> None:
             )
             WHERE current_version_id IS NULL
         """))
-        # Ensure prompt_chunks table exists for hybrid search
+        # Ensure prompt_chunks, oauth tables, and proposal_comments exist
         PromptChunk.__table__.create(bind=connection, checkfirst=True)
+        OAuthClient.__table__.create(bind=connection, checkfirst=True)
+        OAuthAuthorizationCode.__table__.create(bind=connection, checkfirst=True)
+        ProposalComment.__table__.create(bind=connection, checkfirst=True)
         if is_postgres:
             try:
                 connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))

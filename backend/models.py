@@ -74,6 +74,7 @@ class Group(Base):
     # Set only for a user's private "Personal" space; such groups are never shared.
     personal_owner_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     required_approvals: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    allow_self_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     memberships: Mapped[list["GroupMembership"]] = relationship(back_populates="group", cascade="all, delete-orphan")
 
 
@@ -183,6 +184,7 @@ class PromptProposal(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     approvals: Mapped[list["ProposalApproval"]] = relationship(back_populates="proposal", cascade="all, delete-orphan")
+    comments: Mapped[list["ProposalComment"]] = relationship(back_populates="proposal", cascade="all, delete-orphan", order_by="ProposalComment.created_at.asc()")
 
 
 class ProposalApproval(Base):
@@ -196,6 +198,20 @@ class ProposalApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     proposal: Mapped[PromptProposal] = relationship(back_populates="approvals")
+
+
+class ProposalComment(Base):
+    """Review comment, feedback, or discussion message on a prompt proposal."""
+    __tablename__ = "proposal_comments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    proposal_id: Mapped[str] = mapped_column(String(36), ForeignKey("prompt_proposals.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    proposal: Mapped[PromptProposal] = relationship(back_populates="comments")
+    user: Mapped[User] = relationship()
 
 
 class AuditLog(Base):
@@ -228,3 +244,33 @@ class FeedbackSubmission(Base):
     github_issue_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="OPEN", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+
+
+class OAuthClient(Base):
+    """Registered OAuth 2.0 / 2.1 client (e.g. Claude.ai, ChatGPT, or custom integrations)."""
+    __tablename__ = "oauth_clients"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # client_id
+    client_secret: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    client_name: Mapped[str] = mapped_column(String(160), default="AI Assistant", nullable=False)
+    redirect_uris_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    grant_types_json: Mapped[str] = mapped_column(Text, default='["authorization_code", "refresh_token"]', nullable=False)
+    response_types_json: Mapped[str] = mapped_column(Text, default='["code"]', nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class OAuthAuthorizationCode(Base):
+    """Temporary one-time authorization code issued during OAuth 2.0 PKCE flow."""
+    __tablename__ = "oauth_authorization_codes"
+
+    code: Mapped[str] = mapped_column(String(128), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(String(500), nullable=False)
+    code_challenge: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    code_challenge_method: Mapped[str | None] = mapped_column(String(32), default="S256", nullable=True)
+    scope: Mapped[str] = mapped_column(String(160), default="prompts", nullable=False)
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+

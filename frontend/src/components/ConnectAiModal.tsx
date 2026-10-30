@@ -6,7 +6,6 @@ import {
   Eye,
   EyeOff,
   Globe,
-  HelpCircle,
   Info,
   KeyRound,
   LockKeyhole,
@@ -169,6 +168,8 @@ export default function ConnectAiModal({
   const [geminiMode, setGeminiMode] = useState<'app' | 'sdk'>('app')
   const [cursorMode, setCursorMode] = useState<'cursor' | 'vscode'>('cursor')
   const [apiMode, setApiMode] = useState<'python' | 'curl'>('python')
+  const [claudeWebAuthType, setClaudeWebAuthType] = useState<'oauth' | 'direct'>('oauth')
+  const [chatgptAuthType, setChatgptAuthType] = useState<'oauth' | 'bearer'>('oauth')
 
   // Keys state
   const [keys, setKeys] = useState<ApiKeyItem[]>([])
@@ -198,6 +199,8 @@ export default function ConnectAiModal({
   const sseUrl = getSseUrl()
   const restUrl = `${baseBackend}/api`
   const openApiUrl = `${baseBackend}/openapi.json`
+  const oauthAuthorizeUrl = `${baseBackend}/oauth/authorize`
+  const oauthTokenUrl = `${baseBackend}/oauth/token`
 
   const loadKeys = useCallback(async () => {
     setLoadingKeys(true)
@@ -905,62 +908,125 @@ for p in prompts:
 
               {claudeMode === 'web' && (
                 <div className="space-y-3 pt-1">
-                  {/* Step-by-step guidance for Claude.ai Web */}
-                  <div className="rounded-xl border border-brand-300 bg-brand-50/90 p-3.5 text-xs text-brand-950 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-200 space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-zinc-100 text-sm">
-                      <HelpCircle size={16} className="text-brand-600 dark:text-brand-400 shrink-0" />
-                      <span>Which sign-in option to select in Claude.ai?</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Choose Sign-In Method:</span>
+                    <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                      <button
+                        type="button"
+                        onClick={() => setClaudeWebAuthType('oauth')}
+                        className={`segmented-item text-xs ${claudeWebAuthType === 'oauth' ? 'segmented-item-active' : ''}`}
+                      >
+                        ⚡ 1-Click OAuth (Recommended)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setClaudeWebAuthType('direct')}
+                        className={`segmented-item text-xs ${claudeWebAuthType === 'direct' ? 'segmented-item-active' : ''}`}
+                      >
+                        🔗 Direct Key URL
+                      </button>
                     </div>
-                    <p className="text-slate-700 dark:text-zinc-300">
-                      When Claude asks you to choose an Authentication / Sign-in method:
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-white p-2.5 border border-brand-200 dark:bg-zinc-900 dark:border-zinc-800">
-                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white shadow-xs">
-                        <Check size={13} /> Select "No sign-in"
-                      </span>
-                      <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">
-                        ❌ Do NOT select "OAuth"
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 dark:text-zinc-400">
-                      <strong>Why?</strong> Your connector URL below already includes your personal security key.
-                      Selecting "No sign-in" connects cleanly without asking for an OAuth Client ID or showing <em>"Couldn't register with sign-in service"</em>.
-                    </p>
                   </div>
 
-                  <ol className="space-y-3 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
-                      <span>
-                        In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.
-                      </span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span>Set <strong>Name</strong> to <code>PromptHold</code> and enter your <strong>Connector URL</strong>:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                            {displayAuthMcpUrl}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(copyAuthMcpUrl, 'claude-web-url', 'URL copied')}
-                            className="btn-ghost btn-xs shrink-0"
-                          >
-                            {copiedId === 'claude-web-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                            <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
+                  {claudeWebAuthType === 'oauth' ? (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 p-3 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200 space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-zinc-100 text-xs">
+                          <ShieldCheck size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span>Native OAuth 2.1 Connection (RFC 8414 &amp; RFC 7591)</span>
                         </div>
+                        <p className="text-slate-700 dark:text-zinc-300">
+                          Claude automatically registers with PromptHold. No API keys needed in the chat or URL!
+                        </p>
                       </div>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                      <span>
-                        Under <strong>Authentication</strong>, select <strong>"No sign-in"</strong>. Click <strong>Add</strong>. You are connected!
-                      </span>
-                    </li>
-                  </ol>
+
+                      <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                        <li className="flex gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
+                          <span>
+                            In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.
+                          </span>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <span>Set <strong>Name</strong> to <code>PromptHold</code> and enter the <strong>Connector URL</strong>:</span>
+                            <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                              <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                                {mcpUrl}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => void copy(mcpUrl, 'claude-oauth-url', 'URL copied')}
+                                className="btn-ghost btn-xs shrink-0"
+                              >
+                                {copiedId === 'claude-oauth-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                                <span>{copiedId === 'claude-oauth-url' ? 'Copied' : 'Copy URL'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
+                          <span>
+                            Under <strong>Authentication</strong>, select <strong>OAuth</strong> (or leave default). Click <strong>Add</strong>.
+                          </span>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">4</span>
+                          <span>
+                            A PromptHold authorization window pops up. Click <strong>Authorize Access</strong>. Claude is now connected!
+                          </span>
+                        </li>
+                      </ol>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-brand-300 bg-brand-50/90 p-3 text-xs text-brand-950 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-200 space-y-1.5">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-zinc-100 text-xs">
+                          <Info size={15} className="text-brand-600 dark:text-brand-400 shrink-0" />
+                          <span>Direct Key URL (Pre-authenticated)</span>
+                        </div>
+                        <p className="text-slate-700 dark:text-zinc-300">
+                          Your connector URL below already includes your security key. Under Authentication in Claude, choose <strong>"No sign-in"</strong>.
+                        </p>
+                      </div>
+
+                      <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                        <li className="flex gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
+                          <span>
+                            In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.
+                          </span>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <span>Set <strong>Name</strong> to <code>PromptHold</code> and enter your <strong>Connector URL</strong>:</span>
+                            <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                              <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                                {displayAuthMcpUrl}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => void copy(copyAuthMcpUrl, 'claude-web-url', 'URL copied')}
+                                className="btn-ghost btn-xs shrink-0"
+                              >
+                                {copiedId === 'claude-web-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                                <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
+                          <span>
+                            Under <strong>Authentication</strong>, select <strong>"No sign-in"</strong>. Click <strong>Add</strong>. You are connected!
+                          </span>
+                        </li>
+                      </ol>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1036,6 +1102,26 @@ for p in prompts:
                     <span><strong>Cross-device sync:</strong> Setting this up once in ChatGPT Web makes your PromptHold prompts available on your iPhone and Android too!</span>
                   </div>
 
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Choose Sign-In Method:</span>
+                    <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                      <button
+                        type="button"
+                        onClick={() => setChatgptAuthType('oauth')}
+                        className={`segmented-item text-xs ${chatgptAuthType === 'oauth' ? 'segmented-item-active' : ''}`}
+                      >
+                        ⚡ OAuth 2.0 (Recommended)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChatgptAuthType('bearer')}
+                        className={`segmented-item text-xs ${chatgptAuthType === 'bearer' ? 'segmented-item-active' : ''}`}
+                      >
+                        🔑 API Key (Bearer)
+                      </button>
+                    </div>
+                  </div>
+
                   <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
@@ -1064,25 +1150,67 @@ for p in prompts:
                     </li>
                     <li className="flex gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span>Under <strong>Authentication</strong>, choose <strong>API Key</strong> (Auth Type: <strong>Bearer</strong>) and paste your key:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
-                            {displaySnippetKey}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(copySnippetKey, 'gpt-key', 'API key copied')}
-                            className="btn-ghost btn-xs shrink-0"
-                          >
-                            {copiedId === 'gpt-key' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                            <span>{copiedId === 'gpt-key' ? 'Copied' : 'Copy Key'}</span>
-                          </button>
+                      {chatgptAuthType === 'oauth' ? (
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <span>Under <strong>Authentication</strong>, choose <strong>OAuth</strong> and configure:</span>
+                          <div className="space-y-1.5 rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">Authorization URL:</span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <code className="truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 max-w-[200px] sm:max-w-[280px]">
+                                  {oauthAuthorizeUrl}
+                                </code>
+                                <button
+                                  type="button"
+                                  onClick={() => void copy(oauthAuthorizeUrl, 'gpt-auth-url', 'Authorization URL copied')}
+                                  className="btn-ghost btn-xs"
+                                >
+                                  {copiedId === 'gpt-auth-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">Token URL:</span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <code className="truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 max-w-[200px] sm:max-w-[280px]">
+                                  {oauthTokenUrl}
+                                </code>
+                                <button
+                                  type="button"
+                                  onClick={() => void copy(oauthTokenUrl, 'gpt-token-url', 'Token URL copied')}
+                                  className="btn-ghost btn-xs"
+                                >
+                                  {copiedId === 'gpt-token-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-zinc-400 pt-0.5">
+                              <span>Client ID: <code className="font-mono font-semibold text-slate-800 dark:text-zinc-200">chatgpt</code></span>
+                              <span>Scope: <code className="font-mono font-semibold text-slate-800 dark:text-zinc-200">prompts</code></span>
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
-                          💡 Stored once in your plugin. You never have to type your key in chat!
-                        </p>
-                      </div>
+                      ) : (
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <span>Under <strong>Authentication</strong>, choose <strong>API Key</strong> (Auth Type: <strong>Bearer</strong>) and paste your key:</span>
+                          <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                            <code className="min-w-0 truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
+                              {displaySnippetKey}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => void copy(copySnippetKey, 'gpt-key', 'API key copied')}
+                              className="btn-ghost btn-xs shrink-0"
+                            >
+                              {copiedId === 'gpt-key' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                              <span>{copiedId === 'gpt-key' ? 'Copied' : 'Copy Key'}</span>
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
+                            💡 Stored once in your plugin. You never have to type your key in chat!
+                          </p>
+                        </div>
+                      )}
                     </li>
                   </ol>
                 </div>

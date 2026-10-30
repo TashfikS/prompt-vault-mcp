@@ -732,7 +732,13 @@ export default {
 
     // 1. Optional multi-pod upstream forwarding (Render + Edge Failover)
     const pods = [env.RENDER_ORIGIN, env.BACKEND_POD_1, env.BACKEND_POD_2].filter(Boolean);
-    if (pods.length > 0 && (path.startsWith("/api/") || path.startsWith("/mcp") || path.startsWith("/sse"))) {
+    const isBackendRoute =
+      path.startsWith("/api/") ||
+      path.startsWith("/mcp") ||
+      path.startsWith("/sse") ||
+      path.startsWith("/.well-known/") ||
+      path.startsWith("/oauth/");
+    if (pods.length > 0 && isBackendRoute) {
       for (const pod of pods) {
         try {
           const targetUrl = new URL(path + url.search, pod);
@@ -768,7 +774,48 @@ export default {
     }
 
     // 2. Direct Edge execution against Neon Lakebase Postgres
-    if (path.startsWith("/api/") || path.startsWith("/mcp")) {
+    if (
+      path.startsWith("/api/") ||
+      path.startsWith("/mcp") ||
+      path.startsWith("/.well-known/") ||
+      path.startsWith("/oauth/")
+    ) {
+      // Fast Edge response for RFC 8414 & RFC 9728 discovery even when upstream is warming up
+      if (
+        (path === "/.well-known/oauth-authorization-server" ||
+          path === "/.well-known/openid-configuration") &&
+        request.method === "GET"
+      ) {
+        const baseUrl = url.origin;
+        return jsonResponse({
+          issuer: baseUrl,
+          authorization_endpoint: `${baseUrl}/oauth/authorize`,
+          token_endpoint: `${baseUrl}/oauth/token`,
+          registration_endpoint: `${baseUrl}/oauth/register`,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          code_challenge_methods_supported: ["S256", "plain"],
+          token_endpoint_auth_methods_supported: [
+            "client_secret_post",
+            "client_secret_basic",
+            "none",
+          ],
+          scopes_supported: ["prompts", "read", "write"],
+          service_documentation: `${baseUrl}/`,
+          ui_locales_supported: ["en"],
+        });
+      }
+
+      if (path === "/.well-known/oauth-protected-resource" && request.method === "GET") {
+        const baseUrl = url.origin;
+        return jsonResponse({
+          resource: `${baseUrl}/mcp`,
+          authorization_servers: [baseUrl],
+          scopes_supported: ["prompts", "read", "write"],
+          bearer_methods_supported: ["header"],
+        });
+      }
+
       if (!env.DATABASE_URL) {
         return errorResponse("DATABASE_URL secret is not configured on Worker.", 500);
       }

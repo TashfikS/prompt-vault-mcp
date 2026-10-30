@@ -1,5 +1,4 @@
-"""PromptHold REST API, account login, and mounted FastMCP app."""
-
+import base64
 import csv
 import hashlib
 import io
@@ -9,12 +8,15 @@ import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -47,8 +49,12 @@ from permissions import (can_access_group_with_key, can_user_approve_proposals, 
                          can_user_manage_group_members, can_user_view_group, ensure_all_personal_groups,
                          ensure_personal_group, extract_variables, get_scoped_group_ids, get_user_group_ids,
                          get_user_group_role, group_display_name, require_workspace_admin)
-from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, Prompt, PromptChunk, PromptProposal, PromptVersion,
-                    ProposalApproval, SharedDiffLink, User)
+from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, OAuthAuthorizationCode,
+                    OAuthClient, Prompt, PromptChunk, PromptProposal, PromptVersion, ProposalApproval,
+                    SharedDiffLink, User)
+from oauth import (create_authorization_code, exchange_authorization_code, get_oauth_protected_resource_metadata,
+                   get_oauth_server_metadata, get_or_create_client, register_oauth_client,
+                   render_oauth_authorize_html)
 from search import hybrid_search_prompts, sync_prompt_embeddings
 from schemas import (AssignMemberRequest, ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, CreateDiffShareRequest,
                      FeedbackCreateRequest, FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest,
@@ -169,6 +175,15 @@ def _bearer_token(authorization: str | None) -> str | None:
         return None
     scheme, _, token = authorization.partition(" ")
     return token.strip() if scheme.lower() == "bearer" and token.strip() else None
+
+
+def _get_public_base_url(request: Request) -> str:
+    env_url = (os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_URL") or "").strip()
+    if env_url:
+        return env_url.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or str(request.url.netloc)
+    return f"{proto}://{host}".rstrip("/")
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
@@ -555,6 +570,276 @@ def logout_all_sessions(
     _clear_session_cookie(response)
     record_audit_log(db, "AUTH_LOGOUT_ALL", user_id=user.id, ip_address=get_client_ip(request), details=f"Revoked {revoked} session(s)")
     return {"logged_out_all": True, "sessions_revoked": revoked}
+
+
+# ---------------------------------------------------------
+# Native OAuth 2.0 / 2.1 RFC Standards Implementation
+# RFC 8414, RFC 9728, RFC 7591, RFC 7636, RFC 6749
+# ---------------------------------------------------------
+
+@app.get("/.well-known/oauth-authorization-server", tags=["OAuth"])
+async def oauth_authorization_server_metadata(request: Request):
+    """RFC 8414 OAuth 2.0 Authorization Server Metadata document for Claude.ai and AI connectors."""
+    base_url = _get_public_base_url(request)
+    return get_oauth_server_metadata(base_url)
+
+
+@app.get("/.well-known/openid-configuration", tags=["OAuth"])
+async def openid_configuration_metadata(request: Request):
+    """OpenID Connect Discovery metadata endpoint alias."""
+    base_url = _get_public_base_url(request)
+    return get_oauth_server_metadata(base_url)
+
+
+@app.get("/.well-known/oauth-protected-resource", tags=["OAuth"])
+async def oauth_protected_resource_metadata(request: Request):
+    """RFC 9728 OAuth 2.0 Protected Resource Metadata document for Model Context Protocol (MCP)."""
+    base_url = _get_public_base_url(request)
+    return get_oauth_protected_resource_metadata(base_url)
+
+
+@app.post("/oauth/register", status_code=201, tags=["OAuth"])
+async def oauth_dynamic_client_registration(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """RFC 7591 Dynamic Client Registration (DCR) for Claude.ai and AI assistants."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    client_name = body.get("client_name") or "AI Assistant"
+    redirect_uris = body.get("redirect_uris") or []
+    grant_types = body.get("grant_types") or ["authorization_code", "refresh_token"]
+    response_types = body.get("response_types") or ["code"]
+
+    client = register_oauth_client(
+        db=db,
+        client_name=client_name,
+        redirect_uris=redirect_uris,
+        grant_types=grant_types,
+        response_types=response_types,
+    )
+    return {
+        "client_id": client.id,
+        "client_secret": client.client_secret,
+        "client_name": client.client_name,
+        "redirect_uris": redirect_uris,
+        "grant_types": grant_types,
+        "response_types": response_types,
+        "token_endpoint_auth_method": "none" if not client.client_secret else "client_secret_post",
+    }
+
+
+@app.get("/oauth/authorize", response_class=HTMLResponse, tags=["OAuth"])
+async def oauth_authorize_get(
+    request: Request,
+    client_id: str,
+    redirect_uri: str,
+    response_type: str = "code",
+    state: str = "",
+    code_challenge: str | None = None,
+    code_challenge_method: str | None = "S256",
+    scope: str = "prompts",
+    db: Session = Depends(get_db),
+    user: User | None = Depends(maybe_user),
+):
+    """Browser consent screen for OAuth 2.0 / 2.1 authorization request."""
+    if response_type != "code":
+        err_target = f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}error=unsupported_response_type&error_description=Only+code+response_type+is+supported"
+        if state:
+            err_target += f"&state={urlencode({'s': state})[2:]}"
+        return RedirectResponse(url=err_target, status_code=302)
+
+    client = get_or_create_client(db, client_id, redirect_uri)
+    html_page = render_oauth_authorize_html(
+        client_name=client.client_name,
+        client_id=client.id,
+        redirect_uri=redirect_uri,
+        state=state,
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
+        scope=scope,
+        logged_in_user=user,
+    )
+    return HTMLResponse(content=html_page, status_code=200)
+
+
+@app.post("/oauth/authorize", tags=["OAuth"])
+async def oauth_authorize_post(
+    request: Request,
+    action: str = Form("authorize"),
+    client_id: str = Form(...),
+    redirect_uri: str = Form(...),
+    state: str = Form(""),
+    code_challenge: str | None = Form(None),
+    code_challenge_method: str | None = Form("S256"),
+    scope: str = Form("prompts"),
+    email: str | None = Form(None),
+    password: str | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(maybe_user),
+):
+    """Handle approval or cancellation from the OAuth authorization consent screen."""
+    client = get_or_create_client(db, client_id, redirect_uri)
+
+    # If user cancelled, redirect with access_denied
+    if action == "cancel":
+        parsed = urlparse(redirect_uri)
+        q = dict(parse_qsl(parsed.query))
+        q["error"] = "access_denied"
+        q["error_description"] = "User denied the authorization request"
+        if state:
+            q["state"] = state
+        target = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(q), parsed.fragment))
+        return RedirectResponse(url=target, status_code=302)
+
+    # If not already signed in via session, authenticate email & password
+    auth_user = user
+    if auth_user is None:
+        if not email or not password:
+            html_page = render_oauth_authorize_html(
+                client_name=client.client_name,
+                client_id=client.id,
+                redirect_uri=redirect_uri,
+                state=state,
+                code_challenge=code_challenge,
+                code_challenge_method=code_challenge_method,
+                scope=scope,
+                logged_in_user=None,
+                error_message="Please enter your email and password to authorize access.",
+            )
+            return HTMLResponse(content=html_page, status_code=400)
+
+        candidate = db.query(User).filter_by(email=email.strip().lower()).first()
+        if candidate is None or not candidate.password_hash or not verify_password(password, candidate.password_hash):
+            html_page = render_oauth_authorize_html(
+                client_name=client.client_name,
+                client_id=client.id,
+                redirect_uri=redirect_uri,
+                state=state,
+                code_challenge=code_challenge,
+                code_challenge_method=code_challenge_method,
+                scope=scope,
+                logged_in_user=None,
+                error_message="Invalid email or password. Please try again.",
+            )
+            return HTMLResponse(content=html_page, status_code=400)
+        auth_user = candidate
+
+    # Issue single-use authorization code
+    code = create_authorization_code(
+        db=db,
+        client_id=client.id,
+        user_id=auth_user.id,
+        redirect_uri=redirect_uri,
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
+        scope=scope,
+    )
+
+    parsed = urlparse(redirect_uri)
+    q = dict(parse_qsl(parsed.query))
+    q["code"] = code
+    if state:
+        q["state"] = state
+    target = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(q), parsed.fragment))
+    return RedirectResponse(url=target, status_code=302)
+
+
+@app.post("/oauth/token", tags=["OAuth"])
+async def oauth_token_exchange(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """RFC 6749 / RFC 7636 OAuth token endpoint supporting authorization_code with PKCE."""
+    content_type = request.headers.get("content-type", "")
+    params: dict[str, Any] = {}
+    if "application/json" in content_type:
+        try:
+            params = await request.json()
+        except Exception:
+            params = {}
+    else:
+        try:
+            form = await request.form()
+            params = dict(form)
+        except Exception:
+            params = {}
+
+    # Check HTTP Basic auth header for client credentials (client_secret_basic)
+    auth_header = request.headers.get("authorization", "")
+    client_id = params.get("client_id", "").strip()
+    if auth_header.lower().startswith("basic "):
+        try:
+            b64_val = auth_header[6:].strip()
+            decoded = base64.b64decode(b64_val).decode("utf-8")
+            if ":" in decoded:
+                basic_client_id, _ = decoded.split(":", 1)
+                if not client_id:
+                    client_id = basic_client_id.strip()
+        except Exception:
+            pass
+
+    grant_type = params.get("grant_type", "").strip()
+    code = params.get("code", "").strip()
+    redirect_uri = params.get("redirect_uri", "").strip()
+    code_verifier = params.get("code_verifier")
+
+    if grant_type != "authorization_code":
+        return Response(
+            content=json.dumps({
+                "error": "unsupported_grant_type",
+                "error_description": f"Grant type '{grant_type}' is not supported. Use 'authorization_code'.",
+            }),
+            status_code=400,
+            media_type="application/json",
+        )
+
+    if not code:
+        return Response(
+            content=json.dumps({
+                "error": "invalid_request",
+                "error_description": "Missing required parameter: code.",
+            }),
+            status_code=400,
+            media_type="application/json",
+        )
+
+    try:
+        token_data = exchange_authorization_code(
+            db=db,
+            code=code,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_verifier=code_verifier,
+        )
+        return Response(
+            content=json.dumps(token_data),
+            status_code=200,
+            media_type="application/json",
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+    except ValueError as err:
+        return Response(
+            content=json.dumps({
+                "error": "invalid_grant",
+                "error_description": str(err),
+            }),
+            status_code=400,
+            media_type="application/json",
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+    except Exception as exc:
+        return Response(
+            content=json.dumps({
+                "error": "server_error",
+                "error_description": "An unexpected error occurred during token exchange.",
+            }),
+            status_code=500,
+            media_type="application/json",
+        )
 
 
 def _version_read(db: Session, version: PromptVersion, author_name: str | None = None) -> dict:
