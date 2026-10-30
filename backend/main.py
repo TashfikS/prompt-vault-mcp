@@ -178,11 +178,15 @@ def _bearer_token(authorization: str | None) -> str | None:
 
 
 def _get_public_base_url(request: Request) -> str:
+    forwarded_host = request.headers.get("x-forwarded-host")
+    if forwarded_host:
+        proto = request.headers.get("x-forwarded-proto") or "https"
+        return f"{proto}://{forwarded_host}".rstrip("/")
     env_url = (os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_URL") or "").strip()
     if env_url:
         return env_url.rstrip("/")
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or str(request.url.netloc)
+    host = request.headers.get("host") or str(request.url.netloc)
     return f"{proto}://{host}".rstrip("/")
 
 
