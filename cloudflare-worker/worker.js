@@ -730,21 +730,60 @@ export default {
       }
     }
 
+    // 0. Handle .well-known RFC discovery directly at the Edge with gateway origin
+    if (path.startsWith("/.well-known/")) {
+      const baseUrl = url.origin;
+      if (
+        (path === "/.well-known/oauth-authorization-server" ||
+          path === "/.well-known/openid-configuration") &&
+        request.method === "GET"
+      ) {
+        return jsonResponse({
+          issuer: baseUrl,
+          authorization_endpoint: `${baseUrl}/oauth/authorize`,
+          token_endpoint: `${baseUrl}/oauth/token`,
+          registration_endpoint: `${baseUrl}/oauth/register`,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          code_challenge_methods_supported: ["S256", "plain"],
+          token_endpoint_auth_methods_supported: [
+            "client_secret_post",
+            "client_secret_basic",
+            "none",
+          ],
+          scopes_supported: ["prompts", "read", "write"],
+          service_documentation: `${baseUrl}/`,
+          ui_locales_supported: ["en"],
+        });
+      }
+
+      if (path === "/.well-known/oauth-protected-resource" && request.method === "GET") {
+        return jsonResponse({
+          resource: `${baseUrl}/mcp`,
+          authorization_servers: [baseUrl],
+          scopes_supported: ["prompts", "read", "write"],
+          bearer_methods_supported: ["header"],
+        });
+      }
+    }
+
     // 1. Optional multi-pod upstream forwarding (Render + Edge Failover)
     const pods = [env.RENDER_ORIGIN, env.BACKEND_POD_1, env.BACKEND_POD_2].filter(Boolean);
     const isBackendRoute =
       path.startsWith("/api/") ||
       path.startsWith("/mcp") ||
       path.startsWith("/sse") ||
-      path.startsWith("/.well-known/") ||
       path.startsWith("/oauth/");
     if (pods.length > 0 && isBackendRoute) {
       for (const pod of pods) {
         try {
           const targetUrl = new URL(path + url.search, pod);
+          const upstreamHeaders = new Headers(request.headers);
+          upstreamHeaders.set("X-Forwarded-Host", url.host);
+          upstreamHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
           const upstreamReq = new Request(targetUrl.toString(), {
             method: request.method,
-            headers: request.headers,
+            headers: upstreamHeaders,
             body: rawBody ? rawBody.slice(0) : undefined,
             redirect: "manual",
             signal: AbortSignal.timeout(path.startsWith("/oauth/") ? 15000 : 8000),
