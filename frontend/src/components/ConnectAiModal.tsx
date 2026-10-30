@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   Globe,
+  HelpCircle,
   Info,
   KeyRound,
   LockKeyhole,
@@ -301,13 +302,23 @@ export default function ConnectAiModal({
     linux: '~/.config/Claude/claude_desktop_config.json',
   }
 
-  // Modern MCP Bridge config using mcp-remote
+  const keyPlaceholder = 'YOUR_API_KEY'
+  const activeRawKey = newKey?.raw_key || keyPlaceholder
+  const copyAuthMcpUrl = `${mcpUrl}?api_key=${activeRawKey}`
+  const copyAuthSseUrl = `${sseUrl}?api_key=${activeRawKey}`
+  const displayAuthMcpUrl = `${mcpUrl}?api_key=${
+    newKey
+      ? (!isKeyCopied || showRawKey ? newKey.raw_key : 'pvh_••••••••')
+      : 'YOUR_API_KEY'
+  }`
+
+  // Modern MCP Bridge config using mcp-remote with authenticated personal endpoint
   const claudeConfigJson = JSON.stringify(
     {
       mcpServers: {
         prompthold: {
           command: 'npx',
-          args: ['-y', 'mcp-remote', mcpUrl],
+          args: ['-y', 'mcp-remote', copyAuthMcpUrl],
         },
       },
     },
@@ -320,7 +331,7 @@ export default function ConnectAiModal({
       mcpServers: {
         prompthold: {
           command: 'npx',
-          args: ['-y', 'mcp-remote', mcpUrl],
+          args: ['-y', 'mcp-remote', copyAuthMcpUrl],
         },
       },
     },
@@ -333,7 +344,7 @@ export default function ConnectAiModal({
       mcpServers: {
         prompthold: {
           command: 'npx',
-          args: ['-y', 'mcp-remote', mcpUrl],
+          args: ['-y', 'mcp-remote', copyAuthMcpUrl],
         },
       },
     },
@@ -341,9 +352,8 @@ export default function ConnectAiModal({
     2
   )
 
-  const keyPlaceholder = 'YOUR_API_KEY'
   const displaySnippetKey = newKey && !isKeyCopied ? newKey.raw_key : 'pvh_••••••••••••••••••••••••••••••••'
-  const copySnippetKey = newKey ? newKey.raw_key : keyPlaceholder
+  const copySnippetKey = activeRawKey
 
   const geminiPythonSnippet = `import requests
 from google import genai
@@ -668,6 +678,19 @@ for p in prompts:
             </p>
           </div>
 
+          {/* Zero-Key In-Chat Privacy Guarantee */}
+          <div className="flex items-start gap-2.5 rounded-xl border border-emerald-300 bg-emerald-50/80 p-3 text-xs text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <div className="space-y-0.5">
+              <span className="font-bold text-slate-900 dark:text-zinc-100">🔒 Zero-Key In-Chat Privacy (Never paste keys into chat):</span>
+              <p className="text-slate-700 dark:text-zinc-300">
+                You will <strong>never</strong> have to type or paste your API key into an AI chat message.
+                Your key is configured once in your assistant settings, and PromptHold authenticates your requests silently in the background.
+                Chat naturally in plain English!
+              </p>
+            </div>
+          </div>
+
           {/* AI Provider Tabs */}
           <div role="tablist" aria-label="AI assistants" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {PROVIDERS.map(item => {
@@ -862,7 +885,7 @@ for p in prompts:
                       <span>Terminal command</span>
                       <button
                         type="button"
-                        onClick={() => void copy(`claude mcp add --transport http prompthold ${mcpUrl}`, 'claude-cli', 'Command copied')}
+                        onClick={() => void copy(`claude mcp add --transport http prompthold "${copyAuthMcpUrl}"`, 'claude-cli', 'Command copied')}
                         className="btn-ghost btn-sm h-7 px-2 text-xs"
                       >
                         {copiedId === 'claude-cli' ? <Check size={13} className="text-amber-600 dark:text-amber-400" /> : <Copy size={13} />}
@@ -870,7 +893,7 @@ for p in prompts:
                       </button>
                     </div>
                     <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-emerald-300 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-emerald-400">
-                      <code>claude mcp add --transport http prompthold {mcpUrl}</code>
+                      <code>claude mcp add --transport http prompthold "{displayAuthMcpUrl}"</code>
                     </pre>
                   </div>
 
@@ -882,44 +905,60 @@ for p in prompts:
 
               {claudeMode === 'web' && (
                 <div className="space-y-3 pt-1">
-                  {/* Explanation for why Claude Web shows OAuth errors */}
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200 space-y-1.5">
-                    <div className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-100">
-                      <Info size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
-                      <span>Why Claude.ai Web asks for an OAuth Client ID:</span>
+                  {/* Step-by-step guidance for Claude.ai Web */}
+                  <div className="rounded-xl border border-brand-300 bg-brand-50/90 p-3.5 text-xs text-brand-950 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-200 space-y-2">
+                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-zinc-100 text-sm">
+                      <HelpCircle size={16} className="text-brand-600 dark:text-brand-400 shrink-0" />
+                      <span>Which sign-in option to select in Claude.ai?</span>
                     </div>
-                    <p>
-                      Anthropic requires a registered <strong>OAuth 2.0 Organization Client ID</strong> for custom connectors inside the web browser.
-                      If you see <em>"Couldn't register with sign-in service"</em>, we strongly recommend using <strong>Claude Desktop</strong> above, which connects directly with zero OAuth required!
+                    <p className="text-slate-700 dark:text-zinc-300">
+                      When Claude asks you to choose an Authentication / Sign-in method:
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-white p-2.5 border border-brand-200 dark:bg-zinc-900 dark:border-zinc-800">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white shadow-xs">
+                        <Check size={13} /> Select "No sign-in"
+                      </span>
+                      <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                        ❌ Do NOT select "OAuth"
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-zinc-400">
+                      <strong>Why?</strong> Your connector URL below already includes your personal security key.
+                      Selecting "No sign-in" connects cleanly without asking for an OAuth Client ID or showing <em>"Couldn't register with sign-in service"</em>.
                     </p>
                   </div>
 
-                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
+                  <ol className="space-y-3 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
-                      <span>If you have an Anthropic Enterprise account with custom OAuth connectors:</span>
+                      <span>
+                        In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.
+                      </span>
                     </li>
                     <li className="flex gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>Use the live PromptHold Backend Server URL:</span>
+                        <span>Set <strong>Name</strong> to <code>PromptHold</code> and enter your <strong>Connector URL</strong>:</span>
                         <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                           <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                            {mcpUrl}
+                            {displayAuthMcpUrl}
                           </code>
                           <button
                             type="button"
-                            onClick={() => void copy(mcpUrl, 'claude-web-url', 'URL copied')}
+                            onClick={() => void copy(copyAuthMcpUrl, 'claude-web-url', 'URL copied')}
                             className="btn-ghost btn-xs shrink-0"
                           >
                             {copiedId === 'claude-web-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
                             <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
                           </button>
                         </div>
-                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
-                          ⚠️ Note: Do not use <code>prompthold.pages.dev</code> as the connector address — that is the frontend web app. Always use the live backend gateway URL shown above.
-                        </p>
                       </div>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
+                      <span>
+                        Under <strong>Authentication</strong>, select <strong>"No sign-in"</strong>. Click <strong>Add</strong>. You are connected!
+                      </span>
                     </li>
                   </ol>
                 </div>
@@ -928,10 +967,18 @@ for p in prompts:
               {/* In-chat example */}
               <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
                 <Sparkles size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                <div>
-                  <span className="font-semibold">What to ask Claude in chat: </span>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
-                    “Show my available prompt templates in PromptHold using key {displaySnippetKey}”
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask Claude in chat:</span>
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      <ShieldCheck size={11} /> No API key needed in chat
+                    </span>
+                  </div>
+                  <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
+                    “Show my available prompt templates in PromptHold”
+                  </em>
+                  <em className="text-slate-600 dark:text-zinc-400 font-sans block text-[11px]">
+                    Or: “Load the 'Customer Support' prompt and fill issue='Login error'”
                   </em>
                 </div>
               </div>
@@ -1053,7 +1100,7 @@ for p in prompts:
                         <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Server URL</span>
                         <button
                           type="button"
-                          onClick={() => void copy(mcpUrl, 'chatgpt-desktop-url', 'URL copied')}
+                          onClick={() => void copy(copyAuthMcpUrl, 'chatgpt-desktop-url', 'URL copied')}
                           className="btn-ghost btn-xs text-[10px]"
                         >
                           {copiedId === 'chatgpt-desktop-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
@@ -1061,7 +1108,7 @@ for p in prompts:
                         </button>
                       </div>
                       <code className="truncate text-xs font-semibold text-slate-800 dark:text-zinc-200 block">
-                        {mcpUrl}
+                        {displayAuthMcpUrl}
                       </code>
                     </div>
                   </div>
@@ -1071,10 +1118,15 @@ for p in prompts:
               {/* In-chat example */}
               <div className="flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50/80 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
                 <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <div>
-                  <span className="font-semibold">What to ask ChatGPT in chat: </span>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
-                    “Search PromptHold for the 'Customer Onboarding' prompt using key {displaySnippetKey} and substitute client_name='Acme Corp'”
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask ChatGPT in chat:</span>
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      <ShieldCheck size={11} /> No API key needed in chat
+                    </span>
+                  </div>
+                  <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
+                    “Search PromptHold for the 'Customer Onboarding' prompt and substitute client_name='Acme Corp'”
                   </em>
                 </div>
               </div>
@@ -1139,11 +1191,11 @@ for p in prompts:
                         <span>Set Name to <strong>PromptHold</strong> and enter your Server URL:</span>
                         <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                           <code className="min-w-0 truncate font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
-                            {mcpUrl}
+                            {displayAuthMcpUrl}
                           </code>
                           <button
                             type="button"
-                            onClick={() => void copy(mcpUrl, 'gemini-url', 'Server URL copied')}
+                            onClick={() => void copy(copyAuthMcpUrl, 'gemini-url', 'Server URL copied')}
                             className="btn-ghost btn-xs shrink-0"
                           >
                             {copiedId === 'gemini-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
@@ -1151,7 +1203,7 @@ for p in prompts:
                           </button>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
-                          When prompted for authentication, paste your PromptHold API key from Step 1.
+                          💡 Your personal URL automatically authenticates your account in the background.
                         </p>
                       </div>
                     </li>
@@ -1160,10 +1212,15 @@ for p in prompts:
                   {/* In-chat example */}
                   <div className="flex items-start gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50/80 p-2.5 text-xs text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
                     <Sparkles size={14} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
-                    <div>
-                      <span className="font-semibold">What to ask Gemini on Web or Mobile: </span>
-                      <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
-                        “@PromptHold show my active Marketing templates using key {displaySnippetKey}”
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask Gemini on Web or Mobile:</span>
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          <ShieldCheck size={11} /> No API key needed in chat
+                        </span>
+                      </div>
+                      <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
+                        “@PromptHold show my active Marketing templates”
                       </em>
                     </div>
                   </div>
@@ -1259,7 +1316,7 @@ for p in prompts:
                               <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Command</span>
                               <button
                                 type="button"
-                                onClick={() => void copy(`npx -y mcp-remote ${mcpUrl}`, 'cursor-cmd', 'Command copied')}
+                                onClick={() => void copy(`npx -y mcp-remote "${copyAuthMcpUrl}"`, 'cursor-cmd', 'Command copied')}
                                 className="btn-ghost btn-xs text-[10px]"
                               >
                                 {copiedId === 'cursor-cmd' ? <Check size={11} className="text-cyan-600" /> : <Copy size={11} />}
@@ -1267,7 +1324,7 @@ for p in prompts:
                               </button>
                             </div>
                             <code className="truncate text-xs font-semibold text-slate-800 dark:text-zinc-200 block">
-                              npx -y mcp-remote {mcpUrl}
+                              npx -y mcp-remote "{displayAuthMcpUrl}"
                             </code>
                           </div>
                         </div>
@@ -1294,7 +1351,7 @@ for p in prompts:
                   </div>
 
                   <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                    💡 If using direct SSE mode: set <strong>Type: sse</strong> and URL to <code className="font-mono text-cyan-600 dark:text-cyan-400">{sseUrl}</code>.
+                    💡 If using direct SSE mode: set <strong>Type: sse</strong> and URL to <code className="font-mono text-cyan-600 dark:text-cyan-400">{copyAuthSseUrl}</code>.
                   </p>
                 </div>
               )}
@@ -1330,10 +1387,15 @@ for p in prompts:
               {/* In-chat example */}
               <div className="flex items-start gap-2.5 rounded-lg border border-cyan-200 bg-cyan-50/80 p-2.5 text-xs text-cyan-900 dark:border-cyan-900/50 dark:bg-cyan-950/30 dark:text-cyan-200">
                 <Sparkles size={14} className="mt-0.5 shrink-0 text-cyan-600 dark:text-cyan-400" />
-                <div>
-                  <span className="font-semibold">What to ask in Cursor Chat (Cmd+L): </span>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans block pt-0.5">
-                    “Use PromptHold to load my 'Code Review' prompt using key {displaySnippetKey} and review this file”
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask in Cursor Chat (Cmd+L / Composer):</span>
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      <ShieldCheck size={11} /> No API key needed in chat
+                    </span>
+                  </div>
+                  <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
+                    “Use PromptHold to load my 'Code Review' prompt and review this file”
                   </em>
                 </div>
               </div>

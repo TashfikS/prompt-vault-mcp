@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.server.http import _current_http_request
 from sqlalchemy import func
 
 from auth import resolve_api_key
@@ -93,6 +94,56 @@ def _get_mcp_session(api_key: str):
         db.close()
 
 
+_session_api_keys: dict[str, str] = {}
+
+
+def register_session_key(session_id: str, api_key: str):
+    """Associate an MCP session ID with an authenticated PromptHold API key."""
+    if session_id and api_key:
+        _session_api_keys[session_id] = api_key.strip()
+
+
+def resolve_effective_api_key(explicit_key: str = "") -> str:
+    """Resolve API key from explicit argument, HTTP Authorization/X-API-Key header, query param, or session map."""
+    key = (explicit_key or "").strip()
+    if key:
+        return key
+
+    req = _current_http_request.get()
+    if req is not None:
+        auth = req.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        if req.headers.get("X-API-Key"):
+            return req.headers.get("X-API-Key").strip()
+        if req.query_params.get("api_key"):
+            k = req.query_params.get("api_key").strip()
+            sess = req.headers.get("mcp-session-id")
+            if sess:
+                _session_api_keys[sess] = k
+            return k
+        if req.query_params.get("token"):
+            k = req.query_params.get("token").strip()
+            sess = req.headers.get("mcp-session-id")
+            if sess:
+                _session_api_keys[sess] = k
+            return k
+        match = re.search(r"/(?:s|k|key)/([^/?#]+)", req.url.path)
+        if match:
+            k = match.group(1).strip()
+            sess = req.headers.get("mcp-session-id")
+            if sess:
+                _session_api_keys[sess] = k
+            return k
+        sess = req.headers.get("mcp-session-id")
+        if sess and sess in _session_api_keys:
+            return _session_api_keys[sess]
+
+    raise ValueError(
+        "Missing API key. Please configure your personal PromptHold connector URL (with your API key) or pass an Authorization header."
+    )
+
+
 def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
     if rate_limiter.count_recent("mcp_invalid_key", window_seconds=60) >= 20:
         raise ValueError("Too many invalid API key attempts. Please wait a minute and try again.")
@@ -104,10 +155,11 @@ def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
 
 
 @mcp.tool()
-def list_my_accessible_prompts(api_key: str, search_query: str = "", group_name: str = "") -> dict[str, Any]:
-    """List prompts from spaces authorized for the supplied API key in a single SQL JOIN query."""
-    with _get_mcp_session(api_key) as db:
-        user, key_record = _auth_key(db, api_key)
+def list_my_accessible_prompts(api_key: str = "", search_query: str = "", group_name: str = "") -> dict[str, Any]:
+    """List prompts from spaces authorized for your PromptHold API key in a single SQL JOIN query."""
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
         group_ids = get_scoped_group_ids(db, user, key_record)
         if not group_ids:
             return {"prompts": []}
@@ -171,10 +223,11 @@ def list_my_accessible_prompts(api_key: str, search_query: str = "", group_name:
 
 
 @mcp.tool()
-def get_and_fill_prompt(api_key: str, prompt_id: str, variables: dict[str, str] | None = None) -> dict[str, str]:
+def get_and_fill_prompt(prompt_id: str, api_key: str = "", variables: dict[str, str] | None = None) -> dict[str, str]:
     """Get the latest accessible prompt by UUID and substitute provided variable values."""
-    with _get_mcp_session(api_key) as db:
-        user, key_record = _auth_key(db, api_key)
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
         prompt = db.query(Prompt).filter_by(id=prompt_id.strip()[:64]).first()
         if prompt is None or not can_access_group_with_key(db, user, prompt.group_id, key_record):
             raise ValueError("Prompt not found or this API key does not have access to its group.")
@@ -208,14 +261,15 @@ def get_and_fill_prompt(api_key: str, prompt_id: str, variables: dict[str, str] 
 
 
 @mcp.tool()
-def save_prompt_version_from_chat(api_key: str, prompt_id: str, new_content: str,
-                                  change_note: str = "Updated via AI Chat") -> dict[str, Any]:
+def save_prompt_version_from_chat(prompt_id: str, new_content: str,
+                                  change_note: str = "Updated via AI Chat", api_key: str = "") -> dict[str, Any]:
     """Save a new immutable prompt version (Owner) or submit an edit proposal (Member) after verifying key scope & role."""
     if not new_content or len(new_content) > 100_000:
         raise ValueError("Prompt content must be between 1 and 100,000 characters.")
     safe_note = (change_note or "Updated via AI Chat").strip()[:500]
-    with _get_mcp_session(api_key) as db:
-        user, key_record = _auth_key(db, api_key)
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot modify or propose changes to prompts.")
         prompt = db.query(Prompt).filter_by(id=prompt_id.strip()[:64]).first()
@@ -275,12 +329,13 @@ def save_prompt_version_from_chat(api_key: str, prompt_id: str, new_content: str
 
 
 @mcp.tool()
-def duplicate_or_move_prompt(api_key: str, prompt_id: str, target_group_id: str,
-                             new_title: str = "", mode: str = "copy") -> dict[str, Any]:
+def duplicate_or_move_prompt(prompt_id: str, target_group_id: str,
+                             new_title: str = "", mode: str = "copy", api_key: str = "") -> dict[str, Any]:
     """Duplicate (copy) or move a prompt to another group or Personal space. Requires Member or Owner role in both spaces."""
     clean_mode = "move" if mode.strip().lower() == "move" else "copy"
-    with _get_mcp_session(api_key) as db:
-        user, key_record = _auth_key(db, api_key)
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot duplicate or move prompts.")
         prompt = db.query(Prompt).filter_by(id=prompt_id.strip()[:64]).first()

@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -61,7 +62,7 @@ from security import (AUTO_MIGRATE_DB, IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE
                       validate_text_upload_content)
 from fastmcp.server.http import create_sse_app
 from seed import seed_initial_data
-from mcp_server import mcp
+from mcp_server import mcp, register_session_key
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 SESSION_COOKIE_NAME = "ph_session"
@@ -131,8 +132,30 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "If-None-Match"],
-    expose_headers=["ETag"],
+    expose_headers=["ETag", "Mcp-Session-Id"],
 )
+
+
+@app.middleware("http")
+async def mcp_session_key_capture_middleware(request: Request, call_next):
+    session_id = request.headers.get("mcp-session-id")
+    api_key = (
+        (request.headers.get("Authorization") or "").replace("Bearer ", "").replace("bearer ", "").strip()
+        or request.headers.get("X-API-Key", "").strip()
+        or request.query_params.get("api_key", "").strip()
+        or request.query_params.get("token", "").strip()
+    )
+    if not api_key:
+        match = re.search(r"/(?:s|k|key)/([^/?#]+)", request.url.path)
+        if match:
+            api_key = match.group(1).strip()
+
+    response = await call_next(request)
+
+    resp_sess = response.headers.get("mcp-session-id") or session_id
+    if resp_sess and api_key:
+        register_session_key(resp_sess, api_key)
+    return response
 
 
 @app.get("/api/openapi.json", include_in_schema=False)

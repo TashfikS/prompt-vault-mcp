@@ -429,7 +429,7 @@ async function handleMcpRequest(request, env, sql) {
                 search_query: { type: "string" },
                 group_name: { type: "string" },
               },
-              required: ["api_key"],
+              required: [],
             },
           },
           {
@@ -442,7 +442,7 @@ async function handleMcpRequest(request, env, sql) {
                 prompt_id: { type: "string" },
                 variables: { type: "object" },
               },
-              required: ["api_key", "prompt_id"],
+              required: ["prompt_id"],
             },
           },
           {
@@ -456,7 +456,22 @@ async function handleMcpRequest(request, env, sql) {
                 new_content: { type: "string" },
                 change_note: { type: "string" },
               },
-              required: ["api_key", "prompt_id", "new_content"],
+              required: ["prompt_id", "new_content"],
+            },
+          },
+          {
+            name: "duplicate_or_move_prompt",
+            description: "Duplicate (copy) or move a prompt to another group or Personal space.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                api_key: { type: "string" },
+                prompt_id: { type: "string" },
+                target_group_id: { type: "string" },
+                new_title: { type: "string" },
+                mode: { type: "string" },
+              },
+              required: ["prompt_id", "target_group_id"],
             },
           },
         ],
@@ -467,7 +482,13 @@ async function handleMcpRequest(request, env, sql) {
   if (method === "tools/call") {
     const toolName = params?.name;
     const args = params?.arguments || {};
-    const apiKey = args.api_key || (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+    const reqUrl = new URL(request.url);
+    const apiKey = args.api_key ||
+      (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "") ||
+      request.headers.get("X-API-Key") ||
+      reqUrl.searchParams.get("api_key") ||
+      reqUrl.searchParams.get("token") ||
+      "";
 
     const user = await resolveMcpUser(sql, apiKey);
     if (!user) {
@@ -524,6 +545,165 @@ async function handleMcpRequest(request, env, sql) {
           ],
         },
       });
+    }
+
+    if (toolName === "save_prompt_version_from_chat") {
+      const promptId = args.prompt_id;
+      const newContent = args.new_content;
+      const changeNote = args.change_note || "Updated via AI Chat";
+      if (!newContent) {
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: { isError: true, content: [{ type: "text", text: "New content cannot be empty." }] },
+        });
+      }
+      const summaries = await buildPromptSummaries(sql, groupIds, null, null);
+      const prompt = summaries.find((s) => s.id === promptId);
+      if (!prompt) {
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: { isError: true, content: [{ type: "text", text: "Prompt not found or access denied." }] },
+        });
+      }
+      const groups = await sql`SELECT * FROM groups WHERE id = ${prompt.group_id} LIMIT 1`;
+      const group = groups[0];
+      const isPersonal = group && group.personal_owner_id === user.id;
+      const memberships = await sql`SELECT role FROM group_memberships WHERE user_id = ${user.id} AND group_id = ${prompt.group_id} LIMIT 1`;
+      const role = memberships[0]?.role || "GUEST";
+      const canDirect = isPersonal || user.is_workspace_admin || role === "GROUP_MANAGER";
+
+      if (canDirect) {
+        const maxRows = await sql`SELECT COALESCE(MAX(version_number), 0)::int AS max_v FROM prompt_versions WHERE prompt_id = ${promptId}`;
+        const nextVer = Number(maxRows[0].max_v) + 1;
+        const versionId = uuid4();
+        const vars = JSON.stringify(extractVariables(newContent));
+        await sql`
+          INSERT INTO prompt_versions (id, prompt_id, version_number, content, variables_json, "change_Note", author_id, created_at)
+          VALUES (${versionId}, ${promptId}, ${nextVer}, ${newContent}, ${vars}, ${changeNote}, ${user.id}, NOW())
+        `;
+        await sql`
+          UPDATE prompts
+          SET current_version_number = ${nextVer}, current_version_id = ${versionId}, updated_at = NOW()
+          WHERE id = ${promptId}
+        `;
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  status: "VERSION_CREATED",
+                  message: `Successfully saved version v${nextVer} for prompt '${prompt.title}'`,
+                  version_number: nextVer,
+                  prompt_id: promptId,
+                }, null, 2),
+              },
+            ],
+          },
+        });
+      } else {
+        const propId = uuid4();
+        await sql`
+          INSERT INTO prompt_proposals (id, prompt_id, group_id, proposer_id, title, content, change_note, status, created_at, updated_at)
+          VALUES (${propId}, ${promptId}, ${prompt.group_id}, ${user.id}, ${prompt.title}, ${newContent}, ${changeNote}, 'PENDING', NOW(), NOW())
+        `;
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  status: "PROPOSAL_CREATED",
+                  message: `Proposal submitted for prompt '${prompt.title}'. Pending team review.`,
+                  proposal_id: propId,
+                  prompt_id: promptId,
+                }, null, 2),
+              },
+            ],
+          },
+        });
+      }
+    }
+
+    if (toolName === "duplicate_or_move_prompt") {
+      const promptId = args.prompt_id;
+      const targetGroupId = args.target_group_id;
+      const newTitle = (args.new_title || "").trim();
+      const mode = (args.mode || "copy").toLowerCase() === "move" ? "move" : "copy";
+
+      if (!groupIds.includes(targetGroupId)) {
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: { isError: true, content: [{ type: "text", text: "Access denied to target group." }] },
+        });
+      }
+      const summaries = await buildPromptSummaries(sql, groupIds, null, null);
+      const prompt = summaries.find((s) => s.id === promptId);
+      if (!prompt || !prompt.latest_version) {
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: { isError: true, content: [{ type: "text", text: "Source prompt not found or access denied." }] },
+        });
+      }
+
+      if (mode === "move") {
+        await sql`UPDATE prompts SET group_id = ${targetGroupId}, updated_at = NOW() WHERE id = ${promptId}`;
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  status: "MOVED",
+                  message: `Prompt '${prompt.title}' moved to target group.`,
+                  prompt_id: promptId,
+                  target_group_id: targetGroupId,
+                }, null, 2),
+              },
+            ],
+          },
+        });
+      } else {
+        const newPromptId = uuid4();
+        const finalTitle = newTitle || `${prompt.title} (Copy)`;
+        const newVerId = uuid4();
+        await sql`
+          INSERT INTO prompts (id, group_id, title, description, current_version_number, current_version_id, created_by, created_at, updated_at)
+          VALUES (${newPromptId}, ${targetGroupId}, ${finalTitle}, ${prompt.description || ""}, 1, ${newVerId}, ${user.id}, NOW(), NOW())
+        `;
+        const vars = JSON.stringify(extractVariables(prompt.latest_version.content || ""));
+        await sql`
+          INSERT INTO prompt_versions (id, prompt_id, version_number, content, variables_json, "change_Note", author_id, created_at)
+          VALUES (${newVerId}, ${newPromptId}, 1, ${prompt.latest_version.content}, ${vars}, 'Duplicated from ${prompt.title}', ${user.id}, NOW())
+        `;
+        return jsonResponse({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  status: "COPIED",
+                  message: `Prompt '${prompt.title}' copied as '${finalTitle}'.`,
+                  new_prompt_id: newPromptId,
+                  target_group_id: targetGroupId,
+                }, null, 2),
+              },
+            ],
+          },
+        });
+      }
     }
   }
 
