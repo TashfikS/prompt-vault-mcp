@@ -1005,7 +1005,7 @@ for p in prompts:
                     onClick={() => setChatgptMode('web')}
                     className={`segmented-item text-xs ${chatgptMode === 'web' ? 'segmented-item-active' : ''}`}
                   >
-                    Custom GPT (Web &amp; Mobile)
+                    Plugins &amp; Web Tools
                   </button>
                   <button
                     type="button"
@@ -1019,6 +1019,18 @@ for p in prompts:
 
               {chatgptMode === 'web' && (
                 <div className="space-y-3 pt-1">
+                  {/* Notice explaining OpenAI's new Plugin architecture */}
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 p-3 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200 space-y-1.5">
+                    <div className="flex items-center gap-1.5 font-semibold text-emerald-900 dark:text-emerald-100">
+                      <Info size={14} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      <span>OpenAI Update: "Create a plugin instead"</span>
+                    </div>
+                    <p>
+                      OpenAI has transitioned from Custom GPTs to <strong>Plugins</strong> as the home for custom tools.
+                      When ChatGPT prompts you with <em>"Create a plugin instead"</em>, click <strong>"Create plugin"</strong> to proceed.
+                    </p>
+                  </div>
+
                   <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/60 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200 flex items-center gap-2">
                     <Smartphone size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
                     <span><strong>Cross-device sync:</strong> Setting this up once in ChatGPT Web makes your PromptHold prompts available on your iPhone and Android too!</span>
@@ -1028,12 +1040,27 @@ for p in prompts:
                     <li className="flex gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
                       <span>
-                        On <strong>chatgpt.com</strong>, click <strong>Explore GPTs</strong> → <strong>+ Create</strong> (or edit your GPT) → click the <strong>Configure</strong> tab.
+                        On <strong>chatgpt.com</strong>, click <strong>Create plugin</strong> (or open <strong>Explore</strong> → <strong>Plugins</strong>).
                       </span>
                     </li>
                     <li className="flex gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
-                      <span>Scroll down to <strong>Actions</strong> and click <strong>Create new action</strong>.</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>Under <strong>Action Schema</strong>, import the PromptHold OpenAPI specification:</span>
+                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
+                            {openApiUrl}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(openApiUrl, 'gpt-schema', 'Schema URL copied')}
+                            className="btn-ghost btn-xs shrink-0"
+                          >
+                            {copiedId === 'gpt-schema' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            <span>{copiedId === 'gpt-schema' ? 'Copied' : 'Copy URL'}</span>
+                          </button>
+                        </div>
+                      </div>
                     </li>
                     <li className="flex gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
@@ -1052,25 +1079,9 @@ for p in prompts:
                             <span>{copiedId === 'gpt-key' ? 'Copied' : 'Copy Key'}</span>
                           </button>
                         </div>
-                      </div>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">4</span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span>Under <strong>Schema</strong>, import this OpenAPI URL:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
-                            {openApiUrl}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(openApiUrl, 'gpt-schema', 'Schema URL copied')}
-                            className="btn-ghost btn-xs shrink-0"
-                          >
-                            {copiedId === 'gpt-schema' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                            <span>{copiedId === 'gpt-schema' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
-                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
+                          💡 Stored once in your plugin. You never have to type your key in chat!
+                        </p>
                       </div>
                     </li>
                   </ol>
