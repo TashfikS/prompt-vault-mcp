@@ -754,6 +754,15 @@ export default {
             const headers = new Headers(resp.headers);
             headers.set("X-Upstream-Pod", pod);
             headers.set("X-Served-By", "render-upstream");
+            if (path.startsWith("/oauth/")) {
+              const currentCsp = headers.get("content-security-policy");
+              if (currentCsp && currentCsp.includes("form-action 'self'")) {
+                headers.set(
+                  "content-security-policy",
+                  currentCsp.replace("form-action 'self'", "form-action 'self' https: http://localhost:* http://127.0.0.1:*")
+                );
+              }
+            }
             for (const [k, v] of Object.entries(getCorsHeaders(request))) headers.set(k, v);
             return new Response(resp.body, { status: resp.status, headers });
           }

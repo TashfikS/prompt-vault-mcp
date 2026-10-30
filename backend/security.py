@@ -249,7 +249,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*; "
             f"frame-ancestors {frame_ancestors}; "
             "base-uri 'self'; "
-            "form-action 'self'"
+            "form-action 'self' https: http://localhost:* http://127.0.0.1:*"
         )
         response.headers["Content-Security-Policy"] = csp
 
