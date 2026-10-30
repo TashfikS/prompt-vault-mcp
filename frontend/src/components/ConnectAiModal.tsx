@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   ExternalLink,
   Eye,
   EyeOff,
   Globe,
-  Info,
   KeyRound,
   LockKeyhole,
   PlugZap,
   Plus,
   ShieldCheck,
-  Smartphone,
   Sparkles,
   Terminal,
   Users,
@@ -73,7 +73,7 @@ function ScopePill({ item }: { item: Pick<ApiKeyItem, 'scope_type' | 'group_name
   if (item.scope_type === 'GLOBAL') {
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
-        <Globe size={11} className="text-slate-500 dark:text-zinc-400" aria-hidden />
+        <Globe size={11} className="text-slate-500 dark:text-zinc-400" aria-hidden="true" />
         All spaces
       </span>
     )
@@ -81,9 +81,9 @@ function ScopePill({ item }: { item: Pick<ApiKeyItem, 'scope_type' | 'group_name
   return (
     <span className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-950/60 dark:text-brand-300">
       {item.is_personal_group ? (
-        <LockKeyhole size={11} className="text-brand-600 dark:text-brand-400" aria-hidden />
+        <LockKeyhole size={11} className="text-brand-600 dark:text-brand-400" aria-hidden="true" />
       ) : (
-        <Users size={11} className="text-brand-600 dark:text-brand-400" aria-hidden />
+        <Users size={11} className="text-brand-600 dark:text-brand-400" aria-hidden="true" />
       )}
       {item.is_personal_group ? 'Personal' : item.group_name}
     </span>
@@ -108,7 +108,7 @@ const PROVIDERS: ProviderTab[] = [
     Icon: ClaudeIcon,
     iconColor: 'text-amber-600 dark:text-amber-400',
     activeRing: 'border-amber-500 ring-2 ring-amber-500/20 dark:border-amber-400',
-    activeBg: 'bg-amber-50/70 dark:bg-amber-950/40 text-slate-900 dark:text-zinc-100',
+    activeBg: 'bg-amber-50/80 dark:bg-amber-950/40 text-slate-900 dark:text-zinc-100',
   },
   {
     id: 'chatgpt',
@@ -117,7 +117,7 @@ const PROVIDERS: ProviderTab[] = [
     Icon: ChatGptIcon,
     iconColor: 'text-emerald-600 dark:text-emerald-400',
     activeRing: 'border-emerald-500 ring-2 ring-emerald-500/20 dark:border-emerald-400',
-    activeBg: 'bg-emerald-50/70 dark:bg-emerald-950/40 text-slate-900 dark:text-zinc-100',
+    activeBg: 'bg-emerald-50/80 dark:bg-emerald-950/40 text-slate-900 dark:text-zinc-100',
   },
   {
     id: 'gemini',
@@ -126,7 +126,7 @@ const PROVIDERS: ProviderTab[] = [
     Icon: GeminiIcon,
     iconColor: 'text-indigo-600 dark:text-indigo-400',
     activeRing: 'border-indigo-500 ring-2 ring-indigo-500/20 dark:border-indigo-400',
-    activeBg: 'bg-indigo-50/70 dark:bg-indigo-950/40 text-slate-900 dark:text-zinc-100',
+    activeBg: 'bg-indigo-50/80 dark:bg-indigo-950/40 text-slate-900 dark:text-zinc-100',
   },
   {
     id: 'cursor',
@@ -135,7 +135,7 @@ const PROVIDERS: ProviderTab[] = [
     Icon: CursorIcon,
     iconColor: 'text-cyan-600 dark:text-cyan-400',
     activeRing: 'border-cyan-500 ring-2 ring-cyan-500/20 dark:border-cyan-400',
-    activeBg: 'bg-cyan-50/70 dark:bg-cyan-950/40 text-slate-900 dark:text-zinc-100',
+    activeBg: 'bg-cyan-50/80 dark:bg-cyan-950/40 text-slate-900 dark:text-zinc-100',
   },
   {
     id: 'api',
@@ -162,12 +162,12 @@ export default function ConnectAiModal({
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   // Sub-mode options for each provider
-  const [claudeMode, setClaudeMode] = useState<'desktop' | 'cli' | 'web'>('desktop')
+  const [claudeMode, setClaudeMode] = useState<'desktop' | 'web' | 'cli'>('desktop')
   const [claudeOs, setClaudeOs] = useState<'mac' | 'windows' | 'linux'>('mac')
   const [chatgptMode, setChatgptMode] = useState<'web' | 'desktop'>('web')
   const [geminiMode, setGeminiMode] = useState<'app' | 'sdk'>('app')
   const [cursorMode, setCursorMode] = useState<'cursor' | 'vscode'>('cursor')
-  const [apiMode, setApiMode] = useState<'python' | 'curl'>('python')
+  const [apiMode, setApiMode] = useState<'curl' | 'python'>('curl')
   const [claudeWebAuthType, setClaudeWebAuthType] = useState<'oauth' | 'direct'>('oauth')
   const [chatgptAuthType, setChatgptAuthType] = useState<'oauth' | 'bearer'>('oauth')
 
@@ -175,6 +175,7 @@ export default function ConnectAiModal({
   const [keys, setKeys] = useState<ApiKeyItem[]>([])
   const [loadingKeys, setLoadingKeys] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [showAllKeys, setShowAllKeys] = useState(false)
   const [creatingKey, setCreatingKey] = useState(false)
 
   // Create key form state
@@ -238,7 +239,7 @@ export default function ConnectAiModal({
     if (!newKey) return
     await navigator.clipboard.writeText(newKey.raw_key)
     setIsKeyCopied(true)
-    setShowRawKey(false) // IMMEDIATELY mask with stars once copied for security!
+    setShowRawKey(false)
     setCopiedId('new-key')
     toast('API key copied & masked for security!', { tone: 'success' })
     window.setTimeout(() => setCopiedId(prev => (prev === 'new-key' ? null : prev)), 2000)
@@ -249,7 +250,7 @@ export default function ConnectAiModal({
     setFormError('')
     const trimmedName = keyName.trim()
     if (!trimmedName) {
-      setFormError('Give this key a friendly name (for example, "My Claude Key" or "Gemini Mobile").')
+      setFormError('Give this key a friendly name (e.g. "My Claude Assistant" or "Gemini Phone").')
       return
     }
     if (scopeType === 'GROUP' && !selectedGroupId) {
@@ -298,6 +299,7 @@ export default function ConnectAiModal({
   }
 
   const activeKeys = keys.filter(k => k.is_active)
+  const currentKey = newKey ?? (activeKeys[0] || null)
 
   const claudeDesktopPaths = {
     mac: '~/Library/Application Support/Claude/claude_desktop_config.json',
@@ -312,10 +314,9 @@ export default function ConnectAiModal({
   const displayAuthMcpUrl = `${mcpUrl}?api_key=${
     newKey
       ? (!isKeyCopied || showRawKey ? newKey.raw_key : 'pvh_••••••••')
-      : 'YOUR_API_KEY'
+      : currentKey ? `${currentKey.key_prefix}••••••••` : 'YOUR_API_KEY'
   }`
 
-  // Modern MCP Bridge config using mcp-remote with authenticated personal endpoint
   const claudeConfigJson = JSON.stringify(
     {
       mcpServers: {
@@ -355,7 +356,7 @@ export default function ConnectAiModal({
     2
   )
 
-  const displaySnippetKey = newKey && !isKeyCopied ? newKey.raw_key : 'pvh_••••••••••••••••••••••••••••••••'
+  const displaySnippetKey = newKey && !isKeyCopied ? newKey.raw_key : (currentKey ? `${currentKey.key_prefix}••••••••••••••••••••••••••••••••` : 'pvh_••••••••••••••••••••••••••••••••')
   const copySnippetKey = activeRawKey
 
   const geminiPythonSnippet = `import requests
@@ -373,13 +374,13 @@ template = prompts[0]["content"] if prompts else "You are a helpful assistant."
 client = genai.Client()
 result = client.models.generate_content(
     model="gemini-2.5-flash",
-    contents=f"System Template:\\n{template}\\n\\nTask: Assist the user based on the prompt.",
+    contents=f"System Template:\\n{template}\\n\\nTask: Assist user with prompt.",
 )
 print(result.text)`
 
   const pythonSnippet = `import requests
 
-# Query your prompts using the live PromptHold Backend API
+# Query prompts using live PromptHold Backend API
 headers = {"Authorization": "Bearer ${copySnippetKey}"}
 response = requests.get("${restUrl}/prompts", headers=headers)
 
@@ -395,7 +396,7 @@ for p in prompts:
   return (
     <Modal
       title="Connect PromptHold to Your AI"
-      description="Use your saved prompts directly inside Claude, ChatGPT, Gemini, Cursor, or your custom scripts."
+      description="Use your saved prompts directly inside Claude, ChatGPT, Gemini, Cursor, or custom workflows."
       icon={<PlugZap size={18} className="text-brand-600 dark:text-brand-400" />}
       size="xl"
       onClose={onClose}
@@ -405,35 +406,83 @@ for p in prompts:
         </button>
       }
     >
-      <div className="max-h-[75vh] space-y-6 overflow-y-auto pr-1 custom-scrollbar">
-        {/* STEP 1: API KEY SECTION */}
-        <section aria-labelledby="connect-keys-heading" className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="max-h-[75vh] space-y-5 overflow-y-auto pr-1 custom-scrollbar">
+        {/* Global Security & Privacy Trust Banner */}
+        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-3 text-xs text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+          <ShieldCheck size={18} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div className="min-w-0 flex-1 leading-relaxed">
+            <span className="font-semibold text-slate-900 dark:text-zinc-100">🔒 100% Private &amp; Automatic: </span>
+            Set up once in your assistant settings. You will <strong>never</strong> need to paste API keys into chat messages.
+          </div>
+        </div>
+
+        {/* ==================== STEP 1: SECURITY KEY ==================== */}
+        <section aria-labelledby="connect-keys-heading" className="space-y-3 rounded-xl border border-slate-200/90 bg-slate-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
             <div>
               <h3 id="connect-keys-heading" className="text-sm font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5">
                 <KeyRound size={15} className="text-brand-600 dark:text-brand-400" />
                 Step 1: Your Security Key
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
-                This key gives your AI assistants secure permission to read or update your prompts.
+                Gives your assistants secure access to read and update your prompts.
               </p>
             </div>
-            {!showCreateForm && (
-              <button
-                type="button"
-                onClick={() => {
-                  setFormError('')
-                  setShowCreateForm(true)
-                }}
-                className="btn-secondary btn-sm"
-              >
-                <Plus size={14} />
-                <span>Create New Key</span>
-              </button>
-            )}
+
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              {activeKeys.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllKeys(prev => !prev)}
+                  className="btn-ghost btn-sm text-xs"
+                >
+                  {showAllKeys ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  <span>{showAllKeys ? 'Hide Keys' : `All Keys (${activeKeys.length})`}</span>
+                </button>
+              )}
+              {!showCreateForm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormError('')
+                    setShowCreateForm(true)
+                  }}
+                  className="btn-secondary btn-sm"
+                >
+                  <Plus size={14} />
+                  <span>Create Key</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Newly Created Key Banner (Shown once, stars after copy) */}
+          {/* Active Key Status Card (Clean, compact, no clutter) */}
+          {!newKey && activeKeys.length > 0 && !showCreateForm && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-lg border border-slate-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/80 dark:text-emerald-400 ring-1 ring-emerald-500/20">
+                  <KeyRound size={14} />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-xs text-slate-900 dark:text-zinc-100 truncate">{activeKeys[0].name}</span>
+                    <ScopePill item={activeKeys[0]} />
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5">
+                    Prefix: <span className="font-semibold text-slate-700 dark:text-zinc-300">{activeKeys[0].key_prefix}</span> · {formatRelativeTime(activeKeys[0].last_used_at)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 ring-1 ring-emerald-600/20">
+                  <Check size={11} /> Ready to use
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Newly Created Key Alert (Temporary one-time copy) */}
           {newKey && (
             <div
               role="region"
@@ -446,8 +495,8 @@ for p in prompts:
                   <span>
                     New key created for <strong>{newKey.name}</strong>.
                     {isKeyCopied
-                      ? ' Copied to clipboard! Masked for security.'
-                      : ' Copy it now — for security, it is hidden once copied!'}
+                      ? ' Copied to clipboard and safely masked!'
+                      : ' Copy it now — for your security, full keys are hidden once copied.'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -475,7 +524,6 @@ for p in prompts:
                 <div className="min-w-0 flex-1 relative flex items-center">
                   <code
                     className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-300 select-all dark:border-zinc-800 dark:bg-black dark:text-emerald-400 tracking-wider truncate"
-                    style={{ overflowWrap: 'anywhere' }}
                   >
                     {showRawKey ? newKey.raw_key : '••••••••••••••••••••••••••••••••••••••••••••••••'}
                   </code>
@@ -489,13 +537,6 @@ for p in prompts:
                   <span>{isKeyCopied ? 'Copied' : 'Copy Key'}</span>
                 </button>
               </div>
-
-              {isKeyCopied && (
-                <p className="mt-2 text-[11px] text-slate-600 dark:text-zinc-400 flex items-center gap-1">
-                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Saved to clipboard.</span>
-                  PromptHold never displays the full key again to protect your account.
-                </p>
-              )}
             </div>
           )}
 
@@ -503,10 +544,10 @@ for p in prompts:
           {showCreateForm && (
             <form
               onSubmit={e => void handleGenerateKey(e)}
-              className="animate-pop-in space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-950/40"
+              className="animate-pop-in space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
             >
-              <div className="grid gap-3 sm:grid-cols-[1fr,auto,auto]">
-                <div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="min-w-0">
                   <label htmlFor="api-key-name" className="field-label text-xs">
                     Key Friendly Name
                   </label>
@@ -514,46 +555,54 @@ for p in prompts:
                     id="api-key-name"
                     value={keyName}
                     onChange={e => setKeyName(e.target.value)}
-                    placeholder="e.g. My Claude Desktop, Gemini Phone App"
+                    placeholder="e.g. My Claude Desktop"
                     maxLength={120}
-                    className="field bg-white dark:bg-zinc-900"
+                    className="field bg-slate-50 dark:bg-zinc-950"
                   />
                 </div>
 
-                <div>
-                  <span className="field-label text-xs">Allowed Spaces</span>
-                  <div className="segmented h-[38px] bg-white dark:bg-zinc-900">
+                <div className="min-w-0">
+                  <label className="field-label text-xs">Access Scope</label>
+                  <div role="radiogroup" aria-label="Access scope" className="segmented w-full">
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={scopeType === 'GLOBAL'}
                       onClick={() => setScopeType('GLOBAL')}
-                      className={`segmented-item text-xs ${scopeType === 'GLOBAL' ? 'segmented-item-active' : ''}`}
+                      className={`segmented-item flex-1 ${scopeType === 'GLOBAL' ? 'segmented-item-active' : ''}`}
                     >
-                      All My Spaces
+                      All spaces
                     </button>
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={scopeType === 'GROUP'}
                       onClick={() => setScopeType('GROUP')}
-                      className={`segmented-item text-xs ${scopeType === 'GROUP' ? 'segmented-item-active' : ''}`}
+                      className={`segmented-item flex-1 ${scopeType === 'GROUP' ? 'segmented-item-active' : ''}`}
                     >
-                      One Space Only
+                      Specific space
                     </button>
                   </div>
                 </div>
 
-                <div>
-                  <span className="field-label text-xs">Permission</span>
-                  <div className="segmented h-[38px] bg-white dark:bg-zinc-900">
+                <div className="min-w-0">
+                  <label className="field-label text-xs">Permission</label>
+                  <div role="radiogroup" aria-label="Permission level" className="segmented w-full">
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={accessLevel === 'READ_WRITE'}
                       onClick={() => setAccessLevel('READ_WRITE')}
-                      className={`segmented-item text-xs ${accessLevel === 'READ_WRITE' ? 'segmented-item-active' : ''}`}
+                      className={`segmented-item flex-1 ${accessLevel === 'READ_WRITE' ? 'segmented-item-active' : ''}`}
                     >
-                      Read &amp; Save
+                      Read &amp; Write
                     </button>
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={accessLevel === 'READ_ONLY'}
                       onClick={() => setAccessLevel('READ_ONLY')}
-                      className={`segmented-item text-xs ${accessLevel === 'READ_ONLY' ? 'segmented-item-active' : ''}`}
+                      className={`segmented-item flex-1 ${accessLevel === 'READ_ONLY' ? 'segmented-item-active' : ''}`}
                     >
                       Read-only
                     </button>
@@ -562,7 +611,7 @@ for p in prompts:
               </div>
 
               {scopeType === 'GROUP' && (
-                <div>
+                <div className="pt-1">
                   <label className="field-label text-xs">Select Space</label>
                   <GroupSelectDropdown
                     groups={groups}
@@ -578,7 +627,7 @@ for p in prompts:
                 </p>
               )}
 
-              <div className="flex items-center justify-end gap-2">
+              <div className="flex items-center justify-end gap-2 pt-1">
                 {keys.length > 0 && (
                   <button
                     type="button"
@@ -591,114 +640,100 @@ for p in prompts:
                 )}
                 <button type="submit" disabled={creatingKey} className="btn-primary btn-sm">
                   <KeyRound size={14} />
-                  <span>{creatingKey ? 'Creating Key…' : 'Generate Key'}</span>
+                  <span>{creatingKey ? 'Creating…' : 'Generate Key'}</span>
                 </button>
               </div>
             </form>
           )}
 
-          {/* Active Keys List (Shows only masked prefixes) */}
-          {loadingKeys ? (
-            <p className="py-2 text-xs text-slate-400 dark:text-zinc-500">Loading your keys…</p>
-          ) : activeKeys.length === 0 ? (
-            !showCreateForm && (
-              <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
-                No active keys found. Create a key above to get started!
-              </p>
-            )
-          ) : (
-            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
-              {activeKeys.map(item => {
-                const isConfirming = confirmRevokeId === item.id
-                const isBusy = busyKeyId === item.id
-                const isReadOnly = item.access_level === 'READ_ONLY'
-                return (
-                  <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 text-sm">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-zinc-100">{item.name}</span>
-                      <ScopePill item={item} />
-                      <span
-                        className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${
-                          isReadOnly
-                            ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                            : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                        }`}
-                      >
-                        {isReadOnly ? 'Read-only' : 'Read & Write'}
-                      </span>
-                      <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
-                        {item.key_prefix}
-                      </code>
-                      <span className="text-xs text-slate-400 dark:text-zinc-500">· {formatRelativeTime(item.last_used_at)}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {isConfirming ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => void handleRevoke(item.id)}
-                            className="rounded-md bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700"
-                          >
-                            {isBusy ? 'Revoking…' : 'Confirm'}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => setConfirmRevokeId(null)}
-                            className="rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmRevokeId(item.id)}
-                          className="text-xs font-medium text-slate-400 transition hover:text-rose-600 dark:text-zinc-500 dark:hover:text-rose-400"
+          {/* Active Keys Expanded List */}
+          {showAllKeys && (
+            <div className="space-y-2 pt-1">
+              <h4 className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Active Security Keys:</h4>
+              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+                {activeKeys.map(item => {
+                  const isConfirming = confirmRevokeId === item.id
+                  const isBusy = busyKeyId === item.id
+                  const isReadOnly = item.access_level === 'READ_ONLY'
+                  return (
+                    <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="font-semibold text-slate-900 dark:text-zinc-100">{item.name}</span>
+                        <ScopePill item={item} />
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            isReadOnly
+                              ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                              : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          }`}
                         >
-                          Revoke
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+                          {isReadOnly ? 'Read-only' : 'Read & Write'}
+                        </span>
+                        <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
+                          {item.key_prefix}
+                        </code>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {isConfirming ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => void handleRevoke(item.id)}
+                              className="rounded bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-rose-700"
+                            >
+                              {isBusy ? 'Revoking…' : 'Confirm'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => setConfirmRevokeId(null)}
+                              className="btn-ghost btn-xs text-[11px]"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRevokeId(item.id)}
+                            className="text-[11px] font-medium text-slate-400 hover:text-rose-600 dark:text-zinc-500 dark:hover:text-rose-400 transition"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+          {loadingKeys && (
+            <p className="py-1 text-xs text-slate-400 dark:text-zinc-500">Checking key status…</p>
           )}
         </section>
 
-        {/* STEP 2: CHOOSE AI ASSISTANT */}
-        <section aria-labelledby="connect-setup-heading" className="space-y-4 border-t border-slate-100 pt-5 dark:border-zinc-800">
+        {/* ==================== STEP 2: CHOOSE AI ASSISTANT ==================== */}
+        <section aria-labelledby="connect-setup-heading" className="space-y-4">
           <div>
             <h3 id="connect-setup-heading" className="text-sm font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5">
               <Sparkles size={15} className="text-brand-600 dark:text-brand-400" />
               Step 2: Choose Your AI Assistant
             </h3>
             <p className="text-xs text-slate-500 dark:text-zinc-400">
-              Select the tool you use every day for simple 3-step setup instructions.
+              Select your AI tool below for 3-step setup instructions.
             </p>
           </div>
 
-          {/* Zero-Key In-Chat Privacy Guarantee */}
-          <div className="flex items-start gap-2.5 rounded-xl border border-emerald-300 bg-emerald-50/80 p-3 text-xs text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-            <div className="space-y-0.5">
-              <span className="font-bold text-slate-900 dark:text-zinc-100">🔒 Zero-Key In-Chat Privacy (Never paste keys into chat):</span>
-              <p className="text-slate-700 dark:text-zinc-300">
-                You will <strong>never</strong> have to type or paste your API key into an AI chat message.
-                Your key is configured once in your assistant settings, and PromptHold authenticates your requests silently in the background.
-                Chat naturally in plain English!
-              </p>
-            </div>
-          </div>
-
-          {/* AI Provider Tabs */}
+          {/* AI Provider Tabs (Responsive Grid) */}
           <div role="tablist" aria-label="AI assistants" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {PROVIDERS.map(item => {
+            {PROVIDERS.map((item, index) => {
               const Icon = item.Icon
               const active = provider === item.id
+              const isLast = index === PROVIDERS.length - 1
               return (
                 <button
                   key={item.id}
@@ -706,19 +741,21 @@ for p in prompts:
                   role="tab"
                   aria-selected={active}
                   onClick={() => setProvider(item.id)}
-                  className={`flex flex-col gap-1.5 rounded-xl border p-3 text-left transition focus:outline-none focus-visible:ring-2 ${
+                  className={`flex flex-col gap-1.5 rounded-xl border p-3 text-left transition focus:outline-none focus-visible:ring-2 cursor-pointer ${
+                    isLast ? 'col-span-2 sm:col-span-1' : ''
+                  } ${
                     active
                       ? `${item.activeRing} ${item.activeBg}`
                       : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`inline-flex rounded-lg p-1.5 ${item.iconColor} ${active ? 'bg-white/70 shadow-xs dark:bg-black/30' : 'bg-slate-100 dark:bg-zinc-800'}`}>
+                    <span className={`inline-flex rounded-lg p-1.5 ${item.iconColor} ${active ? 'bg-white shadow-xs dark:bg-black/30' : 'bg-slate-100 dark:bg-zinc-800'}`}>
                       <Icon className="h-4 w-4" />
                     </span>
-                    {active && <span className="h-2 w-2 rounded-full bg-brand-500" aria-hidden="true" />}
+                    {active && <span className="h-2 w-2 rounded-full bg-brand-500 ring-2 ring-brand-500/30" aria-hidden="true" />}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-semibold text-xs text-slate-900 dark:text-zinc-100">{item.name}</div>
                     <div className="text-[10px] text-slate-500 dark:text-zinc-400 truncate">{item.subtitle}</div>
                   </div>
@@ -727,99 +764,85 @@ for p in prompts:
             })}
           </div>
 
-          {/* Key Status Pill */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-950/40">
-            <div className="flex min-w-0 items-center gap-2">
-              <KeyRound size={13} className="text-slate-500 dark:text-zinc-400 shrink-0" />
-              <div className="min-w-0 text-slate-600 dark:text-zinc-300 truncate">
-                Active Key:{' '}
-                {newKey ? (
-                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                    {newKey.name} (ready to use)
-                  </span>
-                ) : activeKeys.length > 0 ? (
-                  <span className="font-medium text-slate-800 dark:text-zinc-200">
-                    {activeKeys[0].name} <code className="text-[11px] text-slate-500 dark:text-zinc-400">({activeKeys[0].key_prefix})</code>
-                  </span>
-                ) : (
-                  <span className="font-medium text-amber-700 dark:text-amber-400">
-                    Please create a key in Step 1 first
-                  </span>
-                )}
-              </div>
-            </div>
-            {newKey && (
-              <button
-                type="button"
-                onClick={() => void handleCopyNewKey()}
-                className="btn-secondary btn-sm h-7 shrink-0 text-xs"
-              >
-                {copiedId === 'new-key' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                <span>{isKeyCopied ? 'Copy key again' : 'Copy key'}</span>
-              </button>
-            )}
-          </div>
-
           {/* ==================== PROVIDER 1: CLAUDE ==================== */}
           {provider === 'claude' && (
-            <div className="space-y-4 rounded-xl border border-amber-200/80 bg-gradient-to-b from-amber-50/40 to-slate-50/60 p-4 dark:border-amber-900/40 dark:from-amber-950/20 dark:to-zinc-950/40">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <ClaudeIcon className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <div className="space-y-4 rounded-xl border border-amber-200/90 bg-gradient-to-b from-amber-50/50 to-white p-4.5 dark:border-amber-900/40 dark:from-amber-950/20 dark:to-zinc-900">
+              {/* Header with Title and Unmistakable Active Segmented Selector */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-amber-100 pb-3.5 dark:border-amber-900/30">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 shrink-0">
+                    <ClaudeIcon className="h-4 w-4" />
+                  </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Anthropic Claude</h4>
-                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Choose Claude Desktop (easiest), Claude Code CLI, or Claude.ai Web:
-                    </p>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Anthropic Claude</h4>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">Choose your environment:</p>
                   </div>
                 </div>
 
-                <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                <div role="tablist" aria-label="Claude setup options" className="segmented w-full md:w-auto">
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={claudeMode === 'desktop'}
                     onClick={() => setClaudeMode('desktop')}
-                    className={`segmented-item text-xs ${claudeMode === 'desktop' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      claudeMode === 'desktop' ? 'segmented-item-active-amber' : ''
+                    }`}
                   >
-                    Claude Desktop (Recommended)
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeMode === 'desktop' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Claude Desktop</span>
+                    <span className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider ${
+                      claudeMode === 'desktop'
+                        ? 'bg-amber-200 text-amber-950 dark:bg-amber-900 dark:text-amber-200'
+                        : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400'
+                    }`}>
+                      Easiest
+                    </span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setClaudeMode('cli')}
-                    className={`segmented-item text-xs ${claudeMode === 'cli' ? 'segmented-item-active' : ''}`}
-                  >
-                    Claude Code CLI
-                  </button>
-                  <button
-                    type="button"
+                    role="tab"
+                    aria-selected={claudeMode === 'web'}
                     onClick={() => setClaudeMode('web')}
-                    className={`segmented-item text-xs ${claudeMode === 'web' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      claudeMode === 'web' ? 'segmented-item-active-amber' : ''
+                    }`}
                   >
-                    Claude.ai Web
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeMode === 'web' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Claude.ai Web</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={claudeMode === 'cli'}
+                    onClick={() => setClaudeMode('cli')}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      claudeMode === 'cli' ? 'segmented-item-active-amber' : ''
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeMode === 'cli' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Claude Code CLI</span>
                   </button>
                 </div>
               </div>
 
+              {/* Sub-Mode 1: Claude Desktop */}
               {claudeMode === 'desktop' && (
-                <div className="space-y-3 pt-1">
-                  <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/60 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200 flex items-center gap-2">
-                    <Sparkles size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    <span><strong>No complex sign-in required!</strong> Claude Desktop connects instantly in 30 seconds on macOS, Windows, and Linux.</span>
-                  </div>
-
+                <div className="space-y-3.5 pt-1">
                   <ol className="space-y-3 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">1</span>
                       <div className="min-w-0 flex-1 space-y-1.5">
-                        <span>Locate your Claude Desktop config file:</span>
+                        <span className="font-medium text-slate-900 dark:text-zinc-100">Select your Operating System:</span>
                         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                           {(['mac', 'windows', 'linux'] as const).map(os => (
                             <button
                               key={os}
                               type="button"
                               onClick={() => setClaudeOs(os)}
-                              className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
+                              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
                                 claudeOs === os
-                                  ? 'bg-amber-600 text-white dark:bg-amber-500'
+                                  ? 'bg-amber-600 text-white shadow-xs dark:bg-amber-500 dark:text-zinc-950'
                                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400'
                               }`}
                             >
@@ -827,26 +850,26 @@ for p in prompts:
                             </button>
                           ))}
                         </div>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                          <code className="min-w-0 break-all font-mono text-[11px] text-slate-700 dark:text-zinc-300">
                             {claudeDesktopPaths[claudeOs]}
                           </code>
                           <button
                             type="button"
-                            onClick={() => void copy(claudeDesktopPaths[claudeOs], 'claude-path', 'Path copied')}
-                            className="btn-ghost btn-xs shrink-0"
+                            onClick={() => void copy(claudeDesktopPaths[claudeOs], 'claude-path', 'File path copied')}
+                            className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                           >
-                            {copiedId === 'claude-path' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            {copiedId === 'claude-path' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
                             <span>{copiedId === 'claude-path' ? 'Copied' : 'Copy path'}</span>
                           </button>
                         </div>
                       </div>
                     </li>
 
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">2</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>Paste this configuration into the file:</span>
+                        <span className="font-medium text-slate-900 dark:text-zinc-100">Paste configuration into that file:</span>
                         <div className="mt-1">
                           <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
                             <span>claude_desktop_config.json</span>
@@ -859,356 +882,314 @@ for p in prompts:
                               <span>{copiedId === 'claude-json' ? 'Copied' : 'Copy config'}</span>
                             </button>
                           </div>
-                          <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                          <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200 min-w-0 max-w-full">
                             <code>{claudeConfigJson}</code>
                           </pre>
                         </div>
                       </div>
                     </li>
 
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                      <span>Restart Claude Desktop. In any chat, Claude can now list, fill, and save your prompts!</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">3</span>
+                      <span className="font-medium text-slate-900 dark:text-zinc-100">Restart Claude Desktop. Your PromptHold prompt tools are live!</span>
                     </li>
                   </ol>
                 </div>
               )}
 
-              {claudeMode === 'cli' && (
-                <div className="space-y-3 pt-1">
-                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
-                      <span>Run this one command in your terminal:</span>
-                    </li>
-                  </ol>
-
-                  <div>
-                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      <span>Terminal command</span>
-                      <button
-                        type="button"
-                        onClick={() => void copy(`claude mcp add --transport http prompthold "${copyAuthMcpUrl}"`, 'claude-cli', 'Command copied')}
-                        className="btn-ghost btn-sm h-7 px-2 text-xs"
-                      >
-                        {copiedId === 'claude-cli' ? <Check size={13} className="text-amber-600 dark:text-amber-400" /> : <Copy size={13} />}
-                        <span>{copiedId === 'claude-cli' ? 'Copied' : 'Copy command'}</span>
-                      </button>
-                    </div>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-emerald-300 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-emerald-400">
-                      <code>claude mcp add --transport http prompthold "{displayAuthMcpUrl}"</code>
-                    </pre>
-                  </div>
-
-                  <p className="text-xs text-slate-600 dark:text-zinc-300">
-                    Start Claude Code with <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">claude</code> and run <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">/mcp</code> to see your PromptHold tools.
-                  </p>
-                </div>
-              )}
-
+              {/* Sub-Mode 2: Claude.ai Web */}
               {claudeMode === 'web' && (
-                <div className="space-y-3 pt-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-3.5 pt-1">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                     <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Choose Sign-In Method:</span>
-                    <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                    <div role="tablist" aria-label="Claude web auth options" className="segmented w-full md:w-auto">
                       <button
                         type="button"
+                        role="tab"
+                        aria-selected={claudeWebAuthType === 'oauth'}
                         onClick={() => setClaudeWebAuthType('oauth')}
-                        className={`segmented-item text-xs ${claudeWebAuthType === 'oauth' ? 'segmented-item-active' : ''}`}
+                        className={`segmented-item flex-1 md:flex-none ${
+                          claudeWebAuthType === 'oauth' ? 'segmented-item-active-amber' : ''
+                        }`}
                       >
-                        ⚡ 1-Click OAuth (Recommended)
+                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeWebAuthType === 'oauth' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
+                        <span>⚡ 1-Click OAuth (Recommended)</span>
                       </button>
                       <button
                         type="button"
+                        role="tab"
+                        aria-selected={claudeWebAuthType === 'direct'}
                         onClick={() => setClaudeWebAuthType('direct')}
-                        className={`segmented-item text-xs ${claudeWebAuthType === 'direct' ? 'segmented-item-active' : ''}`}
+                        className={`segmented-item flex-1 md:flex-none ${
+                          claudeWebAuthType === 'direct' ? 'segmented-item-active-amber' : ''
+                        }`}
                       >
-                        🔗 Direct Key URL
+                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeWebAuthType === 'direct' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
+                        <span>🔗 Direct Key URL</span>
                       </button>
                     </div>
                   </div>
 
                   {claudeWebAuthType === 'oauth' ? (
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 p-3 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200 space-y-1">
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-zinc-100 text-xs">
-                          <ShieldCheck size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          <span>Native OAuth 2.1 Connection (RFC 8414 &amp; RFC 7591)</span>
-                        </div>
-                        <p className="text-slate-700 dark:text-zinc-300">
-                          Claude automatically registers with PromptHold. No API keys needed in the chat or URL!
-                        </p>
-                      </div>
-
-                      <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
-                        <li className="flex gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
-                          <span>
-                            In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.
-                          </span>
-                        </li>
-                        <li className="flex gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <span>Set <strong>Name</strong> to <code>PromptHold</code> and enter the <strong>Connector URL</strong>:</span>
-                            <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                              <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                                {mcpUrl}
-                              </code>
-                              <button
-                                type="button"
-                                onClick={() => void copy(mcpUrl, 'claude-oauth-url', 'URL copied')}
-                                className="btn-ghost btn-xs shrink-0"
-                              >
-                                {copiedId === 'claude-oauth-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                                <span>{copiedId === 'claude-oauth-url' ? 'Copied' : 'Copy URL'}</span>
-                              </button>
-                            </div>
+                    <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                      <li className="flex gap-2.5">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">1</span>
+                        <span>In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.</span>
+                      </li>
+                      <li className="flex gap-2.5">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">2</span>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <span>Set Name to <code>PromptHold</code> and enter Connector URL:</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                            <code className="min-w-0 break-all font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                              {mcpUrl}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => void copy(mcpUrl, 'claude-oauth-url', 'Connector URL copied')}
+                              className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                            >
+                              {copiedId === 'claude-oauth-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                              <span>{copiedId === 'claude-oauth-url' ? 'Copied' : 'Copy URL'}</span>
+                            </button>
                           </div>
-                        </li>
-                        <li className="flex gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                          <span>
-                            Under <strong>Authentication</strong>, select <strong>OAuth</strong> (or leave default). Click <strong>Add</strong>.
-                          </span>
-                        </li>
-                        <li className="flex gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">4</span>
-                          <span>
-                            A PromptHold authorization window pops up. Click <strong>Authorize Access</strong>. Claude is now connected!
-                          </span>
-                        </li>
-                      </ol>
-                    </div>
+                        </div>
+                      </li>
+                      <li className="flex gap-2.5">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">3</span>
+                        <span>Click <strong>Add</strong>. An authorization prompt appears — click <strong>Authorize Access</strong> to connect.</span>
+                      </li>
+                    </ol>
                   ) : (
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-brand-300 bg-brand-50/90 p-3 text-xs text-brand-950 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-200 space-y-1.5">
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-zinc-100 text-xs">
-                          <Info size={15} className="text-brand-600 dark:text-brand-400 shrink-0" />
-                          <span>Direct Key URL (Pre-authenticated)</span>
-                        </div>
-                        <p className="text-slate-700 dark:text-zinc-300">
-                          Your connector URL below already includes your security key. Under Authentication in Claude, choose <strong>"No sign-in"</strong>.
-                        </p>
-                      </div>
-
-                      <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
-                        <li className="flex gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">1</span>
-                          <span>
-                            In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.
-                          </span>
-                        </li>
-                        <li className="flex gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">2</span>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <span>Set <strong>Name</strong> to <code>PromptHold</code> and enter your <strong>Connector URL</strong>:</span>
-                            <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                              <code className="min-w-0 truncate font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                                {displayAuthMcpUrl}
-                              </code>
-                              <button
-                                type="button"
-                                onClick={() => void copy(copyAuthMcpUrl, 'claude-web-url', 'URL copied')}
-                                className="btn-ghost btn-xs shrink-0"
-                              >
-                                {copiedId === 'claude-web-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                                <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
-                              </button>
-                            </div>
+                    <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                      <li className="flex gap-2.5">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">1</span>
+                        <span>In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.</span>
+                      </li>
+                      <li className="flex gap-2.5">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">2</span>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <span>Set Name to <code>PromptHold</code> and enter your pre-authenticated URL:</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                            <code className="min-w-0 break-all font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                              {displayAuthMcpUrl}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => void copy(copyAuthMcpUrl, 'claude-web-url', 'URL copied')}
+                              className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                            >
+                              {copiedId === 'claude-web-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                              <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
+                            </button>
                           </div>
-                        </li>
-                        <li className="flex gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                          <span>
-                            Under <strong>Authentication</strong>, select <strong>"No sign-in"</strong>. Click <strong>Add</strong>. You are connected!
-                          </span>
-                        </li>
-                      </ol>
-                    </div>
+                        </div>
+                      </li>
+                      <li className="flex gap-2.5">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">3</span>
+                        <span>Under <strong>Authentication</strong>, select <strong>"No sign-in"</strong>. Click <strong>Add</strong>.</span>
+                      </li>
+                    </ol>
                   )}
                 </div>
               )}
 
-              {/* In-chat example */}
-              <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-                <Sparkles size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask Claude in chat:</span>
-                    <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                      <ShieldCheck size={11} /> No API key needed in chat
-                    </span>
+              {/* Sub-Mode 3: Claude Code CLI */}
+              {claudeMode === 'cli' && (
+                <div className="space-y-3 pt-1">
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-semibold text-slate-800 dark:text-zinc-200">Run this single terminal command:</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-slate-900 p-2.5 border border-slate-800 dark:bg-black dark:border-zinc-800 min-w-0">
+                      <code className="min-w-0 break-all font-mono text-xs text-emerald-300 dark:text-emerald-400">
+                        claude mcp add --transport http prompthold "{displayAuthMcpUrl}"
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => void copy(`claude mcp add --transport http prompthold "${copyAuthMcpUrl}"`, 'claude-cli', 'Command copied')}
+                        className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs text-white bg-slate-800 border-slate-700 hover:bg-slate-700"
+                      >
+                        {copiedId === 'claude-cli' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                        <span>{copiedId === 'claude-cli' ? 'Copied' : 'Copy command'}</span>
+                      </button>
+                    </div>
                   </div>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
-                    “Show my available prompt templates in PromptHold”
-                  </em>
-                  <em className="text-slate-600 dark:text-zinc-400 font-sans block text-[11px]">
-                    Or: “Load the 'Customer Support' prompt and fill issue='Login error'”
-                  </em>
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                    Launch Claude Code with <code>claude</code> and run <code>/mcp</code> to verify connection.
+                  </p>
                 </div>
+              )}
+
+              {/* Interactive Sample Chat Prompt */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/30">
+                <div className="flex items-start gap-2 min-w-0">
+                  <Sparkles size={15} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="min-w-0">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in Claude Chat:</span>
+                    <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
+                      “Show my available prompt templates in PromptHold”
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void copy('Show my available prompt templates in PromptHold', 'claude-sample', 'Prompt copied')}
+                  className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                >
+                  {copiedId === 'claude-sample' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                  <span>{copiedId === 'claude-sample' ? 'Copied' : 'Copy prompt'}</span>
+                </button>
               </div>
             </div>
           )}
 
           {/* ==================== PROVIDER 2: CHATGPT ==================== */}
           {provider === 'chatgpt' && (
-            <div className="space-y-4 rounded-xl border border-emerald-200/80 bg-gradient-to-b from-emerald-50/40 to-slate-50/60 p-4 dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-zinc-950/40">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <ChatGptIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            <div className="space-y-4 rounded-xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/50 to-white p-4.5 dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-zinc-900">
+              {/* Header with Title and Unmistakable Active Segmented Selector */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-emerald-100 pb-3.5 dark:border-emerald-900/30">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 shrink-0">
+                    <ChatGptIcon className="h-4 w-4" />
+                  </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to OpenAI ChatGPT</h4>
-                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Use Custom GPTs (syncs automatically to Web, iPhone &amp; Android) or the Desktop app:
-                    </p>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect OpenAI ChatGPT</h4>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">Syncs prompts with Web, Mobile &amp; Desktop:</p>
                   </div>
                 </div>
 
-                <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                <div role="tablist" aria-label="ChatGPT setup options" className="segmented w-full md:w-auto">
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={chatgptMode === 'web'}
                     onClick={() => setChatgptMode('web')}
-                    className={`segmented-item text-xs ${chatgptMode === 'web' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      chatgptMode === 'web' ? 'segmented-item-active-emerald' : ''
+                    }`}
                   >
-                    Plugins &amp; Web Tools
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptMode === 'web' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Web &amp; Mobile Tools</span>
+                    <span className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider ${
+                      chatgptMode === 'web'
+                        ? 'bg-emerald-200 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-200'
+                        : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400'
+                    }`}>
+                      Popular
+                    </span>
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={chatgptMode === 'desktop'}
                     onClick={() => setChatgptMode('desktop')}
-                    className={`segmented-item text-xs ${chatgptMode === 'desktop' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      chatgptMode === 'desktop' ? 'segmented-item-active-emerald' : ''
+                    }`}
                   >
-                    Desktop App
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptMode === 'desktop' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Desktop App</span>
                   </button>
                 </div>
               </div>
 
               {chatgptMode === 'web' && (
-                <div className="space-y-3 pt-1">
-                  {/* Notice explaining OpenAI's new Plugin architecture */}
-                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 p-3 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200 space-y-1.5">
-                    <div className="flex items-center gap-1.5 font-semibold text-emerald-900 dark:text-emerald-100">
-                      <Info size={14} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
-                      <span>OpenAI Update: "Create a plugin instead"</span>
-                    </div>
-                    <p>
-                      OpenAI has transitioned from Custom GPTs to <strong>Plugins</strong> as the home for custom tools.
-                      When ChatGPT prompts you with <em>"Create a plugin instead"</em>, click <strong>"Create plugin"</strong> to proceed.
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/60 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200 flex items-center gap-2">
-                    <Smartphone size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    <span><strong>Cross-device sync:</strong> Setting this up once in ChatGPT Web makes your PromptHold prompts available on your iPhone and Android too!</span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-3.5 pt-1">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                     <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Choose Sign-In Method:</span>
-                    <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                    <div role="tablist" aria-label="ChatGPT auth method" className="segmented w-full md:w-auto">
                       <button
                         type="button"
+                        role="tab"
+                        aria-selected={chatgptAuthType === 'oauth'}
                         onClick={() => setChatgptAuthType('oauth')}
-                        className={`segmented-item text-xs ${chatgptAuthType === 'oauth' ? 'segmented-item-active' : ''}`}
+                        className={`segmented-item flex-1 md:flex-none ${
+                          chatgptAuthType === 'oauth' ? 'segmented-item-active-emerald' : ''
+                        }`}
                       >
-                        ⚡ OAuth 2.0 (Recommended)
+                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptAuthType === 'oauth' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
+                        <span>⚡ 1-Click OAuth</span>
                       </button>
                       <button
                         type="button"
+                        role="tab"
+                        aria-selected={chatgptAuthType === 'bearer'}
                         onClick={() => setChatgptAuthType('bearer')}
-                        className={`segmented-item text-xs ${chatgptAuthType === 'bearer' ? 'segmented-item-active' : ''}`}
+                        className={`segmented-item flex-1 md:flex-none ${
+                          chatgptAuthType === 'bearer' ? 'segmented-item-active-emerald' : ''
+                        }`}
                       >
-                        🔑 API Key (Bearer)
+                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptAuthType === 'bearer' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
+                        <span>🔑 API Key (Bearer)</span>
                       </button>
                     </div>
                   </div>
 
                   <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
-                      <span>
-                        On <strong>chatgpt.com</strong>, click <strong>Create plugin</strong> (or open <strong>Explore</strong> → <strong>Plugins</strong>).
-                      </span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
+                      <span>On <strong>chatgpt.com</strong>, click <strong>Create plugin</strong> (or open <strong>Explore</strong> → <strong>Plugins</strong>).</span>
                     </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>Under <strong>Action Schema</strong>, import the PromptHold OpenAPI specification:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-slate-700 dark:text-zinc-300">
+                        <span>Under <strong>Action Schema</strong>, import the PromptHold OpenAPI schema:</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                          <code className="min-w-0 break-all font-mono text-[11px] text-slate-700 dark:text-zinc-300">
                             {openApiUrl}
                           </code>
                           <button
                             type="button"
-                            onClick={() => void copy(openApiUrl, 'gpt-schema', 'Schema URL copied')}
-                            className="btn-ghost btn-xs shrink-0"
+                            onClick={() => void copy(openApiUrl, 'gpt-schema', 'OpenAPI URL copied')}
+                            className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                           >
-                            {copiedId === 'gpt-schema' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            {copiedId === 'gpt-schema' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
                             <span>{copiedId === 'gpt-schema' ? 'Copied' : 'Copy URL'}</span>
                           </button>
                         </div>
                       </div>
                     </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
                       {chatgptAuthType === 'oauth' ? (
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <span>Under <strong>Authentication</strong>, choose <strong>OAuth</strong> and configure:</span>
-                          <div className="space-y-1.5 rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">Authorization URL:</span>
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <code className="truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 max-w-[200px] sm:max-w-[280px]">
-                                  {oauthAuthorizeUrl}
-                                </code>
-                                <button
-                                  type="button"
-                                  onClick={() => void copy(oauthAuthorizeUrl, 'gpt-auth-url', 'Authorization URL copied')}
-                                  className="btn-ghost btn-xs"
-                                >
-                                  {copiedId === 'gpt-auth-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <span>Under <strong>Authentication</strong>, choose <strong>OAuth</strong> and paste:</span>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase">
+                                <span>Auth URL</span>
+                                <button type="button" onClick={() => void copy(oauthAuthorizeUrl, 'gpt-auth-url', 'Auth URL copied')} className="btn-ghost btn-xs text-[10px]">
+                                  {copiedId === 'gpt-auth-url' ? 'Copied' : 'Copy'}
                                 </button>
                               </div>
+                              <code className="block truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">{oauthAuthorizeUrl}</code>
                             </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">Token URL:</span>
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <code className="truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 max-w-[200px] sm:max-w-[280px]">
-                                  {oauthTokenUrl}
-                                </code>
-                                <button
-                                  type="button"
-                                  onClick={() => void copy(oauthTokenUrl, 'gpt-token-url', 'Token URL copied')}
-                                  className="btn-ghost btn-xs"
-                                >
-                                  {copiedId === 'gpt-token-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase">
+                                <span>Token URL</span>
+                                <button type="button" onClick={() => void copy(oauthTokenUrl, 'gpt-tok-url', 'Token URL copied')} className="btn-ghost btn-xs text-[10px]">
+                                  {copiedId === 'gpt-tok-url' ? 'Copied' : 'Copy'}
                                 </button>
                               </div>
-                            </div>
-                            <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-zinc-400 pt-0.5">
-                              <span>Client ID: <code className="font-mono font-semibold text-slate-800 dark:text-zinc-200">chatgpt</code></span>
-                              <span>Scope: <code className="font-mono font-semibold text-slate-800 dark:text-zinc-200">prompts</code></span>
+                              <code className="block truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">{oauthTokenUrl}</code>
                             </div>
                           </div>
                         </div>
                       ) : (
                         <div className="min-w-0 flex-1 space-y-1">
-                          <span>Under <strong>Authentication</strong>, choose <strong>API Key</strong> (Auth Type: <strong>Bearer</strong>) and paste your key:</span>
-                          <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                            <code className="min-w-0 truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
+                          <span>Under <strong>Authentication</strong>, select <strong>API Key</strong> (Auth Type: <strong>Bearer</strong>):</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                            <code className="min-w-0 break-all font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
                               {displaySnippetKey}
                             </code>
                             <button
                               type="button"
                               onClick={() => void copy(copySnippetKey, 'gpt-key', 'API key copied')}
-                              className="btn-ghost btn-xs shrink-0"
+                              className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                             >
-                              {copiedId === 'gpt-key' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                              {copiedId === 'gpt-key' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
                               <span>{copiedId === 'gpt-key' ? 'Copied' : 'Copy Key'}</span>
                             </button>
                           </div>
-                          <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
-                            💡 Stored once in your plugin. You never have to type your key in chat!
-                          </p>
                         </div>
                       )}
                     </li>
@@ -1219,160 +1200,140 @@ for p in prompts:
               {chatgptMode === 'desktop' && (
                 <div className="space-y-3 pt-1">
                   <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
-                      <span>In ChatGPT Desktop, open <strong>Settings</strong> → <strong>Developer Mode</strong> (toggle ON).</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
+                      <span>In ChatGPT Desktop, open <strong>Settings</strong> → toggle <strong>Developer Mode</strong> ON.</span>
                     </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
-                      <span>Click <strong>MCP Servers</strong> → <strong>+ Add Server</strong> with:</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <span>Click <strong>MCP Servers</strong> → <strong>Add Server</strong> with URL:</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                          <code className="min-w-0 break-all font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
+                            {displayAuthMcpUrl}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(copyAuthMcpUrl, 'chatgpt-desktop-url', 'Server URL copied')}
+                            className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                          >
+                            {copiedId === 'chatgpt-desktop-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                            <span>{copiedId === 'chatgpt-desktop-url' ? 'Copied' : 'Copy URL'}</span>
+                          </button>
+                        </div>
+                      </div>
                     </li>
                   </ol>
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Name</div>
-                      <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">prompthold</code>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Server URL</span>
-                        <button
-                          type="button"
-                          onClick={() => void copy(copyAuthMcpUrl, 'chatgpt-desktop-url', 'URL copied')}
-                          className="btn-ghost btn-xs text-[10px]"
-                        >
-                          {copiedId === 'chatgpt-desktop-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                          <span>{copiedId === 'chatgpt-desktop-url' ? 'Copied' : 'Copy'}</span>
-                        </button>
-                      </div>
-                      <code className="truncate text-xs font-semibold text-slate-800 dark:text-zinc-200 block">
-                        {displayAuthMcpUrl}
-                      </code>
-                    </div>
-                  </div>
                 </div>
               )}
 
-              {/* In-chat example */}
-              <div className="flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50/80 p-2.5 text-xs text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-                <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask ChatGPT in chat:</span>
-                    <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                      <ShieldCheck size={11} /> No API key needed in chat
-                    </span>
+              {/* Sample Prompt */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs dark:border-emerald-900/40 dark:bg-emerald-950/30">
+                <div className="flex items-start gap-2 min-w-0">
+                  <Sparkles size={15} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <div className="min-w-0">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in ChatGPT:</span>
+                    <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
+                      “Search PromptHold for the 'Customer Onboarding' prompt and fill client_name='Acme'”
+                    </div>
                   </div>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
-                    “Search PromptHold for the 'Customer Onboarding' prompt and substitute client_name='Acme Corp'”
-                  </em>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => void copy("Search PromptHold for the 'Customer Onboarding' prompt and fill client_name='Acme'", 'gpt-sample', 'Prompt copied')}
+                  className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                >
+                  {copiedId === 'gpt-sample' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                  <span>{copiedId === 'gpt-sample' ? 'Copied' : 'Copy prompt'}</span>
+                </button>
               </div>
             </div>
           )}
 
-          {/* ==================== PROVIDER 3: GOOGLE GEMINI ==================== */}
+          {/* ==================== PROVIDER 3: GEMINI ==================== */}
           {provider === 'gemini' && (
-            <div className="space-y-4 rounded-xl border border-indigo-200/80 bg-gradient-to-b from-indigo-50/40 to-slate-50/60 p-4 dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-zinc-950/40">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <GeminiIcon className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            <div className="space-y-4 rounded-xl border border-indigo-200/90 bg-gradient-to-b from-indigo-50/50 to-white p-4.5 dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-zinc-900">
+              {/* Header with Title and Unmistakable Active Segmented Selector */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-indigo-100 pb-3.5 dark:border-indigo-900/30">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 shrink-0">
+                    <GeminiIcon className="h-4 w-4" />
+                  </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Google Gemini</h4>
-                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Use in Gemini Web &amp; Mobile App, or in Python scripts via GenAI SDK:
-                    </p>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Google Gemini</h4>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">Available in Web, Android &amp; iOS:</p>
                   </div>
                 </div>
 
-                <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                <div role="tablist" aria-label="Gemini setup options" className="segmented w-full md:w-auto">
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={geminiMode === 'app'}
                     onClick={() => setGeminiMode('app')}
-                    className={`segmented-item text-xs ${geminiMode === 'app' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      geminiMode === 'app' ? 'segmented-item-active-indigo' : ''
+                    }`}
                   >
-                    Gemini App (Web, Android &amp; iPhone)
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${geminiMode === 'app' ? 'bg-indigo-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Gemini App (Web, Android &amp; iOS)</span>
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={geminiMode === 'sdk'}
                     onClick={() => setGeminiMode('sdk')}
-                    className={`segmented-item text-xs ${geminiMode === 'sdk' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      geminiMode === 'sdk' ? 'segmented-item-active-indigo' : ''
+                    }`}
                   >
-                    Python SDK (Developers)
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${geminiMode === 'sdk' ? 'bg-indigo-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Python GenAI SDK</span>
                   </button>
                 </div>
               </div>
 
               {geminiMode === 'app' && (
-                <div className="space-y-3 pt-1">
-                  <div className="rounded-lg border border-indigo-200/70 bg-indigo-50/60 p-2.5 text-xs text-indigo-900 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-200 flex items-center gap-2">
-                    <Smartphone size={15} className="shrink-0 text-indigo-600 dark:text-indigo-400" />
-                    <span><strong>Gemini Connected Apps:</strong> Link once at <strong>gemini.google.com</strong> and use PromptHold across both Gemini Web and the Gemini Mobile App on Android and iOS!</span>
-                  </div>
-
+                <div className="space-y-3.5 pt-1">
                   <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200">1</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">1</span>
                       <span>
-                        Open <strong><a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="underline font-semibold text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-0.5">gemini.google.com <ExternalLink size={10} /></a></strong> on your computer or mobile browser.
+                        Open <strong><a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="underline font-semibold text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-0.5">gemini.google.com <ExternalLink size={10} /></a></strong> on computer or phone.
                       </span>
                     </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200">2</span>
-                      <span>
-                        Click <strong>Settings ⚙️</strong> → <strong>Connected Apps</strong> (or Extensions) → click <strong>Add Connected App</strong>.
-                      </span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">2</span>
+                      <span>Click <strong>Settings ⚙️</strong> → <strong>Connected Apps</strong> → <strong>Add Connected App</strong>.</span>
                     </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200">3</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">3</span>
                       <div className="min-w-0 flex-1 space-y-1">
                         <span>Set Name to <strong>PromptHold</strong> and enter your Server URL:</span>
-                        <div className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <code className="min-w-0 truncate font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                          <code className="min-w-0 break-all font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
                             {displayAuthMcpUrl}
                           </code>
                           <button
                             type="button"
                             onClick={() => void copy(copyAuthMcpUrl, 'gemini-url', 'Server URL copied')}
-                            className="btn-ghost btn-xs shrink-0"
+                            className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                           >
-                            {copiedId === 'gemini-url' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                            {copiedId === 'gemini-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
                             <span>{copiedId === 'gemini-url' ? 'Copied' : 'Copy URL'}</span>
                           </button>
                         </div>
-                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 pt-0.5">
-                          💡 Your personal URL automatically authenticates your account in the background.
-                        </p>
                       </div>
                     </li>
                   </ol>
-
-                  {/* In-chat example */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50/80 p-2.5 text-xs text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
-                    <Sparkles size={14} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask Gemini on Web or Mobile:</span>
-                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          <ShieldCheck size={11} /> No API key needed in chat
-                        </span>
-                      </div>
-                      <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
-                        “@PromptHold show my active Marketing templates”
-                      </em>
-                    </div>
-                  </div>
                 </div>
               )}
 
               {geminiMode === 'sdk' && (
                 <div className="space-y-3 pt-1">
                   <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
-                        Python script (google-genai SDK)
-                      </span>
+                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
+                      <span>Python script (google-genai SDK)</span>
                       <button
                         type="button"
                         onClick={() => void copy(geminiPythonSnippet, 'gemini-sdk', 'Code copied')}
@@ -1382,96 +1343,108 @@ for p in prompts:
                         <span>{copiedId === 'gemini-sdk' ? 'Copied' : 'Copy code'}</span>
                       </button>
                     </div>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200 min-w-0 max-w-full">
                       <code>{geminiPythonSnippet}</code>
                     </pre>
                   </div>
                 </div>
               )}
+
+              {/* Sample Prompt */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 text-xs dark:border-indigo-900/40 dark:bg-indigo-950/30">
+                <div className="flex items-start gap-2 min-w-0">
+                  <Sparkles size={15} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                  <div className="min-w-0">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in Gemini:</span>
+                    <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
+                      “@PromptHold show my active Marketing templates”
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void copy('@PromptHold show my active Marketing templates', 'gemini-sample', 'Prompt copied')}
+                  className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                >
+                  {copiedId === 'gemini-sample' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                  <span>{copiedId === 'gemini-sample' ? 'Copied' : 'Copy prompt'}</span>
+                </button>
+              </div>
             </div>
           )}
 
           {/* ==================== PROVIDER 4: CURSOR & IDES ==================== */}
           {provider === 'cursor' && (
-            <div className="space-y-4 rounded-xl border border-cyan-200/80 bg-gradient-to-b from-cyan-50/40 to-slate-50/60 p-4 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-zinc-950/40">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <CursorIcon className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+            <div className="space-y-4 rounded-xl border border-cyan-200/90 bg-gradient-to-b from-cyan-50/50 to-white p-4.5 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-zinc-900">
+              {/* Header with Title and Unmistakable Active Segmented Selector */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-cyan-100 pb-3.5 dark:border-cyan-900/30">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 shrink-0">
+                    <CursorIcon className="h-4 w-4" />
+                  </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect to Cursor &amp; Coding IDEs</h4>
-                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Use prompts directly in Cursor Chat, Composer, or VS Code Cline:
-                    </p>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Cursor &amp; Coding IDEs</h4>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">Use prompts in Cursor Chat, Composer, or Cline:</p>
                   </div>
                 </div>
 
-                <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                <div role="tablist" aria-label="Cursor setup options" className="segmented w-full md:w-auto">
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={cursorMode === 'cursor'}
                     onClick={() => setCursorMode('cursor')}
-                    className={`segmented-item text-xs ${cursorMode === 'cursor' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      cursorMode === 'cursor' ? 'segmented-item-active-cyan' : ''
+                    }`}
                   >
-                    Cursor IDE
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${cursorMode === 'cursor' ? 'bg-cyan-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Cursor IDE</span>
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={cursorMode === 'vscode'}
                     onClick={() => setCursorMode('vscode')}
-                    className={`segmented-item text-xs ${cursorMode === 'vscode' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      cursorMode === 'vscode' ? 'segmented-item-active-cyan' : ''
+                    }`}
                   >
-                    VS Code (Cline / Roo)
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${cursorMode === 'vscode' ? 'bg-cyan-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>VS Code (Cline / Roo)</span>
                   </button>
                 </div>
               </div>
 
               {cursorMode === 'cursor' && (
-                <div className="space-y-3 pt-1">
-                  <div className="rounded-lg border border-cyan-200/70 bg-cyan-50/60 p-2.5 text-xs text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-200 flex items-center gap-2">
-                    <Sparkles size={15} className="shrink-0 text-cyan-600 dark:text-cyan-400" />
-                    <span><strong>1-Click Desktop Bridge:</strong> Using <code>mcp-remote</code> handles background reconnection and SSL handshakes seamlessly without network drops.</span>
-                  </div>
-
+                <div className="space-y-3.5 pt-1">
                   <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-200">1</span>
-                      <span>
-                        In Cursor, open <strong>Settings</strong> (gear icon or <code className="font-mono">Cmd+,</code> / <code className="font-mono">Ctrl+,</code>) → <strong>Features</strong> → <strong>MCP Servers</strong>.
-                      </span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-950 dark:bg-cyan-900/60 dark:text-cyan-200">1</span>
+                      <span>In Cursor, open <strong>Settings</strong> (Cmd+, or Ctrl+,) → <strong>Features</strong> → <strong>MCP Servers</strong>.</span>
                     </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-200">2</span>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-950 dark:bg-cyan-900/60 dark:text-cyan-200">2</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>Click <strong>+ Add New MCP Server</strong> and enter:</span>
-                        <div className="grid gap-2 sm:grid-cols-3 pt-1">
-                          <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                            <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Name</div>
-                            <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">prompthold</code>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                            <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Type</div>
-                            <code className="text-xs font-semibold text-slate-800 dark:text-zinc-200">command</code>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500">Command</span>
-                              <button
-                                type="button"
-                                onClick={() => void copy(`npx -y mcp-remote "${copyAuthMcpUrl}"`, 'cursor-cmd', 'Command copied')}
-                                className="btn-ghost btn-xs text-[10px]"
-                              >
-                                {copiedId === 'cursor-cmd' ? <Check size={11} className="text-cyan-600" /> : <Copy size={11} />}
-                                <span>{copiedId === 'cursor-cmd' ? 'Copied' : 'Copy'}</span>
-                              </button>
-                            </div>
-                            <code className="truncate text-xs font-semibold text-slate-800 dark:text-zinc-200 block">
-                              npx -y mcp-remote "{displayAuthMcpUrl}"
-                            </code>
-                          </div>
+                        <span>Click <strong>Add New MCP Server</strong>:</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                          <code className="min-w-0 break-all font-mono text-xs text-slate-800 dark:text-zinc-200">
+                            npx -y mcp-remote "{displayAuthMcpUrl}"
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copy(`npx -y mcp-remote "${copyAuthMcpUrl}"`, 'cursor-cmd', 'Command copied')}
+                            className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                          >
+                            {copiedId === 'cursor-cmd' ? <Check size={12} className="text-cyan-600" /> : <Copy size={12} />}
+                            <span>{copiedId === 'cursor-cmd' ? 'Copied' : 'Copy command'}</span>
+                          </button>
                         </div>
                       </div>
                     </li>
                   </ol>
 
-                  {/* Or config JSON */}
+                  {/* Or JSON Config */}
                   <div className="pt-1">
                     <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
                       <span>Or paste into <code>~/.cursor/mcp.json</code>:</span>
@@ -1484,29 +1457,22 @@ for p in prompts:
                         <span>{copiedId === 'cursor-json' ? 'Copied' : 'Copy config'}</span>
                       </button>
                     </div>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200 min-w-0 max-w-full">
                       <code>{cursorMcpConfigJson}</code>
                     </pre>
                   </div>
 
                   <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                    💡 If using direct SSE mode: set <strong>Type: sse</strong> and URL to <code className="font-mono text-cyan-600 dark:text-cyan-400">{copyAuthSseUrl}</code>.
+                    💡 If using direct SSE mode: set <strong>Type: sse</strong> and URL to <code className="font-mono text-cyan-700 dark:text-cyan-300">{copyAuthSseUrl}</code>.
                   </p>
                 </div>
               )}
 
               {cursorMode === 'vscode' && (
                 <div className="space-y-3 pt-1">
-                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-200 text-[11px] font-bold text-cyan-900 dark:bg-cyan-900/60 dark:text-cyan-200">1</span>
-                      <span>In Cline or Roo Code settings, paste this into your MCP configuration:</span>
-                    </li>
-                  </ol>
-
                   <div>
                     <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      <span>cline_mcp_settings.json</span>
+                      <span>Paste into Cline settings (<code>cline_mcp_settings.json</code>):</span>
                       <button
                         type="button"
                         onClick={() => void copy(clineConfigJson, 'cline-json', 'Configuration copied')}
@@ -1516,81 +1482,83 @@ for p in prompts:
                         <span>{copiedId === 'cline-json' ? 'Copied' : 'Copy config'}</span>
                       </button>
                     </div>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200 min-w-0 max-w-full">
                       <code>{clineConfigJson}</code>
                     </pre>
                   </div>
                 </div>
               )}
 
-              {/* In-chat example */}
-              <div className="flex items-start gap-2.5 rounded-lg border border-cyan-200 bg-cyan-50/80 p-2.5 text-xs text-cyan-900 dark:border-cyan-900/50 dark:bg-cyan-950/30 dark:text-cyan-200">
-                <Sparkles size={14} className="mt-0.5 shrink-0 text-cyan-600 dark:text-cyan-400" />
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-slate-900 dark:text-zinc-100">What to ask in Cursor Chat (Cmd+L / Composer):</span>
-                    <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                      <ShieldCheck size={11} /> No API key needed in chat
-                    </span>
+              {/* Sample Prompt */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 text-xs dark:border-cyan-900/40 dark:bg-cyan-950/30">
+                <div className="flex items-start gap-2 min-w-0">
+                  <Sparkles size={15} className="mt-0.5 shrink-0 text-cyan-600 dark:text-cyan-400" />
+                  <div className="min-w-0">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in Cursor Chat (Cmd+L / Composer):</span>
+                    <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
+                      “Use PromptHold to load my 'Code Review' prompt and review this file”
+                    </div>
                   </div>
-                  <em className="text-slate-800 dark:text-zinc-200 font-sans block font-medium">
-                    “Use PromptHold to load my 'Code Review' prompt and review this file”
-                  </em>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => void copy("Use PromptHold to load my 'Code Review' prompt and review this file", 'cursor-sample', 'Prompt copied')}
+                  className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                >
+                  {copiedId === 'cursor-sample' ? <Check size={12} className="text-cyan-600" /> : <Copy size={12} />}
+                  <span>{copiedId === 'cursor-sample' ? 'Copied' : 'Copy prompt'}</span>
+                </button>
               </div>
             </div>
           )}
 
           {/* ==================== PROVIDER 5: API & SCRIPTS ==================== */}
           {provider === 'api' && (
-            <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Terminal className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
+            <div className="space-y-4 rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-50/50 to-white p-4.5 dark:border-zinc-800 dark:from-zinc-950/20 dark:to-zinc-900">
+              {/* Header with Title and Unmistakable Active Segmented Selector */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-200 pb-3.5 dark:border-zinc-800">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 shrink-0">
+                    <Terminal className="h-4 w-4" />
+                  </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">REST API &amp; Python Scripts</h4>
-                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                      Query prompts and substitute variables from your own automated pipelines:
-                    </p>
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">REST API &amp; Automated Scripts</h4>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">Query prompts and substitute variables in pipelines:</p>
                   </div>
                 </div>
 
-                <div className="segmented h-8 bg-white dark:bg-zinc-900">
+                <div role="tablist" aria-label="API setup options" className="segmented w-full md:w-auto">
                   <button
                     type="button"
-                    onClick={() => setApiMode('python')}
-                    className={`segmented-item text-xs ${apiMode === 'python' ? 'segmented-item-active' : ''}`}
-                  >
-                    Python
-                  </button>
-                  <button
-                    type="button"
+                    role="tab"
+                    aria-selected={apiMode === 'curl'}
                     onClick={() => setApiMode('curl')}
-                    className={`segmented-item text-xs ${apiMode === 'curl' ? 'segmented-item-active' : ''}`}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      apiMode === 'curl' ? 'segmented-item-active' : ''
+                    }`}
                   >
-                    cURL
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${apiMode === 'curl' ? 'bg-brand-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>cURL</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={apiMode === 'python'}
+                    onClick={() => setApiMode('python')}
+                    className={`segmented-item flex-1 md:flex-none ${
+                      apiMode === 'python' ? 'segmented-item-active' : ''
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${apiMode === 'python' ? 'bg-brand-500' : 'bg-transparent'}`} aria-hidden="true" />
+                    <span>Python</span>
                   </button>
                 </div>
-              </div>
-
-              {/* Notice explaining why previous python code returned HTML */}
-              <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-3 text-xs text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200 space-y-1">
-                <div className="flex items-center gap-1.5 font-semibold text-blue-950 dark:text-blue-100">
-                  <Info size={14} className="shrink-0 text-blue-600 dark:text-blue-400" />
-                  <span>Always use the live API gateway URL:</span>
-                </div>
-                <p>
-                  If a script ever returned an HTML webpage instead of JSON, it was hitting the static frontend (<code>prompthold.pages.dev</code>).
-                  The script below queries the real backend API (<code>{restUrl}</code>) which always returns clean JSON.
-                </p>
               </div>
 
               <div className="space-y-3 pt-1">
                 <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
-                      {apiMode === 'python' ? 'Python script' : 'cURL command'}
-                    </span>
+                  <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-300">
+                    <span>{apiMode === 'python' ? 'Python script' : 'cURL command'}</span>
                     <button
                       type="button"
                       onClick={() => void copy(apiMode === 'python' ? pythonSnippet : curlSnippet, `code-${apiMode}`, 'Code copied')}
@@ -1600,14 +1568,14 @@ for p in prompts:
                       <span>{copiedId === `code-${apiMode}` ? 'Copied' : 'Copy code'}</span>
                     </button>
                   </div>
-                  <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200">
+                  <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-100 custom-scrollbar dark:border dark:border-zinc-800 dark:bg-black dark:text-zinc-200 min-w-0 max-w-full">
                     <code>{apiMode === 'python' ? pythonSnippet : curlSnippet}</code>
                   </pre>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
                   <p>
-                    <strong>API Filtering:</strong> Filter prompts by space using <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?group_id=&lt;id&gt;</code> or search titles with <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?search=&lt;query&gt;</code>.
+                    <strong>API Filtering:</strong> Query specific spaces using <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?group_id=&lt;id&gt;</code> or search with <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?search=&lt;query&gt;</code>.
                   </p>
                 </div>
               </div>

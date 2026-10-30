@@ -173,19 +173,32 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   }
 
   .segmented {
-    @apply inline-flex items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 text-[13px] font-medium
+    @apply inline-flex flex-wrap md:flex-nowrap items-center gap-1 rounded-xl border border-slate-200/90 bg-slate-100/90 p-1 text-[13px] font-medium
            dark:border-zinc-800 dark:bg-zinc-950/80;
   }
   .segmented-item {
-    @apply rounded-md px-3 py-1.5 text-slate-600 transition hover:text-slate-900
-           dark:text-zinc-400 dark:hover:text-zinc-200;
+    @apply relative inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:text-slate-950
+           dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40;
   }
   .segmented-item-active {
-    @apply bg-white text-slate-900 dark:bg-zinc-800 dark:text-zinc-50;
-    box-shadow: 0 1px 2px 0 rgb(16 24 40 / 0.05);
+    @apply bg-white text-slate-950 font-semibold shadow-xs ring-1 ring-slate-950/10 dark:bg-zinc-800 dark:text-white dark:ring-white/10 dark:shadow-sm;
   }
   html.dark .segmented-item-active {
-    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5);
+  }
+
+  /* Distinct theme-tinted active styles for provider sub-modes */
+  .segmented-item-active-amber {
+    @apply bg-amber-50 text-amber-900 ring-1 ring-amber-400 font-semibold dark:bg-amber-950/70 dark:text-amber-200 dark:ring-amber-500/50 shadow-xs;
+  }
+  .segmented-item-active-emerald {
+    @apply bg-emerald-50 text-emerald-900 ring-1 ring-emerald-400 font-semibold dark:bg-emerald-950/70 dark:text-emerald-200 dark:ring-emerald-500/50 shadow-xs;
+  }
+  .segmented-item-active-indigo {
+    @apply bg-indigo-50 text-indigo-900 ring-1 ring-indigo-400 font-semibold dark:bg-indigo-950/70 dark:text-indigo-200 dark:ring-indigo-500/50 shadow-xs;
+  }
+  .segmented-item-active-cyan {
+    @apply bg-cyan-50 text-cyan-950 ring-1 ring-cyan-400 font-semibold dark:bg-cyan-950/70 dark:text-cyan-200 dark:ring-cyan-500/50 shadow-xs;
   }
 }
 
