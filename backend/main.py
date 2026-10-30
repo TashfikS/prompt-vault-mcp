@@ -1628,6 +1628,44 @@ def create_prompt(payload: PromptCreateRequest, db: Session = Depends(get_db), u
     if role == "GUEST":
         raise HTTPException(status_code=403, detail="Guests have view-only access and cannot create prompts.")
     _check_prompt_quota(db, user, payload.group_id)
+    if not can_user_direct_write_prompt(db, user, payload.group_id):
+        safe_title = (payload.title.strip() or "Untitled prompt")[:240]
+        safe_desc = (payload.description or "")[:2000]
+        safe_note = (payload.change_note or "Initial creation proposal")[:500]
+        prompt = Prompt(
+            group_id=payload.group_id,
+            title=safe_title,
+            description=safe_desc,
+            current_version_number=1,
+            created_by=user.id,
+            is_archived=True,
+        )
+        db.add(prompt)
+        db.flush()
+        proposal = PromptProposal(
+            prompt_id=prompt.id,
+            group_id=payload.group_id,
+            proposer_id=user.id,
+            title=safe_title,
+            description=safe_desc,
+            content=payload.content,
+            change_note=safe_note,
+            status="PENDING",
+        )
+        db.add(proposal)
+        db.commit()
+        db.refresh(proposal)
+        record_audit_log(db, "PROPOSAL_CREATED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"New prompt proposal: {safe_title}")
+        return {
+            "id": prompt.id,
+            "title": prompt.title,
+            "group_id": prompt.group_id,
+            "proposal_created": True,
+            "proposal_id": proposal.id,
+            "status": "PENDING",
+            "message": "Your new prompt proposal has been submitted for team review before publishing.",
+        }
+
     prompt = _create_prompt(db, user, payload.group_id, payload.title, payload.content, payload.description,
                             payload.change_note, payload.source_filename)
     db.commit()
@@ -2019,7 +2057,22 @@ def _proposal_read(db: Session, proposal: PromptProposal, current_user_id: str, 
         })
     group = db.query(Group).filter_by(id=proposal.group_id).first()
     required = getattr(group, "required_approvals", 1) if group else 1
-    can_approve = (user_role in {"GROUP_MANAGER", "MEMBER"}) and (not has_approved) and (proposal.status == "PENDING") and (proposal.proposer_id != current_user_id)
+    allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
+    is_proposer = (proposal.proposer_id == current_user_id)
+    self_approve_allowed = (not is_proposer) or allow_self
+    can_approve = (user_role in {"GROUP_MANAGER", "MEMBER"}) and (not has_approved) and (proposal.status == "PENDING") and self_approve_allowed
+
+    comments_list = []
+    for c in (proposal.comments or []):
+        cu = db.query(User).filter_by(id=c.user_id).first()
+        comments_list.append({
+            "id": c.id,
+            "proposal_id": c.proposal_id,
+            "user_id": c.user_id,
+            "user_name": cu.name if cu else "Unknown",
+            "comment": c.comment,
+            "created_at": c.created_at.isoformat() + "Z",
+        })
 
     return {
         "id": proposal.id,
@@ -2037,8 +2090,10 @@ def _proposal_read(db: Session, proposal: PromptProposal, current_user_id: str, 
         "approvals": approvals_list,
         "approvals_count": len(approvals_list),
         "required_approvals": required,
+        "allow_self_approval": allow_self,
         "can_approve": can_approve,
         "has_approved": has_approved,
+        "comments": comments_list,
     }
 
 
@@ -2117,7 +2172,7 @@ def create_proposal(prompt_id: str, payload: ProposalCreateRequest, db: Session 
 
 
 @app.post("/api/proposals/{proposal_id}/approve")
-def approve_proposal(proposal_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def approve_proposal(proposal_id: str, payload: ProposalReviewAction | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
     _require_write_permission(user)
     proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
     if not proposal:
@@ -2127,8 +2182,10 @@ def approve_proposal(proposal_id: str, db: Session = Depends(get_db), user: User
         raise HTTPException(status_code=403, detail="Guests cannot approve proposals.")
     if proposal.status != "PENDING":
         raise HTTPException(status_code=400, detail=f"Proposal is already {proposal.status.lower()}.")
-    if proposal.proposer_id == user.id:
-        raise HTTPException(status_code=400, detail="You cannot approve your own proposal.")
+    group = db.query(Group).filter_by(id=proposal.group_id).first()
+    allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
+    if proposal.proposer_id == user.id and not allow_self:
+        raise HTTPException(status_code=400, detail="You cannot approve your own proposal because self-approval is disabled for this group.")
 
     existing_approval = db.query(ProposalApproval).filter_by(proposal_id=proposal.id, user_id=user.id).first()
     if existing_approval:
@@ -2136,29 +2193,45 @@ def approve_proposal(proposal_id: str, db: Session = Depends(get_db), user: User
 
     approval = ProposalApproval(proposal_id=proposal.id, user_id=user.id)
     db.add(approval)
+    if payload and payload.comment and payload.comment.strip():
+        db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=payload.comment.strip()[:2000]))
     db.flush()
 
     total_approvals = db.query(ProposalApproval).filter_by(proposal_id=proposal.id).count()
-    group = db.query(Group).filter_by(id=proposal.group_id).first()
     required = getattr(group, "required_approvals", 1) if group else 1
 
     if total_approvals >= required:
         proposal.status = "APPROVED"
-        max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
-        prompt.current_version_number = max_ver + 1
+        is_initial_creation = (prompt.current_version_id is None) or prompt.is_archived
+        variables_list = extract_variables(proposal.content)
         prompt.title = proposal.title
         if proposal.description:
             prompt.description = proposal.description
         prompt.updated_at = datetime.utcnow()
-        variables_list = extract_variables(proposal.content)
-        new_version = PromptVersion(
-            prompt_id=prompt.id,
-            version_number=prompt.current_version_number,
-            content=proposal.content,
-            variables_json=json.dumps(variables_list),
-            change_Note=f"[Approved] {proposal.change_note}"[:500],
-            author_id=proposal.proposer_id,
-        )
+
+        if is_initial_creation:
+            prompt.is_archived = False
+            prompt.current_version_number = 1
+            new_version = PromptVersion(
+                prompt_id=prompt.id,
+                version_number=1,
+                content=proposal.content,
+                variables_json=json.dumps(variables_list),
+                change_Note=f"[Approved Creation] {proposal.change_note}"[:500],
+                author_id=proposal.proposer_id,
+            )
+        else:
+            max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
+            prompt.current_version_number = max_ver + 1
+            new_version = PromptVersion(
+                prompt_id=prompt.id,
+                version_number=prompt.current_version_number,
+                content=proposal.content,
+                variables_json=json.dumps(variables_list),
+                change_Note=f"[Approved] {proposal.change_note}"[:500],
+                author_id=proposal.proposer_id,
+            )
+
         db.add(new_version)
         db.flush()
         prompt.current_version_id = new_version.id
@@ -2197,7 +2270,7 @@ def approve_proposal(proposal_id: str, db: Session = Depends(get_db), user: User
 
 
 @app.post("/api/proposals/{proposal_id}/reject")
-def reject_proposal(proposal_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def reject_proposal(proposal_id: str, payload: ProposalReviewAction | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
     _require_write_permission(user)
     proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
     if not proposal:
@@ -2208,8 +2281,62 @@ def reject_proposal(proposal_id: str, db: Session = Depends(get_db), user: User 
     if proposal.status != "PENDING":
         raise HTTPException(status_code=400, detail=f"Proposal is already {proposal.status.lower()}.")
     proposal.status = "REJECTED"
+    if payload and payload.comment and payload.comment.strip():
+        db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=payload.comment.strip()[:2000]))
     db.commit()
     return {"status": "REJECTED"}
+
+
+@app.post("/api/proposals/{proposal_id}/comments", status_code=201)
+def add_proposal_comment(proposal_id: str, payload: ProposalCommentCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_write_permission(user)
+    proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found.")
+    prompt = _accessible_prompt(db, user, proposal.prompt_id)
+    if not can_access_group_with_key(db, user, prompt.group_id, _active_key(user)):
+        raise HTTPException(status_code=403, detail="You do not have access to this proposal.")
+    role = get_user_group_role(db, user, prompt.group_id)
+    if role == "GUEST":
+        raise HTTPException(status_code=403, detail="Guests have view-only access and cannot comment.")
+    comment_text = payload.comment.strip()
+    if not comment_text:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty.")
+    comment = ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=comment_text[:2000])
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return {
+        "id": comment.id,
+        "proposal_id": comment.proposal_id,
+        "user_id": comment.user_id,
+        "user_name": user.name,
+        "comment": comment.comment,
+        "created_at": comment.created_at.isoformat() + "Z",
+    }
+
+
+@app.get("/api/proposals/{proposal_id}/comments")
+def get_proposal_comments(proposal_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+    proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found.")
+    prompt = _accessible_prompt(db, user, proposal.prompt_id)
+    if not can_access_group_with_key(db, user, prompt.group_id, _active_key(user)):
+        raise HTTPException(status_code=403, detail="You do not have access to this proposal.")
+    comments = db.query(ProposalComment).filter_by(proposal_id=proposal.id).order_by(ProposalComment.created_at.asc()).all()
+    results = []
+    for c in comments:
+        u = db.query(User).filter_by(id=c.user_id).first()
+        results.append({
+            "id": c.id,
+            "proposal_id": c.proposal_id,
+            "user_id": c.user_id,
+            "user_name": u.name if u else "Unknown",
+            "comment": c.comment,
+            "created_at": c.created_at.isoformat() + "Z",
+        })
+    return results
 
 
 @app.get("/api/prompts/{prompt_id}/versions")
