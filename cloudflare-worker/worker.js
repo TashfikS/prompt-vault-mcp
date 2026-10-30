@@ -746,8 +746,8 @@ export default {
             method: request.method,
             headers: request.headers,
             body: rawBody ? rawBody.slice(0) : undefined,
-            redirect: "follow",
-            signal: AbortSignal.timeout(4500),
+            redirect: "manual",
+            signal: AbortSignal.timeout(path.startsWith("/oauth/") ? 15000 : 8000),
           });
           const resp = await fetch(upstreamReq);
           if (resp.status < 502) {

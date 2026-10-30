@@ -11,12 +11,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo ""
 echo "[1/5] Verifying Backend Python Syntax..."
 cd "$ROOT_DIR"
-if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+if [ -x "$ROOT_DIR/.venv/bin/pytest" ] && "$ROOT_DIR/.venv/bin/python" --version >/dev/null 2>&1; then
     PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
-    PYTEST_BIN="$ROOT_DIR/.venv/bin/pytest"
+    PYTEST_CMD=("$ROOT_DIR/.venv/bin/pytest")
 else
     PYTHON_BIN="python3"
-    PYTEST_BIN="pytest"
+    export PYTHONPATH="$ROOT_DIR/.venv/lib/python3.12/site-packages:$ROOT_DIR/backend:${PYTHONPATH:-}"
+    PYTEST_CMD=("python3" "-m" "pytest")
 fi
 "$PYTHON_BIN" -m py_compile backend/*.py backend/tests/*.py
 
@@ -24,7 +25,7 @@ fi
 echo ""
 echo "[2/5] Running Backend RBAC, Cache, Feedback & MCP Unit + Integration Tests..."
 cd "$ROOT_DIR/backend"
-"$PYTEST_BIN" -v
+"${PYTEST_CMD[@]}" -v
 
 # 3. Frontend UI Guardrails (AGENTS.md Rule #5)
 echo ""

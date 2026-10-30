@@ -695,8 +695,10 @@ async def oauth_authorize_post(
         target = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(q), parsed.fragment))
         return RedirectResponse(url=target, status_code=302)
 
-    # If not already signed in via session, authenticate email & password
     auth_user = user
+    active_db = db
+    close_active_db = False
+
     if auth_user is None:
         if not email or not password:
             html_page = render_oauth_authorize_html(
@@ -712,8 +714,37 @@ async def oauth_authorize_post(
             )
             return HTMLResponse(content=html_page, status_code=400)
 
-        candidate = db.query(User).filter_by(email=email.strip().lower()).first()
-        if candidate is None or not candidate.password_hash or not verify_password(password, candidate.password_hash):
+        clean_email = email.strip().lower()
+        candidate = None
+        if is_test_session(db):
+            c = db.query(User).filter_by(email=clean_email).first()
+            if c and c.password_hash and verify_password(password, c.password_hash):
+                candidate = c
+        else:
+            try:
+                n_db = SessionNeon()
+                n_user = n_db.query(User).filter_by(email=clean_email).first()
+                if n_user and n_user.password_hash and verify_password(password, n_user.password_hash):
+                    candidate = n_user
+                    active_db = n_db
+                    close_active_db = True
+            except Exception:
+                pass
+
+            if not candidate:
+                try:
+                    s_db = SessionSupabase()
+                    s_user = s_db.query(User).filter_by(email=clean_email).first()
+                    if s_user and s_user.password_hash and verify_password(password, s_user.password_hash):
+                        candidate = s_user
+                        active_db = s_db
+                        close_active_db = True
+                except Exception:
+                    pass
+
+        if candidate is None:
+            if close_active_db and active_db:
+                active_db.close()
             html_page = render_oauth_authorize_html(
                 client_name=client.client_name,
                 client_id=client.id,
@@ -729,15 +760,20 @@ async def oauth_authorize_post(
         auth_user = candidate
 
     # Issue single-use authorization code
-    code = create_authorization_code(
-        db=db,
-        client_id=client.id,
-        user_id=auth_user.id,
-        redirect_uri=redirect_uri,
-        code_challenge=code_challenge,
-        code_challenge_method=code_challenge_method,
-        scope=scope,
-    )
+    try:
+        target_client = get_or_create_client(active_db, client.id, redirect_uri)
+        code = create_authorization_code(
+            db=active_db,
+            client_id=target_client.id,
+            user_id=auth_user.id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            scope=scope,
+        )
+    finally:
+        if close_active_db and active_db:
+            active_db.close()
 
     parsed = urlparse(redirect_uri)
     q = dict(parse_qsl(parsed.query))
@@ -807,14 +843,39 @@ async def oauth_token_exchange(
             media_type="application/json",
         )
 
+    target_db = db
+    close_target = False
+    if not is_test_session(db):
+        auth_code_record = db.query(OAuthAuthorizationCode).filter_by(code=code.strip()).first()
+        if not auth_code_record:
+            try:
+                n_db = SessionNeon()
+                if n_db.query(OAuthAuthorizationCode).filter_by(code=code.strip()).first():
+                    target_db = n_db
+                    close_target = True
+            except Exception:
+                pass
+            if not close_target:
+                try:
+                    s_db = SessionSupabase()
+                    if s_db.query(OAuthAuthorizationCode).filter_by(code=code.strip()).first():
+                        target_db = s_db
+                        close_target = True
+                except Exception:
+                    pass
+
     try:
-        token_data = exchange_authorization_code(
-            db=db,
-            code=code,
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            code_verifier=code_verifier,
-        )
+        try:
+            token_data = exchange_authorization_code(
+                db=target_db,
+                code=code,
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                code_verifier=code_verifier,
+            )
+        finally:
+            if close_target and target_db:
+                target_db.close()
         return Response(
             content=json.dumps(token_data),
             status_code=200,
