@@ -5,11 +5,13 @@ import {
   Clock,
   ExternalLink,
   GitPullRequest,
+  MessageSquare,
   Search,
+  Send,
   X,
 } from 'lucide-react'
 import { diffArrays, diffWordsWithSpace } from 'diff'
-import { approveProposal, getAllProposals, rejectProposal } from '../api'
+import { addProposalComment, approveProposal, getAllProposals, rejectProposal } from '../api'
 import type { Group, PromptItem, PromptProposalItem, User } from '../types'
 import { useToast } from './ui/Toast'
 import { Avatar } from './ui/Brand'
@@ -61,8 +63,11 @@ export default function ReviewRequestsDashboard({
   const [tab, setTab] = useState<FilterTab>('needs_review')
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [expandedDiffId, setExpandedDiffId] = useState<string | null>(null)
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({})
+  const [commentTexts, setCommentTexts] = useState<Record<string, string>>({})
   const [diffGranularity, setDiffGranularity] = useState<'word' | 'sentence'>('word')
   const [processingId, setProcessingId] = useState<string | null>(null)
+  const [postingCommentId, setPostingCommentId] = useState<string | null>(null)
 
   const loadRequests = useCallback(async () => {
     setLoading(true)
@@ -85,7 +90,8 @@ export default function ReviewRequestsDashboard({
   async function handleApprove(proposal: PromptProposalItem) {
     setProcessingId(proposal.id)
     try {
-      const res = await approveProposal(proposal.id)
+      const note = commentTexts[proposal.id]?.trim()
+      const res = await approveProposal(proposal.id, note || undefined)
       if (res.merged) {
         notify('Change request approved & merged', {
           description: `Version ${res.version_number ?? ''} is now the active version of “${proposal.title}”.`,
@@ -95,6 +101,7 @@ export default function ReviewRequestsDashboard({
           description: `You approved this request (${res.approvals_count} / ${res.required_approvals} approvals).`,
         })
       }
+      setCommentTexts(prev => ({ ...prev, [proposal.id]: '' }))
       await loadRequests()
       onRefreshWorkspace()
     } catch (e) {
@@ -107,8 +114,10 @@ export default function ReviewRequestsDashboard({
   async function handleReject(proposal: PromptProposalItem) {
     setProcessingId(proposal.id)
     try {
-      await rejectProposal(proposal.id)
+      const note = commentTexts[proposal.id]?.trim()
+      await rejectProposal(proposal.id, note || undefined)
       notify('Change request rejected', { description: `“${proposal.title}” request has been rejected.` })
+      setCommentTexts(prev => ({ ...prev, [proposal.id]: '' }))
       await loadRequests()
       onRefreshWorkspace()
     } catch (e) {
@@ -118,12 +127,28 @@ export default function ReviewRequestsDashboard({
     }
   }
 
+  async function handlePostComment(proposalId: string) {
+    const text = commentTexts[proposalId]?.trim()
+    if (!text) return
+    setPostingCommentId(proposalId)
+    try {
+      await addProposalComment(proposalId, text)
+      notify('Comment posted', { description: 'Your review comment has been added to the discussion.' })
+      setCommentTexts(prev => ({ ...prev, [proposalId]: '' }))
+      await loadRequests()
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Could not post comment.', { tone: 'error' })
+    } finally {
+      setPostingCommentId(null)
+    }
+  }
+
   // Counts
   const needsReviewCount = useMemo(() => {
     return requests.filter(
-      r => r.status === 'PENDING' && r.proposer_id !== activeUser?.id && !r.has_approved && r.can_approve
+      r => r.status === 'PENDING' && !r.has_approved && r.can_approve
     ).length
-  }, [requests, activeUser])
+  }, [requests])
 
   const pendingCount = useMemo(() => {
     return requests.filter(r => r.status === 'PENDING').length
@@ -138,7 +163,7 @@ export default function ReviewRequestsDashboard({
     return requests.filter(r => {
       // Tab filter
       if (tab === 'needs_review') {
-        const matchesNeeds = r.status === 'PENDING' && r.proposer_id !== activeUser?.id && !r.has_approved && r.can_approve
+        const matchesNeeds = r.status === 'PENDING' && !r.has_approved && r.can_approve
         if (!matchesNeeds) return false
       } else if (tab === 'pending') {
         if (r.status !== 'PENDING') return false
@@ -471,9 +496,14 @@ export default function ReviewRequestsDashboard({
                             <Check size={14} /> You approved this
                           </span>
                         )}
-                        {isProposer && (
+                        {isProposer && !req.can_approve && !req.has_approved && (
                           <span className="text-xs text-slate-400 dark:text-zinc-500">
                             (Waiting for peer/owner approval)
+                          </span>
+                        )}
+                        {isProposer && req.can_approve && (
+                          <span className="rounded bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                            Self-approval allowed by owner
                           </span>
                         )}
                       </div>
@@ -491,17 +521,30 @@ export default function ReviewRequestsDashboard({
                   </div>
                 </div>
 
-                {/* Diff toggle button */}
+                {/* Diff & Comments toolbar */}
                 <div className="mt-4 border-t border-slate-100 pt-3 dark:border-zinc-800">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedDiffId(isExpanded ? null : req.id)}
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
-                    >
-                      <GitPullRequest size={13} className="text-brand-600 dark:text-brand-400" />
-                      {isExpanded ? 'Hide proposed changes' : 'Inspect proposed changes (Diff)'}
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedDiffId(isExpanded ? null : req.id)}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                      >
+                        <GitPullRequest size={13} className="text-brand-600 dark:text-brand-400" />
+                        {isExpanded ? 'Hide proposed changes' : 'Inspect proposed changes (Diff)'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setExpandedComments(prev => ({ ...prev, [req.id]: !prev[req.id] }))}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                      >
+                        <MessageSquare size={13} className="text-brand-600 dark:text-brand-400" />
+                        {req.comments && req.comments.length > 0
+                          ? `${req.comments.length} review comment${req.comments.length === 1 ? '' : 's'}`
+                          : 'Review comments'}
+                      </button>
+                    </div>
 
                     {isExpanded && (
                       <div className="flex items-center gap-1 text-xs">
@@ -565,6 +608,65 @@ export default function ReviewRequestsDashboard({
                           }
                           return <span key={index}>{part.value}</span>
                         })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Comments and Discussion Thread */}
+                  {expandedComments[req.id] && (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/60">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-zinc-200">
+                          <MessageSquare size={13} className="text-brand-600 dark:text-brand-400" />
+                          <span>Review discussion & comments</span>
+                        </div>
+                        <span className="text-[11px] text-slate-400 dark:text-zinc-500">
+                          Live across PromptHold, Claude, and ChatGPT
+                        </span>
+                      </div>
+
+                      {/* List of comments */}
+                      {req.comments && req.comments.length > 0 ? (
+                        <div className="mb-3 space-y-2.5">
+                          {req.comments.map(c => (
+                            <div key={c.id} className="rounded-lg border border-slate-200/80 bg-white p-3 text-xs shadow-2xs dark:border-zinc-800 dark:bg-zinc-900">
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <span className="font-semibold text-slate-900 dark:text-zinc-100">{c.user_name}</span>
+                                <span className="text-[10px] text-slate-400 dark:text-zinc-500">{timeAgo(c.created_at)}</span>
+                              </div>
+                              <p className="whitespace-pre-wrap leading-relaxed text-slate-700 dark:text-zinc-300">{c.comment}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mb-3 text-xs italic text-slate-400 dark:text-zinc-500">
+                          No comments yet. Post feedback or questions below.
+                        </p>
+                      )}
+
+                      {/* Add comment input */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={commentTexts[req.id] ?? ''}
+                          onChange={e => setCommentTexts(prev => ({ ...prev, [req.id]: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault()
+                              void handlePostComment(req.id)
+                            }
+                          }}
+                          placeholder="Write feedback, question, or approval note…"
+                          className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                        <button
+                          type="button"
+                          disabled={postingCommentId === req.id || !commentTexts[req.id]?.trim()}
+                          onClick={() => void handlePostComment(req.id)}
+                          className="btn-primary btn-sm"
+                        >
+                          <Send size={12} /> {postingCommentId === req.id ? 'Posting…' : 'Post'}
+                        </button>
                       </div>
                     </div>
                   )}

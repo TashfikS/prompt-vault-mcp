@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, RefObject } from 'react'
-import { BookOpenCheck, CheckCheck, LockKeyhole, Plus, Search, Shield, UserPlus, Users, X } from 'lucide-react'
+import { BookOpenCheck, CheckCheck, LockKeyhole, Plus, Search, Shield, ShieldCheck, UserPlus, Users, X } from 'lucide-react'
 import { api, updateGroupSettings } from '../api'
 import type { Group, GroupRole, User } from '../types'
 import LeaderSelectDropdown from './LeaderSelectDropdown'
@@ -287,51 +287,86 @@ export default function AccessGroupManager({
                   </div>
                 </div>
 
-                {/* Required Approvals configuration for team groups */}
+                {/* Required Approvals & Self-Approval configuration for team groups */}
                 {!isPersonal && canManage && (
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-950/40">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-zinc-200">
-                        <CheckCheck size={14} className="text-brand-600 dark:text-brand-400" />
-                        Required approvals for proposals
+                  <div className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-950/40">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-zinc-200">
+                          <CheckCheck size={14} className="text-brand-600 dark:text-brand-400" />
+                          Required approvals for proposals
+                        </div>
+                        <p className="mt-0.5 text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
+                          Votes needed from the Owner or other Members before a Member’s edit merges as a new version.
+                        </p>
                       </div>
-                      <p className="mt-0.5 text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
-                        Votes needed from the Owner or other Members before a Member’s edit merges as a new version.
-                      </p>
-                    </div>
-                    <div className="segmented">
-                      {[1, 2, 3, 4, 5].map(num => {
-                        const active = (group.required_approvals ?? 1) === num
-                        return (
-                          <Tooltip
-                            key={num}
-                            side="top"
-                            width="w-56"
-                            content={
-                              <span>
-                                Require <strong className="font-semibold text-slate-900 dark:text-zinc-100">{num} {num === 1 ? 'approval' : 'approvals'}</strong> before a Member’s proposal is published as the next version.
-                              </span>
-                            }
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void run(
-                                  () => updateGroupSettings(group.id, { required_approvals: num }),
-                                  `Approval threshold set to ${num} for ${group.name}.`
-                                )
+                      <div className="segmented">
+                        {[1, 2, 3, 4, 5].map(num => {
+                          const active = (group.required_approvals ?? 1) === num
+                          return (
+                            <Tooltip
+                              key={num}
+                              side="top"
+                              width="w-56"
+                              content={
+                                <span>
+                                  Require <strong className="font-semibold text-slate-900 dark:text-zinc-100">{num} {num === 1 ? 'approval' : 'approvals'}</strong> before a Member’s proposal is published as the next version.
+                                </span>
                               }
-                              className={`h-7 w-7 rounded-md text-xs font-semibold transition ${
-                                active
-                                  ? 'bg-brand-600 text-white shadow-xs'
-                                  : 'text-slate-600 hover:bg-white hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
-                              }`}
                             >
-                              {num}
-                            </button>
-                          </Tooltip>
-                        )
-                      })}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void run(
+                                    () => updateGroupSettings(group.id, { required_approvals: num }),
+                                    `Approval threshold set to ${num} for ${group.name}.`
+                                  )
+                                }
+                                className={`h-7 w-7 rounded-md text-xs font-semibold transition ${
+                                  active
+                                    ? 'bg-brand-600 text-white shadow-xs'
+                                    : 'text-slate-600 hover:bg-white hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+                                }`}
+                              >
+                                {num}
+                              </button>
+                            </Tooltip>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 border-t border-slate-200/80 pt-3 dark:border-zinc-800/80">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-zinc-200">
+                          <ShieldCheck size={14} className="text-brand-600 dark:text-brand-400" />
+                          Allow proposer self-approval
+                        </div>
+                        <p className="mt-0.5 text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
+                          Allow the person who placed the prompt for review to cast an approval vote toward merging.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={Boolean(group.allow_self_approval)}
+                        onClick={() => {
+                          const nextVal = !group.allow_self_approval
+                          void run(
+                            () => updateGroupSettings(group.id, { allow_self_approval: nextVal }),
+                            nextVal ? `Proposer self-approval enabled for ${group.name}.` : `Proposer self-approval disabled for ${group.name}.`
+                          )
+                        }}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 ${
+                          group.allow_self_approval ? 'bg-brand-600' : 'bg-slate-200 dark:bg-zinc-700'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                            group.allow_self_approval ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
                     </div>
                   </div>
                 )}

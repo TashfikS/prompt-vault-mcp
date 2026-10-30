@@ -1,4 +1,4 @@
-import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, BillingConfigResponse, CheckoutSessionResponse, CreatedApiKeyResponse, CustomerPortalResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, PromptVersionItem, SharedDiffPayload, User } from './types'
+import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, BillingConfigResponse, CheckoutSessionResponse, CreatedApiKeyResponse, CustomerPortalResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, ProposalCommentItem, PromptVersionItem, SharedDiffPayload, User } from './types'
 
 const TOKEN_KEY = 'prompt-vault-session'
 
@@ -105,12 +105,26 @@ export const getAllProposals = (params?: { group_id?: string; status?: string })
 export const getProposals = (promptId: string) => api<PromptProposalItem[]>(`/api/prompts/${promptId}/proposals`)
 export const createProposal = (promptId: string, data: { title: string; description?: string; content: string; change_note: string }) =>
   api<{ id: string; status: string; message: string }>(`/api/prompts/${promptId}/proposals`, { method: 'POST', body: JSON.stringify(data) })
-export const approveProposal = (proposalId: string) =>
-  api<{ status: string; merged: boolean; approvals_count: number; required_approvals: number; version_number?: number }>(`/api/proposals/${proposalId}/approve`, { method: 'POST' })
-export const rejectProposal = (proposalId: string) =>
-  api<{ status: string }>(`/api/proposals/${proposalId}/reject`, { method: 'POST' })
-export const updateGroupSettings = (groupId: string, data: { required_approvals: number }) =>
-  api<{ group_id: string; required_approvals: number }>(`/api/groups/${groupId}/settings`, { method: 'PUT', body: JSON.stringify(data) })
+export const approveProposal = (proposalId: string, comment?: string) =>
+  api<{ status: string; merged: boolean; approvals_count: number; required_approvals: number; version_number?: number }>(
+    `/api/proposals/${proposalId}/approve`,
+    { method: 'POST', body: comment !== undefined ? JSON.stringify({ comment }) : undefined }
+  )
+export const rejectProposal = (proposalId: string, comment?: string) =>
+  api<{ status: string }>(
+    `/api/proposals/${proposalId}/reject`,
+    { method: 'POST', body: comment !== undefined ? JSON.stringify({ comment }) : undefined }
+  )
+export const addProposalComment = (proposalId: string, comment: string) =>
+  api<ProposalCommentItem>(
+    `/api/proposals/${proposalId}/comments`,
+    { method: 'POST', body: JSON.stringify({ comment }) }
+  )
+export const updateGroupSettings = (groupId: string, data: { required_approvals?: number; allow_self_approval?: boolean }) =>
+  api<{ group_id: string; required_approvals: number; allow_self_approval: boolean }>(
+    `/api/groups/${groupId}/settings`,
+    { method: 'PUT', body: JSON.stringify(data) }
+  )
 
 export const getApiKeys = () => api<ApiKeyItem[]>('/api/api-keys')
 export const createApiKey = (data: { name: string; description: string; scope_type: ApiKeyScopeType; access_level?: ApiKeyAccessLevel; group_id?: string | null }) =>

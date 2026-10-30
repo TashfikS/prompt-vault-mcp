@@ -63,6 +63,7 @@ export type Group = {
   description: string
   is_personal?: boolean
   required_approvals?: number
+  allow_self_approval?: boolean
   members: GroupMember[]
 }
 export type PromptVersionItem = {
@@ -99,6 +100,14 @@ export type ProposalApprovalItem = {
   user_name: string
   created_at: string
 }
+export type ProposalCommentItem = {
+  id: string
+  proposal_id: string
+  user_id: string
+  user_name: string
+  comment: string
+  created_at: string
+}
 export type PromptProposalItem = {
   id: string
   prompt_id: string
@@ -115,8 +124,10 @@ export type PromptProposalItem = {
   approvals: ProposalApprovalItem[]
   approvals_count: number
   required_approvals: number
+  allow_self_approval?: boolean
   can_approve: boolean
   has_approved: boolean
+  comments?: ProposalCommentItem[]
   prompt_title?: string
   group_name?: string
   current_version_number?: number
