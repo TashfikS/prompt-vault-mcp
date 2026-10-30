@@ -64,7 +64,16 @@ class AssignMemberRequest(BaseModel):
 
 
 class GroupSettingsUpdate(BaseModel):
-    required_approvals: int = Field(ge=1, le=10)
+    required_approvals: int | None = Field(default=None, ge=1, le=10)
+    allow_self_approval: bool | None = None
+
+
+class ProposalCommentCreate(BaseModel):
+    comment: str = Field(min_length=1, max_length=2000)
+
+
+class ProposalReviewAction(BaseModel):
+    comment: str | None = Field(default="", max_length=2000)
 
 
 class ProposalCreateRequest(BaseModel):

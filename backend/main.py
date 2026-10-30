@@ -51,7 +51,7 @@ from permissions import (can_access_group_with_key, can_user_approve_proposals, 
                          get_user_group_role, group_display_name, require_workspace_admin)
 from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership, OAuthAuthorizationCode,
                     OAuthClient, Prompt, PromptChunk, PromptProposal, PromptVersion, ProposalApproval,
-                    SharedDiffLink, User)
+                    ProposalComment, SharedDiffLink, User)
 from oauth import (create_authorization_code, exchange_authorization_code, get_oauth_protected_resource_metadata,
                    get_oauth_server_metadata, get_or_create_client, register_oauth_client,
                    render_oauth_authorize_html)
@@ -59,7 +59,7 @@ from search import hybrid_search_prompts, sync_prompt_embeddings
 from schemas import (AssignMemberRequest, ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, CreateDiffShareRequest,
                      FeedbackCreateRequest, FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest,
                      PlanUpdateRequest, PromptCreateRequest, PromptDuplicateRequest, PromptUpdateRequest,
-                     ProposalCreateRequest, RegisterRequest, UpdateProfileRequest)
+                     ProposalCommentCreate, ProposalCreateRequest, ProposalReviewAction, RegisterRequest, UpdateProfileRequest)
 from polar_billing import (create_checkout_session, create_customer_portal_session, is_polar_configured,
                            process_polar_event, verify_polar_webhook_signature)
 from security import (AUTO_MIGRATE_DB, IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES,
@@ -1439,6 +1439,7 @@ def list_groups(db: Session = Depends(get_db), user: User = Depends(current_user
         result.append({"id": group.id, "name": group_display_name(group), "description": group.description,
                        "is_personal": group.personal_owner_id is not None,
                        "required_approvals": getattr(group, "required_approvals", 1),
+                       "allow_self_approval": bool(getattr(group, "allow_self_approval", False)),
                        "members": [{"user_id": membership.user_id, "name": member.name, "email": member.email,
                                     "role": membership.role, "added_at": (membership.added_at.isoformat() if getattr(membership, "added_at", None) else datetime.utcnow().isoformat()) + "Z"}
                                    for membership, member in members]})
@@ -1455,10 +1456,13 @@ def update_group_settings(group_id: str, payload: GroupSettingsUpdate, request: 
         raise HTTPException(status_code=404, detail="Group not found.")
     if group.personal_owner_id:
         raise HTTPException(status_code=400, detail="Personal space does not require approval settings.")
-    group.required_approvals = payload.required_approvals
+    if payload.required_approvals is not None:
+        group.required_approvals = payload.required_approvals
+    if payload.allow_self_approval is not None:
+        group.allow_self_approval = payload.allow_self_approval
     db.commit()
-    record_audit_log(db, "GROUP_SETTINGS_UPDATED", user_id=user.id, ip_address=get_client_ip(request), target_type="group", target_id=group.id, details=f"required_approvals={group.required_approvals}")
-    return {"group_id": group.id, "required_approvals": group.required_approvals}
+    record_audit_log(db, "GROUP_SETTINGS_UPDATED", user_id=user.id, ip_address=get_client_ip(request), target_type="group", target_id=group.id, details=f"required_approvals={group.required_approvals}, allow_self_approval={group.allow_self_approval}")
+    return {"group_id": group.id, "required_approvals": group.required_approvals, "allow_self_approval": bool(getattr(group, "allow_self_approval", False))}
 
 
 @app.post("/api/groups", status_code=201)
