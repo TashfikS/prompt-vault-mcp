@@ -94,6 +94,7 @@ interface ProviderTab {
   id: ProviderId
   name: string
   subtitle: string
+  authBadge: string
   Icon: (props: { className?: string }) => JSX.Element
   iconColor: string
   activeRing: string
@@ -105,6 +106,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'claude',
     name: 'Claude',
     subtitle: 'Desktop & Web',
+    authBadge: '⚡ OAuth + 🔑 Key',
     Icon: ClaudeIcon,
     iconColor: 'text-amber-600 dark:text-amber-400',
     activeRing: 'border-amber-500 ring-2 ring-amber-500/20 dark:border-amber-400',
@@ -114,6 +116,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'chatgpt',
     name: 'ChatGPT',
     subtitle: 'Web, Mobile & Desktop',
+    authBadge: '⚡ OAuth + 🔑 Key',
     Icon: ChatGptIcon,
     iconColor: 'text-emerald-600 dark:text-emerald-400',
     activeRing: 'border-emerald-500 ring-2 ring-emerald-500/20 dark:border-emerald-400',
@@ -123,6 +126,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'gemini',
     name: 'Gemini',
     subtitle: 'Web, Mobile App & SDK',
+    authBadge: '🔑 Pre-auth URL',
     Icon: GeminiIcon,
     iconColor: 'text-indigo-600 dark:text-indigo-400',
     activeRing: 'border-indigo-500 ring-2 ring-indigo-500/20 dark:border-indigo-400',
@@ -132,6 +136,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'cursor',
     name: 'Cursor & IDEs',
     subtitle: 'Cursor, Cline & VS Code',
+    authBadge: '🔑 Config Key',
     Icon: CursorIcon,
     iconColor: 'text-cyan-600 dark:text-cyan-400',
     activeRing: 'border-cyan-500 ring-2 ring-cyan-500/20 dark:border-cyan-400',
@@ -141,6 +146,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'api',
     name: 'API & Scripts',
     subtitle: 'Python & cURL',
+    authBadge: '🔑 Bearer Token',
     Icon: props => <Terminal className={props.className} />,
     iconColor: 'text-slate-700 dark:text-zinc-300',
     activeRing: 'border-slate-500 ring-2 ring-slate-500/20 dark:border-zinc-400',
@@ -425,7 +431,7 @@ for p in prompts:
                 Step 1: Your Security Key
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Gives your assistants secure access to read and update your prompts.
+                Gives your assistants secure access to your prompts. If using <strong>1-Click OAuth</strong> (Claude.ai / ChatGPT), authorization is handled automatically on login.
               </p>
             </div>
 
@@ -758,6 +764,9 @@ for p in prompts:
                   <div className="min-w-0">
                     <div className="font-semibold text-xs text-slate-900 dark:text-zinc-100">{item.name}</div>
                     <div className="text-[10px] text-slate-500 dark:text-zinc-400 truncate">{item.subtitle}</div>
+                    <div className="mt-1 inline-flex items-center rounded bg-slate-100/90 px-1.5 py-0.5 text-[9px] font-medium text-slate-600 dark:bg-zinc-800/90 dark:text-zinc-300 truncate">
+                      {item.authBadge}
+                    </div>
                   </div>
                 </button>
               )
