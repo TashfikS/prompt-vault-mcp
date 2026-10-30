@@ -30,7 +30,7 @@ from permissions import (
     get_user_group_role,
     group_display_name,
 )
-from models import ApiKey, Group, Prompt, PromptProposal, PromptVersion, User
+from models import ApiKey, Group, Prompt, PromptProposal, PromptVersion, ProposalApproval, ProposalComment, User
 from search import hybrid_search_prompts, sync_prompt_embeddings
 from security import escape_like, rate_limiter, record_audit_log
 
@@ -426,4 +426,389 @@ def duplicate_or_move_prompt(prompt_id: str, target_group_id: str,
             "mode": "copy",
             "message": f"Prompt successfully duplicated to {tgt_name}."
         }
+
+
+@mcp.tool()
+def create_prompt_from_chat(title: str, content: str, group_id: str = "", group_name: str = "",
+                            description: str = "", change_note: str = "Created via AI Chat", api_key: str = "") -> dict[str, Any]:
+    """Create a new prompt from AI chat. In team spaces, Member submissions create a proposal for review/approval; in Personal space, prompts save directly."""
+    if not title or len(title.strip()) > 240:
+        raise ValueError("Prompt title must be between 1 and 240 characters.")
+    if not content or len(content) > 100_000:
+        raise ValueError("Prompt content must be between 1 and 100,000 characters.")
+    safe_title = title.strip()[:240]
+    safe_desc = (description or "").strip()[:2000]
+    safe_note = (change_note or "Created via AI Chat").strip()[:500]
+
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
+        if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
+            raise ValueError("This API key is Read-Only and cannot create prompts or proposals.")
+
+        target_group = None
+        if group_id.strip():
+            target_group = db.query(Group).filter_by(id=group_id.strip()[:64]).first()
+        elif group_name.strip():
+            if group_name.strip().lower() == "personal":
+                target_group = db.query(Group).filter_by(personal_owner_id=user.id).first()
+            else:
+                target_group = db.query(Group).filter(Group.name.ilike(escape_like(group_name.strip()[:160]), escape="\\")).first()
+        else:
+            target_group = db.query(Group).filter_by(personal_owner_id=user.id).first()
+
+        if not target_group or not can_access_group_with_key(db, user, target_group.id, key_record):
+            raise ValueError("Target group not found or you do not have permission to access it.")
+
+        role = get_user_group_role(db, user, target_group.id)
+        if role == "GUEST":
+            raise ValueError("Guests have view-only access and cannot create prompts or proposals.")
+
+        if not user.is_workspace_admin:
+            from main import PLAN_LIMITS_MAP
+            user_plan = getattr(user, "plan", "community") or "community"
+            plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
+            max_prompts = plan_info.get("max_prompts", 20)
+            existing_count = db.query(Prompt).filter(Prompt.created_by == user.id, Prompt.is_archived.is_(False)).count()
+            if existing_count >= max_prompts:
+                raise ValueError(f"Prompt limit reached ({existing_count}/{max_prompts}) for the {plan_info['name']} plan.")
+
+        tgt_name = group_display_name(target_group)
+        if not can_user_direct_write_prompt(db, user, target_group.id):
+            # Member proposing a new prompt in a team space!
+            prompt = Prompt(
+                group_id=target_group.id,
+                title=safe_title,
+                description=safe_desc,
+                current_version_number=1,
+                created_by=user.id,
+                is_archived=True,
+            )
+            db.add(prompt)
+            db.flush()
+            proposal = PromptProposal(
+                prompt_id=prompt.id,
+                group_id=target_group.id,
+                proposer_id=user.id,
+                title=safe_title,
+                description=safe_desc,
+                content=content,
+                change_note=safe_note,
+                status="PENDING",
+            )
+            db.add(proposal)
+            db.commit()
+            record_audit_log(db, "MCP_PROMPT_PROPOSAL_CREATED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"New prompt proposal: {safe_title}")
+            return {
+                "id": prompt.id,
+                "title": prompt.title,
+                "group_id": prompt.group_id,
+                "group_name": tgt_name,
+                "proposal_created": True,
+                "proposal_id": proposal.id,
+                "status": "PENDING",
+                "message": f"Prompt submitted for team review in '{tgt_name}' before going live.",
+            }
+
+        prompt = Prompt(
+            group_id=target_group.id,
+            title=safe_title,
+            description=safe_desc,
+            current_version_number=1,
+            created_by=user.id,
+        )
+        db.add(prompt)
+        db.flush()
+        v1 = PromptVersion(
+            prompt_id=prompt.id,
+            version_number=1,
+            content=content,
+            variables_json=json.dumps(extract_variables(content)),
+            change_Note=safe_note,
+            author_id=user.id,
+        )
+        db.add(v1)
+        db.flush()
+        prompt.current_version_id = v1.id
+        db.commit()
+        db.refresh(prompt)
+        set_cached_version_by_uuid(v1.id, {"id": v1.id, "content": v1.content})
+        set_cached_active_version_uuid(prompt.id, v1.id)
+        sync_prompt_embeddings(db, prompt, v1)
+        record_audit_log(db, "MCP_PROMPT_CREATED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"Created {prompt.title}")
+        return {
+            "id": prompt.id,
+            "title": prompt.title,
+            "group_id": prompt.group_id,
+            "group_name": tgt_name,
+            "current_version_number": 1,
+            "current_version_id": v1.id,
+            "message": f"Prompt successfully created in '{tgt_name}'.",
+        }
+
+
+@mcp.tool()
+def list_pending_proposals(api_key: str = "", group_name: str = "") -> dict[str, Any]:
+    """List pending prompt proposals awaiting review across your authorized spaces, including diffs, comments, and approval status."""
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
+        group_ids = get_scoped_group_ids(db, user, key_record)
+        if not group_ids:
+            return {"proposals": []}
+
+        if group_name.strip().lower() == "personal":
+            personal_grp = db.query(Group.id).filter(Group.personal_owner_id == user.id).first()
+            group_ids = [personal_grp[0]] if personal_grp else []
+        elif group_name.strip():
+            escaped_group = escape_like(group_name.strip()[:160])
+            named_grps = [
+                g.id for g in db.query(Group.id).filter(
+                    Group.id.in_(group_ids),
+                    Group.name.ilike(escaped_group, escape="\\"),
+                    Group.personal_owner_id.is_(None),
+                ).all()
+            ]
+            group_ids = named_grps
+
+        if not group_ids:
+            return {"proposals": []}
+
+        proposals = (
+            db.query(PromptProposal)
+            .filter(PromptProposal.group_id.in_(group_ids), PromptProposal.status == "PENDING")
+            .order_by(PromptProposal.created_at.desc())
+            .limit(50)
+            .all()
+        )
+
+        results = []
+        for p in proposals:
+            group = db.query(Group).filter_by(id=p.group_id).first()
+            prompt = db.query(Prompt).filter_by(id=p.prompt_id).first()
+            proposer = db.query(User).filter_by(id=p.proposer_id).first()
+            role = get_user_group_role(db, user, p.group_id)
+
+            approvals = db.query(ProposalApproval).filter_by(proposal_id=p.id).all()
+            has_approved = any(a.user_id == user.id for a in approvals)
+            required = getattr(group, "required_approvals", 1) if group else 1
+            allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
+            is_proposer = (p.proposer_id == user.id)
+            self_approve_allowed = (not is_proposer) or allow_self
+            can_approve = (role in {"GROUP_MANAGER", "MEMBER"}) and (not has_approved) and self_approve_allowed
+
+            comments = db.query(ProposalComment).filter_by(proposal_id=p.id).order_by(ProposalComment.created_at.asc()).all()
+            comments_data = []
+            for c in comments:
+                cu = db.query(User).filter_by(id=c.user_id).first()
+                comments_data.append({
+                    "id": c.id,
+                    "author": cu.name if cu else "Unknown",
+                    "comment": c.comment,
+                    "created_at": c.created_at.isoformat() + "Z",
+                })
+
+            active_ver = None
+            if prompt and prompt.current_version_id:
+                active_ver = db.query(PromptVersion).filter_by(id=prompt.current_version_id).first()
+
+            results.append({
+                "proposal_id": p.id,
+                "prompt_id": p.prompt_id,
+                "prompt_title": prompt.title if prompt else p.title,
+                "proposed_title": p.title,
+                "group_id": p.group_id,
+                "group_name": group_display_name(group) if group else "Unknown",
+                "proposer_name": proposer.name if proposer else "Unknown",
+                "change_note": p.change_note,
+                "proposed_content": p.content,
+                "current_content": active_ver.content if active_ver else None,
+                "is_new_prompt": (prompt.current_version_id is None) if prompt else True,
+                "approvals_count": len(approvals),
+                "required_approvals": required,
+                "allow_self_approval": allow_self,
+                "can_approve": can_approve,
+                "has_approved": has_approved,
+                "comments": comments_data,
+                "created_at": p.created_at.isoformat() + "Z",
+            })
+
+        return {"proposals": results}
+
+
+@mcp.tool()
+def review_proposal(proposal_id: str, action: str = "APPROVE", comment: str = "", api_key: str = "") -> dict[str, Any]:
+    """Vote to APPROVE or REJECT a prompt proposal from AI chat, with an optional review comment. Merges when required approvals are reached."""
+    clean_action = (action or "APPROVE").strip().upper()
+    if clean_action not in {"APPROVE", "REJECT"}:
+        raise ValueError("Action must be either 'APPROVE' or 'REJECT'.")
+
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
+        if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
+            raise ValueError("This API key is Read-Only and cannot approve or reject proposals.")
+
+        proposal = db.query(PromptProposal).filter_by(id=proposal_id.strip()[:64]).first()
+        if not proposal:
+            raise ValueError("Proposal not found.")
+
+        prompt = db.query(Prompt).filter_by(id=proposal.prompt_id).first()
+        if not prompt or not can_access_group_with_key(db, user, prompt.group_id, key_record):
+            raise ValueError("You do not have access to this prompt proposal.")
+
+        role = get_user_group_role(db, user, prompt.group_id)
+        if role == "GUEST" or role not in {"GROUP_MANAGER", "MEMBER"}:
+            raise ValueError("Guests have view-only access and cannot approve or reject proposals.")
+
+        if proposal.status != "PENDING":
+            raise ValueError(f"This proposal has already been {proposal.status.lower()}.")
+
+        group = db.query(Group).filter_by(id=proposal.group_id).first()
+        allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
+        if clean_action == "APPROVE" and proposal.proposer_id == user.id and not allow_self:
+            raise ValueError("You cannot approve your own proposal because the group owner has disabled proposer self-approval.")
+
+        safe_comment = (comment or "").strip()[:2000]
+
+        if clean_action == "REJECT":
+            proposal.status = "REJECTED"
+            if safe_comment:
+                db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=f"[Rejected via AI] {safe_comment}"))
+            db.commit()
+            record_audit_log(db, "MCP_PROPOSAL_REJECTED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=safe_comment)
+            return {
+                "proposal_id": proposal.id,
+                "status": "REJECTED",
+                "message": f"Proposal for '{proposal.title}' has been rejected.",
+            }
+
+        # Handle APPROVE
+        existing_approval = db.query(ProposalApproval).filter_by(proposal_id=proposal.id, user_id=user.id).first()
+        if existing_approval:
+            raise ValueError("You have already voted to approve this proposal.")
+
+        approval = ProposalApproval(proposal_id=proposal.id, user_id=user.id)
+        db.add(approval)
+        if safe_comment:
+            db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=f"[Approved via AI] {safe_comment}"))
+        db.flush()
+
+        total_approvals = db.query(ProposalApproval).filter_by(proposal_id=proposal.id).count()
+        required = getattr(group, "required_approvals", 1) if group else 1
+
+        if total_approvals >= required:
+            proposal.status = "APPROVED"
+            is_initial_creation = (prompt.current_version_id is None) or prompt.is_archived
+            variables_list = extract_variables(proposal.content)
+            prompt.title = proposal.title
+            if proposal.description:
+                prompt.description = proposal.description
+            prompt.updated_at = datetime.utcnow()
+
+            if is_initial_creation:
+                prompt.is_archived = False
+                prompt.current_version_number = 1
+                new_version = PromptVersion(
+                    prompt_id=prompt.id,
+                    version_number=1,
+                    content=proposal.content,
+                    variables_json=json.dumps(variables_list),
+                    change_Note=f"[Approved Creation] {proposal.change_note}"[:500],
+                    author_id=proposal.proposer_id,
+                )
+            else:
+                max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
+                prompt.current_version_number = max_ver + 1
+                new_version = PromptVersion(
+                    prompt_id=prompt.id,
+                    version_number=prompt.current_version_number,
+                    content=proposal.content,
+                    variables_json=json.dumps(variables_list),
+                    change_Note=f"[Approved] {proposal.change_note}"[:500],
+                    author_id=proposal.proposer_id,
+                )
+
+            db.add(new_version)
+            db.flush()
+            prompt.current_version_id = new_version.id
+            db.commit()
+
+            invalidate_prompt_cache(prompt.id)
+            set_cached_version_by_uuid(
+                new_version.id,
+                {
+                    "id": new_version.id,
+                    "prompt_id": prompt.id,
+                    "title": prompt.title,
+                    "version_number": new_version.version_number,
+                    "content": new_version.content,
+                    "variables": variables_list,
+                },
+            )
+            set_cached_active_version_uuid(prompt.id, new_version.id)
+            sync_prompt_embeddings(db, prompt, new_version)
+            record_audit_log(db, "MCP_PROPOSAL_MERGED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=f"Merged v{new_version.version_number}")
+            return {
+                "proposal_id": proposal.id,
+                "prompt_id": prompt.id,
+                "status": "APPROVED",
+                "merged": True,
+                "version_number": prompt.current_version_number,
+                "approvals_count": total_approvals,
+                "required_approvals": required,
+                "message": f"Proposal approved and merged! Version {prompt.current_version_number} is now active.",
+            }
+
+        db.commit()
+        record_audit_log(db, "MCP_PROPOSAL_APPROVED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=f"Voted {total_approvals}/{required}")
+        return {
+            "proposal_id": proposal.id,
+            "status": "PENDING",
+            "merged": False,
+            "approvals_count": total_approvals,
+            "required_approvals": required,
+            "message": f"Approval vote recorded ({total_approvals} / {required} required). Waiting for additional reviewer votes.",
+        }
+
+
+@mcp.tool()
+def comment_on_proposal(proposal_id: str, comment: str, api_key: str = "") -> dict[str, Any]:
+    """Post feedback, questions, or review comments on a prompt proposal from AI chat."""
+    if not comment or not comment.strip():
+        raise ValueError("Comment text cannot be empty.")
+    safe_comment = comment.strip()[:2000]
+
+    effective_key = resolve_effective_api_key(api_key)
+    with _get_mcp_session(effective_key) as db:
+        user, key_record = _auth_key(db, effective_key)
+        if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
+            raise ValueError("This API key is Read-Only and cannot comment on proposals.")
+
+        proposal = db.query(PromptProposal).filter_by(id=proposal_id.strip()[:64]).first()
+        if not proposal:
+            raise ValueError("Proposal not found.")
+
+        prompt = db.query(Prompt).filter_by(id=proposal.prompt_id).first()
+        if not prompt or not can_access_group_with_key(db, user, prompt.group_id, key_record):
+            raise ValueError("You do not have access to this prompt proposal.")
+
+        role = get_user_group_role(db, user, prompt.group_id)
+        if role == "GUEST":
+            raise ValueError("Guests have view-only access and cannot comment.")
+
+        comment_record = ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=safe_comment)
+        db.add(comment_record)
+        db.commit()
+        db.refresh(comment_record)
+        record_audit_log(db, "MCP_PROPOSAL_COMMENTED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=safe_comment[:100])
+        return {
+            "id": comment_record.id,
+            "proposal_id": proposal.id,
+            "author": user.name,
+            "comment": comment_record.comment,
+            "created_at": comment_record.created_at.isoformat() + "Z",
+            "message": "Comment posted successfully.",
+        }
+
 
