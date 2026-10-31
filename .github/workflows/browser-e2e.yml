@@ -1,5 +1,9 @@
 name: Browser E2E QA Pipeline
 
+# Runs the full browser suite against a throwaway stack inside the job (backend + Postgres + Redis),
+# never against production: no test accounts in the live database, no verification emails sent,
+# and the suite tests exactly the commit that CI just verified.
+
 on:
   workflow_run:
     workflows: ["CI/CD Pipeline (Test & Deploy)"]
@@ -9,30 +13,61 @@ on:
       - dev
       - release
   workflow_dispatch:
-    inputs:
-      base_url:
-        description: 'Frontend base URL to test'
-        required: false
-        default: 'https://promptfolders.com'
-      api_base:
-        description: 'API gateway base URL to test'
-        required: false
-        default: 'https://api.promptfolders.com'
 
 concurrency:
-  group: browser-e2e-${{ github.ref }}
+  group: browser-e2e-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   browser-e2e-tests:
-    name: Live Browser E2E QA (21 Features)
+    name: Browser E2E QA (local stack)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: promptfolders
+          POSTGRES_PASSWORD: e2e_only_pw
+          POSTGRES_DB: promptfolders_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      APP_URL_LOCAL: http://localhost:7860
+
     steps:
-      - name: Checkout repository
+      - name: Checkout the commit CI verified
         uses: actions/checkout@v4
+        with:
+          # workflow_run otherwise checks out the default branch, not the commit that was just tested.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Python 3.15
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
 
       - name: Set up Node.js 26
         uses: actions/setup-node@v4
@@ -41,20 +76,55 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
 
-      - name: Verify Google Chrome installation
-        run: |
-          which google-chrome || which chromium-browser || which chromium
-          google-chrome --version || true
-
-      - name: Run 21-Feature Browser E2E Live QA Suite
+      - name: Build frontend against the local backend
         working-directory: frontend
         env:
-          E2E_BASE_URL: ${{ inputs.base_url || 'https://promptfolders.com' }}
-          E2E_API_BASE: ${{ inputs.api_base || 'https://api.promptfolders.com' }}
+          # Process env beats .env.production, so the bundle talks to the local stack, not production.
+          VITE_API_BASE: ${{ env.APP_URL_LOCAL }}
+          VITE_API_BASE_URL: ${{ env.APP_URL_LOCAL }}
+        run: |
+          npm ci
+          npm run build
+          if grep -lE "https://api\.promptfolders\.com|workers\.dev" dist/assets/*.js; then
+            echo "Production API URL found in the e2e bundle; refusing to run against production." >&2
+            exit 1
+          fi
+
+      - name: Start backend (serves the built frontend)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://promptfolders:e2e_only_pw@localhost:5432/promptfolders_e2e
+          REDIS_URL: redis://localhost:6379/0
+          SEED_DEMO_DATA: "true"
+          ALLOWED_ORIGINS: ${{ env.APP_URL_LOCAL }}
+          PUBLIC_BASE_URL: ${{ env.APP_URL_LOCAL }}
+          PROMPT_FOLDERS_APP_URL: ${{ env.APP_URL_LOCAL }}
+          # The suite signs up @example.com users; allowed here only, never in production.
+          ALLOWED_TEST_EMAIL_DOMAINS: example.com
+          # Keep the run independent of the Have I Been Pwned API (unit tests cover the check).
+          PWNED_PASSWORD_CHECK: "0"
+        run: |
+          nohup uvicorn main:app --host 127.0.0.1 --port 7860 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS "$APP_URL_LOCAL/api/health" > /dev/null; then echo "Backend is up"; exit 0; fi
+            sleep 2
+          done
+          echo "Backend did not start" >&2
+          cat "$RUNNER_TEMP/backend.log" >&2
+          exit 1
+
+      - name: Run browser E2E suite
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: ${{ env.APP_URL_LOCAL }}
+          E2E_API_BASE: ${{ env.APP_URL_LOCAL }}
+          E2E_EMAIL_DOMAIN: example.com
           CHROME_BIN: /usr/bin/google-chrome
         run: npm run test:e2e
 
+      - name: Backend log on failure
+        if: failure()
+        run: tail -n 200 "$RUNNER_TEMP/backend.log" || true

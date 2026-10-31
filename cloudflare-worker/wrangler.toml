@@ -12,13 +12,10 @@ custom_domain = true
 
 [vars]
 RENDER_ORIGIN = "https://prompthold-backend.onrender.com"
+# Non-API paths redirect here (the web app is served by Cloudflare Pages).
+APP_ORIGIN = "https://promptfolders.com"
 
 # Secret (set with `npx wrangler secret put GATEWAY_SECRET`): must equal GATEWAY_SECRET on Render.
 
 [triggers]
 crons = ["*/14 * * * *"]
-
-[assets]
-directory = "../frontend/dist"
-binding = "ASSETS"
-not_found_handling = "single-page-application"

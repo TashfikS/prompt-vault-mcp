@@ -1,8 +1,8 @@
 // PromptFolders edge gateway: a thin proxy in front of the Render backend.
 //
 // All auth, RBAC, rate limiting and CORS decisions live in the FastAPI backend. The gateway only forwards
-// backend routes (passing the public host so OAuth metadata advertises this origin), serves the SPA assets,
-// and pings the backend every 14 minutes so the Render free instance stays warm.
+// backend routes (passing the public host so OAuth metadata advertises this origin), redirects every other
+// path to the web app (APP_ORIGIN), and pings the backend every 14 minutes so the Render free instance stays warm.
 
 const BACKEND_PREFIXES = ["/api/", "/mcp", "/sse", "/oauth/", "/.well-known/", "/share/"];
 // Long enough to ride out a Render free-tier cold start (~30-60s); waiting on fetch does not use Worker CPU time.
@@ -46,8 +46,10 @@ export default {
     if (isBackendRoute(url.pathname)) {
       return proxyToBackend(request, env, url);
     }
-    if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
+    // Not an API route: people who open the API host in a browser belong on the web app. Keep path and query
+    // (e.g. /?auth=login, /?share_diff=...) so links still land on the right screen.
+    if (env.APP_ORIGIN) {
+      return Response.redirect(new URL(url.pathname + url.search, env.APP_ORIGIN).toString(), 301);
     }
     return new Response("PromptFolders Gateway Active", { status: 200 });
   },
