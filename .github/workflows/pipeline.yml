@@ -378,9 +378,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PROD_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PROD_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          # The worker has no npm dependencies (thin proxy), so there is nothing to install.
           cd cloudflare-worker
-          npm ci
-          npx wrangler deploy
+          npx --yes wrangler@4.156.0 deploy
           echo "Successfully deployed Cloudflare Worker gateway and scheduled cron triggers to Production!"
 
 
