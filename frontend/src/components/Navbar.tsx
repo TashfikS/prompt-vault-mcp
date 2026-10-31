@@ -151,7 +151,8 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
                   </span>
                   <span className="ml-auto pl-1 text-xs tabular-nums text-slate-400 dark:text-zinc-500">{count}</span>
                 </button>
-                {!group.is_personal && <RoleBadge kind={access} size="sm" side="right" showIcon={false} />}
+                {/* Admin access is identical for every group (and shown on the account card), so a per-row badge only truncates names. */}
+                {!group.is_personal && access !== 'ADMIN' && <RoleBadge kind={access} size="sm" side="right" showIcon={false} />}
               </li>
             )
           })}
@@ -200,7 +201,7 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
                   <span className="text-xs font-semibold capitalize text-slate-900 dark:text-zinc-100 truncate">
                     {activeUser?.plan || 'Community'}
                   </span>
-                  <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[10px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  <span className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
                     Plan
                   </span>
                 </div>
@@ -298,9 +299,9 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
             {userOpen && (
               <div role="menu" className="absolute bottom-full left-0 right-0 z-30 mb-1.5 animate-pop-in rounded-xl border border-slate-200 bg-white p-1.5 shadow-pop dark:border-zinc-800 dark:bg-zinc-900">
                 <div className="px-2.5 pb-2 pt-1.5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-slate-500 dark:text-zinc-400">Workspace role</p>
-                    {activeUser.is_workspace_admin ? <RoleBadge kind="ADMIN" side="right" /> : <span className="text-xs text-slate-600 dark:text-zinc-300">Standard</span>}
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="whitespace-nowrap text-xs text-slate-500 dark:text-zinc-400">Role</p>
+                    {activeUser.is_workspace_admin ? <RoleBadge kind="ADMIN" size="sm" side="right" /> : <span className="text-xs text-slate-600 dark:text-zinc-300">Standard</span>}
                   </div>
                   <div className="mt-2 flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-zinc-800/60">
                     <div>

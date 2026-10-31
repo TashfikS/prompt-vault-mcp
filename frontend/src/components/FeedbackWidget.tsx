@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MessageSquarePlus, X, AlertCircle, Bug, Sparkles, Mail, CheckCircle2, ExternalLink, Send } from 'lucide-react'
 import { submitFeedback } from '../api'
 import type { FeedbackCategory, FeedbackSubmissionResponse, User } from '../types'
@@ -68,6 +68,13 @@ export function FeedbackWidget({ activeUser, externalOpen, onExternalClose }: Fe
     onExternalClose?.()
   }
 
+  useEffect(() => {
+    if (!isOpen || submitting) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -106,21 +113,25 @@ export function FeedbackWidget({ activeUser, externalOpen, onExternalClose }: Fe
       <button
         type="button"
         onClick={handleOpen}
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full border border-slate-300 bg-white/95 px-4 py-2.5 text-xs font-semibold text-slate-800 shadow-card backdrop-blur-md transition hover:border-brand-400 hover:bg-brand-50/60 hover:text-brand-900 dark:border-zinc-800 dark:bg-zinc-900/95 dark:text-zinc-200 dark:shadow-pop dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-white"
+        className="fixed bottom-4 right-4 z-30 flex h-11 w-11 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white/95 text-xs sm:bottom-5 sm:right-5 sm:h-auto sm:w-auto sm:px-4 sm:py-2.5 font-semibold text-slate-800 shadow-card backdrop-blur-md transition hover:border-brand-400 hover:bg-brand-50/60 hover:text-brand-900 dark:border-zinc-800 dark:bg-zinc-900/95 dark:text-zinc-200 dark:shadow-pop dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-white"
         title="Report a complaint, bug, or connect with us"
+        aria-label="Feedback & Support"
       >
         <MessageSquarePlus className="h-4 w-4 text-brand-600 dark:text-brand-400" />
-        <span>Feedback &amp; Support</span>
+        <span className="hidden sm:inline">Feedback &amp; Support</span>
       </button>
 
       {/* Modal */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex overflow-y-auto bg-black/50 p-4 backdrop-blur-xs"
           onClick={handleClose}
         >
           <div
-            className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Feedback & Support"
+            className="relative m-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-zinc-800">
@@ -138,6 +149,7 @@ export function FeedbackWidget({ activeUser, externalOpen, onExternalClose }: Fe
               <button
                 type="button"
                 onClick={handleClose}
+                aria-label="Close feedback dialog"
                 className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
               >
                 <X className="h-4 w-4" />
@@ -226,8 +238,9 @@ export function FeedbackWidget({ activeUser, externalOpen, onExternalClose }: Fe
                 {/* Contact Name & Email */}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">Your Name</label>
+                    <label htmlFor="fb-name" className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">Your Name</label>
                     <input
+                      id="fb-name"
                       type="text"
                       value={contactName}
                       onChange={e => setContactName(e.target.value)}
@@ -236,10 +249,11 @@ export function FeedbackWidget({ activeUser, externalOpen, onExternalClose }: Fe
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                    <label htmlFor="fb-email" className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">
                       Email (for follow-up)
                     </label>
                     <input
+                      id="fb-email"
                       type="email"
                       value={contactEmail}
                       onChange={e => setContactEmail(e.target.value)}
@@ -251,10 +265,11 @@ export function FeedbackWidget({ activeUser, externalOpen, onExternalClose }: Fe
 
                 {/* Subject */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                  <label htmlFor="fb-subject" className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">
                     Subject / Summary *
                   </label>
                   <input
+                    id="fb-subject"
                     type="text"
                     required
                     value={subject}
@@ -274,10 +289,11 @@ export function FeedbackWidget({ activeUser, externalOpen, onExternalClose }: Fe
 
                 {/* Details */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                  <label htmlFor="fb-message" className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">
                     Details *
                   </label>
                   <textarea
+                    id="fb-message"
                     required
                     rows={4}
                     value={message}

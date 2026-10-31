@@ -49,6 +49,7 @@ function MemberInviteInput({
     <div ref={wrapperRef} className="relative min-w-56 flex-1">
       <input
         type="text"
+        aria-label="Teammate email"
         value={value}
         onChange={e => {
           onChange(e.target.value)
@@ -291,7 +292,7 @@ export default function AccessGroupManager({
                 {!isPersonal && canManage && (
                   <div className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-950/40">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-[12rem] flex-1">
                         <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-zinc-200">
                           <CheckCheck size={14} className="text-brand-600 dark:text-brand-400" />
                           Required approvals for proposals
@@ -349,6 +350,7 @@ export default function AccessGroupManager({
                       <button
                         type="button"
                         role="switch"
+                        aria-label="Allow proposer self-approval"
                         aria-checked={Boolean(group.allow_self_approval)}
                         onClick={() => {
                           const nextVal = !group.allow_self_approval
@@ -525,19 +527,20 @@ export default function AccessGroupManager({
                 </div>
               ) : canManage ? (
                 <div className="mt-5 border-t border-slate-100 pt-4 dark:border-zinc-800">
-                  <div className="mb-2 flex items-center justify-between">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-x-2">
                     <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                       Invite or add teammate
                     </span>
                     <span className="text-[11px] text-slate-400 dark:text-zinc-500">Hover a role to preview permissions</span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-2">
                     <MemberInviteInput
                       candidates={candidates}
                       value={emailChoice[group.id] ?? ''}
                       onChange={val => setEmailChoice({ ...emailChoice, [group.id]: val })}
                     />
 
+                    <div className="flex items-center justify-between gap-2">
                     {/* Role Segmented Selector with hover tooltips */}
                     <div className="segmented" role="group" aria-label="Role for invited teammate">
                       {availableInviteRoles.map(role => {
@@ -579,6 +582,7 @@ export default function AccessGroupManager({
                     >
                       <UserPlus size={15} /> Add
                     </button>
+                    </div>
                   </div>
                 </div>
               ) : (

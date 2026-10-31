@@ -59,7 +59,7 @@ export default function Modal({
   const Panel = as
   return createPortal(
     <div
-      className="fixed inset-0 z-[60] grid animate-fade-in place-items-center overflow-y-auto bg-black/50 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[60] flex animate-fade-in overflow-y-auto bg-black/50 p-4 backdrop-blur-[2px]"
       onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose() }}
     >
       <Panel
@@ -68,16 +68,16 @@ export default function Modal({
         aria-modal="true"
         tabIndex={-1}
         onSubmit={onSubmit}
-        className={`w-full ${width} animate-pop-in rounded-2xl bg-white shadow-pop outline-none ring-1 ring-slate-900/5 dark:bg-zinc-900 dark:ring-zinc-800 dark:border dark:border-zinc-800`}
+        className={`m-auto w-full ${width} animate-pop-in rounded-2xl bg-white shadow-pop outline-none ring-1 ring-slate-900/5 dark:bg-zinc-900 dark:ring-zinc-800 dark:border dark:border-zinc-800`}
       >
         <div className="flex items-start gap-3.5 px-6 pt-6">
           {icon && (
             iconWrapper ? (
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-700 ring-8 ring-brand-50/50 dark:bg-brand-950/60 dark:text-brand-300 dark:ring-brand-950/40">
+              <div className="hidden h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-50 sm:grid text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
                 {icon}
               </div>
             ) : (
-              <div className="shrink-0 flex items-center justify-center">
+              <div className="hidden shrink-0 items-center justify-center sm:flex">
                 {icon}
               </div>
             )

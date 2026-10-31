@@ -31,7 +31,7 @@ export default function LeaderSelectDropdown({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="field flex items-center justify-between gap-2.5 text-left"
+        className="field flex h-10 items-center py-0 justify-between gap-2.5 text-left"
       >
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">

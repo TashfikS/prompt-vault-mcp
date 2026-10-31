@@ -88,6 +88,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   .ring-brand-600\/20 { --tw-ring-color: rgb(15 110 95 / 0.2); }
   .focus\:ring-brand-600\/10:focus { --tw-ring-color: rgb(15 110 95 / 0.1); }
 
+  .shadow-2xs { box-shadow: 0 1px 1px 0 rgb(16 24 40 / 0.04); }
   .shadow-xs { box-shadow: 0 1px 2px 0 rgb(16 24 40 / 0.05); }
   .shadow-card { box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06); }
   .shadow-pop { box-shadow: 0 12px 32px -8px rgb(16 24 40 / 0.18), 0 4px 8px -4px rgb(16 24 40 / 0.08); }
@@ -114,7 +115,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 
 @layer components {
   .field {
-    @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500
+    @apply block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500
            dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:disabled:bg-zinc-950 dark:disabled:text-zinc-600;
     box-shadow: 0 1px 2px 0 rgb(16 24 40 / 0.05);
   }
@@ -163,6 +164,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
     box-shadow: 0 1px 2px 0 rgb(16 24 40 / 0.05);
   }
   .btn-sm { @apply h-8 px-2.5 text-[13px]; }
+  .btn-xs { @apply h-7 gap-1.5 rounded-md px-2 text-xs; }
 
   .card {
     @apply rounded-xl border border-slate-200 bg-white dark:border-zinc-800/90 dark:bg-zinc-900;
@@ -177,7 +179,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
            dark:border-zinc-800 dark:bg-zinc-950/80;
   }
   .segmented-item {
-    @apply relative inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:text-slate-950
+    @apply relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:text-slate-950
            dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40;
   }
   .segmented-item-active {

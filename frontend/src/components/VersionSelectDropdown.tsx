@@ -31,7 +31,7 @@ export default function VersionSelectDropdown({
   const selected = versions.find(v => v.version_number === selectedVersionNumber) ?? versions[0]
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div ref={wrapperRef} className="relative min-w-0 flex-1">
       {!hideLabel && (
         <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-zinc-400">
           {label}
@@ -40,7 +40,7 @@ export default function VersionSelectDropdown({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex min-w-[200px] max-w-[260px] items-center justify-between gap-2.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-left text-sm text-slate-800 shadow-xs transition hover:border-slate-400 focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-600"
+        className="flex w-full min-w-0 items-center justify-between gap-2.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-left text-sm text-slate-800 shadow-xs transition hover:border-slate-400 focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-600"
       >
         <div className="flex min-w-0 items-center gap-2">
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">

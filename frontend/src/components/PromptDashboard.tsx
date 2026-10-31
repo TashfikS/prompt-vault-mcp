@@ -243,9 +243,9 @@ export default function PromptDashboard({
                         {grp?.is_personal ? <LockKeyhole size={11} className="text-slate-500 dark:text-zinc-400" /> : null}
                         {prompt.group_name}
                       </span>
-                      <span onClick={e => e.stopPropagation()}>
+                      {roleKind !== 'ADMIN' && <span onClick={e => e.stopPropagation()}>
                         <RoleBadge kind={roleKind} size="sm" side="top" showIcon={false} />
-                      </span>
+                      </span>}
                     </div>
                     <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 font-mono text-[11px] font-medium text-brand-800 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-950/60 dark:text-brand-300 dark:ring-brand-500/30">
                       v{prompt.current_version_number}
@@ -279,18 +279,18 @@ export default function PromptDashboard({
 
                 {/* Card footer */}
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-zinc-800/80">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 text-xs text-slate-400 dark:text-zinc-500">
-                      <span className="tabular-nums">{prompt.version_count} {prompt.version_count === 1 ? 'version' : 'versions'}</span>
-                      {Boolean(prompt.variables && prompt.variables.length > 0) && (
-                        <span> · {prompt.variables.length} {prompt.variables.length === 1 ? 'field' : 'fields'}</span>
-                      )}
-                      {prompt.updated_at && (
-                        <span> · {timeAgo(prompt.updated_at)}</span>
-                      )}
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-3">
+                    <div className="text-xs leading-5 text-slate-400 dark:text-zinc-500">
+                      <p className="whitespace-nowrap tabular-nums">
+                        {prompt.version_count} {prompt.version_count === 1 ? 'version' : 'versions'}
+                        {Boolean(prompt.variables && prompt.variables.length > 0) && (
+                          <> · {prompt.variables.length} {prompt.variables.length === 1 ? 'field' : 'fields'}</>
+                        )}
+                      </p>
+                      {prompt.updated_at && <p className="whitespace-nowrap">Updated {timeAgo(prompt.updated_at)}</p>}
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="ml-auto flex shrink-0 items-center gap-1.5">
                       {onDuplicate && roleKind !== 'GUEST' && (
                         <button
                           type="button"
@@ -298,11 +298,11 @@ export default function PromptDashboard({
                             e.stopPropagation()
                             onDuplicate(prompt)
                           }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-xs hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 transition"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 shadow-xs hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 transition"
                           title="Duplicate or move this prompt to another space"
+                          aria-label={`Duplicate ${prompt.title}`}
                         >
-                          <CopyPlus size={13} />
-                          <span className="hidden sm:inline">Duplicate</span>
+                          <CopyPlus size={14} />
                         </button>
                       )}
                       <button
@@ -311,7 +311,7 @@ export default function PromptDashboard({
                           e.stopPropagation()
                           onSelect(prompt)
                         }}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white transition group-hover:bg-brand-600 dark:bg-zinc-100 dark:text-zinc-900 dark:group-hover:bg-brand-400 dark:group-hover:text-zinc-950 font-semibold"
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-slate-900 px-2.5 text-xs font-medium text-white transition group-hover:bg-brand-600 dark:bg-zinc-100 dark:text-zinc-900 dark:group-hover:bg-brand-400 dark:group-hover:text-zinc-950 font-semibold"
                       >
                         Open prompt <ArrowUpRight size={13} />
                       </button>

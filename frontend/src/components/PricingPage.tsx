@@ -355,14 +355,14 @@ export default function PricingPage({
                       </span>
                     )}
                   </div>
-                  <p className="mt-1.5 min-h-[36px] text-xs leading-5 text-slate-500 dark:text-zinc-400">
+                  <p className="mt-1.5 min-h-[3.75rem] text-xs leading-5 text-slate-500 dark:text-zinc-400">
                     {tier.tagline}
                   </p>
 
-                  <div className="mt-4 border-t border-slate-100 pt-4 dark:border-zinc-800">
+                  <div className="mt-4 min-h-[5.5rem] border-t border-slate-200/70 pt-4 dark:border-zinc-800">
                     {tier.id === 'enterprise' ? (
                       <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-extrabold text-slate-900 dark:text-zinc-100">Custom</span>
+                        <span className="text-3xl font-extrabold text-slate-900 dark:text-zinc-100">Custom</span>
                         <span className="text-xs text-slate-500 dark:text-zinc-400">/ quote</span>
                       </div>
                     ) : tier.id === 'community' ? (

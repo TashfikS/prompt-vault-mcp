@@ -1,25 +1,29 @@
-import { Fragment } from 'react'
+import { Fragment, useId } from 'react'
 
 /** PromptHold mark: a secure stronghold tile holding prompt version threads and an active revision node. */
 export function LogoMark({ size = 32, className = '' }: { size?: number; className?: string }) {
+  // Unique per instance: a duplicate id inside a display:none subtree leaves the visible mark unpainted.
+  const uid = useId().replace(/:/g, '')
+  const grad = `ph-grad-${uid}`
+  const accent = `ph-accent-${uid}`
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden className={className}>
       <defs>
-        <linearGradient id="ph-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+        <linearGradient id={grad} x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
           <stop stopColor="#0f766e" />
           <stop offset="1" stopColor="#115e59" />
         </linearGradient>
-        <linearGradient id="ph-accent" x1="18" y1="18" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+        <linearGradient id={accent} x1="18" y1="18" x2="24" y2="24" gradientUnits="userSpaceOnUse">
           <stop stopColor="#5eead4" />
           <stop offset="1" stopColor="#2dd4bf" />
         </linearGradient>
       </defs>
-      <rect width="32" height="32" rx="8" fill="url(#ph-grad)" />
+      <rect width="32" height="32" rx="8" fill={`url(#${grad})`} />
       <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" stroke="rgba(255, 255, 255, 0.15)" strokeWidth="1" />
       <path d="M9 11.5h14" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
       <path d="M9 16.5h9.5" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
       <path d="M9 21.5h7.5" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
-      <circle cx="21.5" cy="21.5" r="2.5" fill="url(#ph-accent)" />
+      <circle cx="21.5" cy="21.5" r="2.5" fill={`url(#${accent})`} />
       <circle cx="21.5" cy="21.5" r="1.1" fill="#042f2e" />
     </svg>
   )

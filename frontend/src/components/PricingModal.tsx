@@ -281,14 +281,14 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 min-h-[32px] text-xs leading-4 text-slate-500 dark:text-zinc-400">
+                  <p className="mt-1 min-h-12 text-xs leading-4 text-slate-500 dark:text-zinc-400">
                     {tier.tagline}
                   </p>
 
-                  <div className="mt-3 border-t border-slate-100 pt-3 dark:border-zinc-800">
+                  <div className="mt-3 min-h-[4.25rem] border-t border-slate-200/70 pt-3 dark:border-zinc-800">
                     {tier.id === 'enterprise' ? (
                       <div className="flex items-baseline gap-1">
-                        <span className="text-xl font-bold text-slate-900 dark:text-zinc-100">Custom</span>
+                        <span className="text-2xl font-bold text-slate-900 dark:text-zinc-100">Custom</span>
                         <span className="text-xs text-slate-500 dark:text-zinc-400">/ quote</span>
                       </div>
                     ) : tier.id === 'community' ? (

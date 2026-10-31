@@ -331,7 +331,7 @@ export default function App() {
           </>
         )
       ) : (
-        <div className="min-h-screen bg-[#f6f7f9] text-slate-900 dark:bg-zinc-950 dark:text-zinc-100 lg:pl-64">
+        <div className="min-h-screen bg-[#f6f7f9] text-slate-900 dark:bg-zinc-950 dark:text-zinc-100 pb-20 lg:pl-64">
           <Navbar
             activeUser={activeUser}
             groups={groups}

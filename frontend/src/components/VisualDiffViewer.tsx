@@ -151,11 +151,11 @@ export default function VisualDiffViewer({
       </div>
 
       {!readOnlyShareMode && (
-        <div className="mt-4 flex flex-wrap items-stretch gap-2.5">
-          {/* Box 1: Version Selection with PREVIOUS and CURRENT */}
-          <div className="flex min-h-[48px] flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-1.5 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/80">
-            <div className="flex items-center gap-1.5">
-              <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/60 dark:text-rose-300">
+        <div className="mt-4 space-y-2.5">
+          {/* Version selection: base → target, stacked on narrow screens */}
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2 sm:flex-row sm:items-center dark:border-zinc-800 dark:bg-zinc-900/80">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="w-16 shrink-0 rounded-md border border-rose-200 bg-rose-50 py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/60 dark:text-rose-300">
                 Base
               </span>
               <VersionSelectDropdown
@@ -167,10 +167,10 @@ export default function VisualDiffViewer({
               />
             </div>
 
-            <ArrowRight size={14} className="mx-0.5 shrink-0 text-slate-400 dark:text-zinc-500" />
+            <ArrowRight size={14} className="hidden shrink-0 text-slate-400 sm:block dark:text-zinc-500" />
 
-            <div className="flex items-center gap-1.5">
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/60 dark:text-emerald-300">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="w-16 shrink-0 rounded-md border border-emerald-200 bg-emerald-50 py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/60 dark:text-emerald-300">
                 Target
               </span>
               <VersionSelectDropdown
@@ -183,51 +183,43 @@ export default function VisualDiffViewer({
             </div>
           </div>
 
-          {/* Box 2: Granularity toggle */}
-          <div className="flex min-h-[48px] items-center rounded-xl border border-slate-200 bg-slate-50/80 p-1.5 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/80">
-            <div className="segmented h-full">
+          {/* Display options + share */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="segmented">
               {(['word', 'sentence'] as const).map(value => (
                 <button
                   key={value}
                   type="button"
+                  aria-pressed={granularity === value}
                   onClick={() => setGranularity(value)}
-                  className={`segmented-item flex h-full items-center ${
-                    granularity === value ? 'segmented-item-active font-semibold text-brand-700 dark:text-brand-300' : ''
-                  }`}
+                  className={`segmented-item ${granularity === value ? 'segmented-item-active' : ''}`}
                 >
                   {value === 'word' ? 'Word-by-word' : 'By sentence'}
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Box 3: View Mode Toggle */}
-          <div className="flex min-h-[48px] items-center rounded-xl border border-slate-200 bg-slate-50/80 p-1.5 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/80">
-            <div className="segmented h-full">
+            <div className="segmented">
               {(['split', 'inline'] as const).map(value => (
                 <button
                   key={value}
                   type="button"
+                  aria-pressed={viewMode === value}
                   onClick={() => setViewMode(value)}
-                  className={`segmented-item flex h-full items-center ${
-                    viewMode === value ? 'segmented-item-active font-semibold text-brand-700 dark:text-brand-300' : ''
-                  }`}
+                  className={`segmented-item ${viewMode === value ? 'segmented-item-active' : ''}`}
                 >
                   {value === 'split' ? 'Side-by-side' : 'Combined inline'}
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => void share()}
+              className="btn-secondary btn-sm ml-auto"
+            >
+              {copiedLink ? <Check size={14} className="text-brand-600 dark:text-brand-400" /> : <Copy size={14} />}
+              {copiedLink ? 'Link copied' : 'Share comparison'}
+            </button>
           </div>
-
-          {/* Box 4: Share Button */}
-          <button
-            type="button"
-            onClick={() => void share()}
-            className="btn-secondary min-h-[48px] rounded-xl px-4 text-xs font-semibold"
-          >
-            {copiedLink ? <Check size={14} className="text-brand-600 dark:text-brand-400" /> : <Copy size={14} />}
-            {copiedLink ? 'Link copied' : 'Share comparison'}
-          </button>
         </div>
       )}
 

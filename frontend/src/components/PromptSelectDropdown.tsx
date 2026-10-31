@@ -31,7 +31,7 @@ export default function PromptSelectDropdown({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="field flex items-center justify-between gap-3 text-left"
+        className="field flex h-10 items-center py-0 justify-between gap-3 text-left"
       >
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">

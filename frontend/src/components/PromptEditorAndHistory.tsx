@@ -213,10 +213,10 @@ export default function PromptEditorAndHistory({
         role="dialog"
         aria-modal="true"
         aria-label={prompt.title}
-        className="mx-auto my-2 max-w-6xl xl:max-w-7xl animate-pop-in overflow-hidden rounded-2xl bg-[#f6f7f9] shadow-pop ring-1 ring-slate-900/5 dark:bg-zinc-950 dark:ring-zinc-800 dark:border dark:border-zinc-800 sm:my-6"
+        className="mx-auto my-2 flex min-h-[calc(100dvh-1.5rem)] max-w-6xl flex-col xl:max-w-7xl animate-pop-in overflow-hidden sm:min-h-[calc(100dvh-6rem)] rounded-2xl bg-[#f6f7f9] shadow-pop ring-1 ring-slate-900/5 dark:bg-zinc-950 dark:ring-zinc-800 dark:border dark:border-zinc-800 sm:my-6"
       >
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-white px-5 py-5 sm:px-7 dark:border-zinc-800 dark:bg-zinc-900">
-          <div>
+        <header className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-5 py-5 sm:px-7 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-zinc-400">
               <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">{prompt.group_name}</span>
               <span>·</span>
@@ -230,33 +230,37 @@ export default function PromptEditorAndHistory({
               {prompt.description || 'Fill in dynamic fields, inspect version history, or compare changes.'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {!isGuest && (
               <button
                 type="button"
                 onClick={() => setDuplicateOpen(true)}
                 className="btn-secondary btn-sm"
                 title="Duplicate or move this prompt to another space"
+                aria-label="Duplicate prompt"
               >
-                <CopyPlus size={14} /> Duplicate
+                <CopyPlus size={14} /> <span className="hidden sm:inline">Duplicate</span>
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
               className="btn-secondary btn-sm"
+              aria-label="Close prompt"
             >
-              <X size={15} /> Close
+              <X size={15} /> <span className="hidden sm:inline">Close</span>
             </button>
           </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-5 sm:px-7 dark:border-zinc-800 dark:bg-zinc-900">
+        <nav role="tablist" aria-label="Prompt sections" className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-5 sm:px-7 dark:border-zinc-800 dark:bg-zinc-900">
           {tabs.map(item => (
             <button
               key={item.id}
               type="button"
-              onClick={() => setTab(item.id)}
+              role="tab"
+              aria-selected={tab === item.id}
+              onClick={e => { setTab(item.id); e.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }) }}
               className={`inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition ${
                 tab === item.id
                   ? 'border-brand-600 text-brand-700 dark:border-brand-400 dark:text-brand-300'
@@ -303,7 +307,7 @@ export default function PromptEditorAndHistory({
 
               <div className="grid gap-6 lg:grid-cols-[minmax(0,1.75fr)_minmax(340px,1.1fr)] xl:grid-cols-[minmax(0,1.9fr)_minmax(360px,1.15fr)] items-start">
                 <div className="card flex flex-col p-5 sm:p-6 shadow-sm">
-                  <div className="grid gap-3.5 sm:grid-cols-2">
+                  <div className={`grid gap-3.5 ${isGuest ? '' : 'sm:grid-cols-2'}`}>
                     <div>
                       <label className="field-label" htmlFor="ed-title">Prompt title</label>
                       <input
@@ -315,18 +319,18 @@ export default function PromptEditorAndHistory({
                         className="field font-medium text-slate-900 dark:text-zinc-100"
                       />
                     </div>
-                    <div>
-                      <label className="field-label" htmlFor="ed-note">Change note</label>
-                      <input
-                        id="ed-note"
-                        readOnly={isGuest}
-                        disabled={isGuest}
-                        value={note}
-                        onChange={e => setNote(e.target.value)}
-                        placeholder="Brief summary of edits…"
-                        className="field"
-                      />
-                    </div>
+                    {!isGuest && (
+                      <div>
+                        <label className="field-label" htmlFor="ed-note">Change note</label>
+                        <input
+                          id="ed-note"
+                          value={note}
+                          onChange={e => setNote(e.target.value)}
+                          placeholder="Brief summary of edits…"
+                          className="field"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 flex flex-1 flex-col">
@@ -336,7 +340,7 @@ export default function PromptEditorAndHistory({
                           Prompt template
                         </label>
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-                          {content.split('\n').length} lines · {content.length.toLocaleString()} chars
+                          {content.split('\n').length} {content.split('\n').length === 1 ? 'line' : 'lines'} · {content.length.toLocaleString()} chars
                         </span>
                         {variables.length > 0 && (
                           <span className="hidden sm:inline-flex items-center rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-950/60 dark:text-brand-300 dark:ring-brand-500/30">
@@ -344,9 +348,9 @@ export default function PromptEditorAndHistory({
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-slate-500 dark:text-zinc-400">
+                      {!isGuest && <span className="text-xs text-slate-500 dark:text-zinc-400">
                         Use <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-brand-700 ring-1 ring-slate-200 dark:bg-zinc-800 dark:text-brand-300 dark:ring-zinc-700">{'{{field_name}}'}</code> for dynamic fields
-                      </span>
+                      </span>}
                     </div>
                     <textarea
                       id="ed-content"
@@ -354,7 +358,7 @@ export default function PromptEditorAndHistory({
                       disabled={isGuest}
                       value={content}
                       onChange={e => setContent(e.target.value)}
-                      className="field min-h-[460px] sm:min-h-[520px] lg:min-h-[580px] flex-1 resize-y font-mono text-[13px] leading-6 custom-scrollbar"
+                      className="field min-h-[260px] sm:min-h-[320px] lg:min-h-[380px] flex-1 resize-y font-mono text-[13px] leading-6 custom-scrollbar"
                       placeholder="Write your prompt template here. Use {{variable_name}} for dynamic placeholders…"
                     />
                   </div>

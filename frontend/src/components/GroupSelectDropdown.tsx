@@ -37,7 +37,7 @@ export default function GroupSelectDropdown({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="field flex items-center justify-between gap-3 text-left"
+        className="field flex h-10 items-center py-0 justify-between gap-3 text-left"
       >
         <div className="flex min-w-0 items-center gap-2.5">
           {isNew ? (

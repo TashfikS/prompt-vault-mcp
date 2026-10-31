@@ -544,8 +544,8 @@ for p in prompts:
               onSubmit={e => void handleGenerateKey(e)}
               className="animate-pop-in space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
             >
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="min-w-0">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="min-w-0 sm:col-span-2">
                   <label htmlFor="api-key-name" className="field-label text-xs">
                     Key Friendly Name
                   </label>
@@ -775,7 +775,7 @@ for p in prompts:
                     <ClaudeIcon className="h-4 w-4" />
                   </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Anthropic Claude</h4>
+                    <h4 className="whitespace-nowrap text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Anthropic Claude</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">Choose your environment:</p>
                   </div>
                 </div>
@@ -792,7 +792,7 @@ for p in prompts:
                   >
                     <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeMode === 'desktop' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
                     <span>Claude Desktop</span>
-                    <span className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider ${
+                    <span className={`rounded px-1.5 py-px text-[9px] font-bold uppercase tracking-wider ${
                       claudeMode === 'desktop'
                         ? 'bg-amber-200 text-amber-950 dark:bg-amber-900 dark:text-amber-200'
                         : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400'
@@ -991,7 +991,7 @@ for p in prompts:
                     <ChatGptIcon className="h-4 w-4" />
                   </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect OpenAI ChatGPT</h4>
+                    <h4 className="whitespace-nowrap text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect OpenAI ChatGPT</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">Syncs prompts with Web, Mobile &amp; Desktop:</p>
                   </div>
                 </div>
@@ -1064,7 +1064,7 @@ for p in prompts:
                     <GeminiIcon className="h-4 w-4" />
                   </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Google Gemini</h4>
+                    <h4 className="whitespace-nowrap text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Google Gemini</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">Available in Web, Android &amp; iOS:</p>
                   </div>
                 </div>
@@ -1185,7 +1185,7 @@ for p in prompts:
                     <CursorIcon className="h-4 w-4" />
                   </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Cursor &amp; Coding IDEs</h4>
+                    <h4 className="whitespace-nowrap text-sm font-semibold text-slate-900 dark:text-zinc-100">Connect Cursor &amp; Coding IDEs</h4>
                     <p className="text-xs text-slate-500 dark:text-zinc-400">Use prompts in Cursor Chat, Composer, or Cline:</p>
                   </div>
                 </div>

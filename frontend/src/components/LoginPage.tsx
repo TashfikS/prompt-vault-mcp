@@ -148,7 +148,7 @@ export default function LoginPage({
   return (
     <div className="grid min-h-screen bg-[#f6f7f9] text-slate-900 dark:bg-zinc-950 dark:text-zinc-100 lg:grid-cols-[1.08fr_1fr]">
       {/* Left showcase panel */}
-      <aside className="relative hidden flex-col justify-between overflow-y-auto border-r border-slate-200/80 bg-white p-10 xl:p-14 lg:flex dark:border-zinc-800 dark:bg-zinc-950 custom-scrollbar">
+      <aside className="sticky top-0 hidden h-screen flex-col justify-between gap-8 overflow-y-auto border-r border-slate-200/80 bg-white p-10 xl:p-14 lg:flex dark:border-zinc-800 dark:bg-zinc-950 custom-scrollbar">
         <div>
           <Logo subtitle="Enterprise prompt governance & version control" />
 
@@ -260,7 +260,7 @@ export default function LoginPage({
               </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs dark:border-zinc-800">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-2.5 text-xs dark:border-zinc-800">
               <span className="text-[11px] text-slate-500 dark:text-zinc-400">
                 Need more seats or custom quotas?
               </span>
@@ -278,7 +278,7 @@ export default function LoginPage({
           </section>
         </div>
 
-        <dl className="mt-8 grid max-w-lg grid-cols-3 gap-4 border-t border-slate-200 pt-5 text-xs dark:border-zinc-800">
+        <dl className="grid max-w-lg grid-cols-3 gap-4 border-t border-slate-200 pt-5 text-xs dark:border-zinc-800">
           <div>
             <dt className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-zinc-100">
               <GitBranch size={14} className="text-brand-600 dark:text-brand-400" /> Sequential history
@@ -305,7 +305,7 @@ export default function LoginPage({
         {/* Top Header bar with Plans & Pricing pill and theme toggle */}
         <header className="mx-auto flex w-full max-w-md items-center justify-between gap-3 pb-4">
           <div className="lg:hidden">
-            <Logo subtitle="Prompt governance" />
+            <Logo />
           </div>
           <div className="hidden lg:block text-xs font-medium text-slate-500 dark:text-zinc-400">
             PromptHold Workspace Access
@@ -315,11 +315,11 @@ export default function LoginPage({
               <button
                 type="button"
                 onClick={onOpenPricing}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-brand-300 hover:text-brand-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-700 dark:hover:text-brand-300 cursor-pointer"
+                className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-brand-300 hover:text-brand-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-700 dark:hover:text-brand-300 cursor-pointer"
               >
                 <CreditCard size={13} className="text-brand-600 dark:text-brand-400" />
                 <span>Plans &amp; Pricing</span>
-                <span className="rounded-full bg-emerald-50 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                <span className="hidden rounded-full bg-emerald-50 px-1.5 py-px text-[10px] font-bold sm:inline text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                   From $0
                 </span>
               </button>
@@ -418,11 +418,12 @@ export default function LoginPage({
                 <span>{mode === 'login' ? 'Continue with Google' : 'Sign up with Google'}</span>
               </button>
 
-              <div className="relative my-4 flex items-center justify-center">
-                <div className="w-full border-t border-slate-200 dark:border-zinc-800" />
-                <span className="relative bg-white px-3 text-[11px] font-medium text-slate-400 dark:bg-zinc-900 dark:text-zinc-500">
+              <div className="my-4 flex items-center gap-3" role="separator">
+                <span className="h-px flex-1 bg-slate-200 dark:bg-zinc-800" />
+                <span className="shrink-0 text-[11px] font-medium text-slate-400 dark:text-zinc-500">
                   or continue with work email
                 </span>
+                <span className="h-px flex-1 bg-slate-200 dark:bg-zinc-800" />
               </div>
             </div>
 
@@ -562,7 +563,7 @@ export default function LoginPage({
               </button>
             </div>
 
-            <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs dark:border-zinc-800">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-2.5 text-xs dark:border-zinc-800">
               <span className="text-[11px] text-slate-500 dark:text-zinc-400">
                 Only editors pay · Free read-only guests
               </span>
@@ -591,7 +592,7 @@ export default function LoginPage({
               <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
                 Click any account to sign in immediately, or hover its role badge to see what it can do.
               </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="mt-3 grid gap-2">
                 {DEMO_ACCOUNTS.map(acct => (
                   <div
                     key={acct.email}
