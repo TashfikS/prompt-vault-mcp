@@ -55,7 +55,7 @@ def clear_rate_limits(monkeypatch):
     With REDIS_URL set (as in CI), hits would otherwise be stored in Redis and
     carry over between tests, so e.g. the sign-up limit trips after 5 tests.
     """
-    monkeypatch.setattr(type(rate_limiter), "_check_redis", lambda self, *args, **kwargs: False)
+    monkeypatch.setattr(type(rate_limiter), "_redis", lambda self: None)
     with rate_limiter._lock:
         rate_limiter._hits.clear()
     yield

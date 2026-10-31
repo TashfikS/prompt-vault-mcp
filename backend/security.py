@@ -96,14 +96,18 @@ class SlidingWindowRateLimiter:
         for key in stale_keys:
             self._hits.pop(key, None)
 
+    def _redis(self):
+        """Shared Redis client for rate-limit state, or None to use this process's memory."""
+        from cache import _get_redis
+        return _get_redis()
+
     def _check_redis(self, bucket_key: str, limit: int, window_seconds: int, detail: str) -> bool:
         """Attempt to check and record a rate limit hit in shared Redis.
 
         Returns True if Redis evaluated the rate limit. Returns False if Redis is unconfigured or unavailable.
         """
         try:
-            from cache import _get_redis
-            client = _get_redis()
+            client = self._redis()
             if client is None:
                 return False
 
@@ -155,8 +159,7 @@ class SlidingWindowRateLimiter:
 
     def record_hit(self, bucket_key: str) -> None:
         try:
-            from cache import _get_redis
-            client = _get_redis()
+            client = self._redis()
             if client is not None:
                 now = time.time()
                 redis_key = f"pv:rl:{bucket_key}"
@@ -173,8 +176,7 @@ class SlidingWindowRateLimiter:
 
     def count_recent(self, bucket_key: str, window_seconds: int) -> int:
         try:
-            from cache import _get_redis
-            client = _get_redis()
+            client = self._redis()
             if client is not None:
                 now = time.time()
                 cutoff = now - window_seconds
@@ -199,8 +201,7 @@ class SlidingWindowRateLimiter:
 
     def clear_bucket(self, bucket_key: str) -> None:
         try:
-            from cache import _get_redis
-            client = _get_redis()
+            client = self._redis()
             if client is not None:
                 client.delete(f"pv:rl:{bucket_key}")
         except Exception:
