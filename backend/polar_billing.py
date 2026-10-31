@@ -20,6 +20,7 @@ from database import (
     migrate_user_tier,
 )
 from models import AuditLog, User
+from security import IS_PRODUCTION
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -148,8 +149,10 @@ def verify_polar_webhook_signature(raw_body: bytes, headers: dict[str, str]) -> 
     Raises HTTPException(403) on signature mismatch.
     """
     secret = os.getenv("POLAR_WEBHOOK_SECRET", "").strip()
+    # Webhooks grant paid plans and move user data between tiers, so production must never accept unsigned events.
+    if not secret and IS_PRODUCTION:
+        raise HTTPException(status_code=503, detail="Billing webhooks are not configured.")
 
-    # If secret is configured, strictly enforce signature verification
     if secret:
         try:
             from polar.webhooks import _verify_signature

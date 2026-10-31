@@ -99,6 +99,7 @@ async def test_oauth_authorize_get_consent_screens(client: AsyncClient, test_use
             "client_id": "claude",
             "redirect_uri": redirect_uri,
             "state": "state_unauth",
+            "code_challenge": _generate_pkce_pair()[1],
         },
     )
     assert resp_unauth.status_code == 200
@@ -117,6 +118,7 @@ async def test_oauth_authorize_get_consent_screens(client: AsyncClient, test_use
             "client_id": "claude",
             "redirect_uri": redirect_uri,
             "state": "state_auth",
+            "code_challenge": _generate_pkce_pair()[1],
         },
         headers={"Authorization": f"Bearer {owner_token}"},
     )
@@ -196,8 +198,7 @@ async def test_oauth_pkce_flow_and_token_exchange(client: AsyncClient, test_user
 
     assert "access_token" in tokens
     assert tokens["token_type"] == "Bearer"
-    assert tokens["expires_in"] == 30 * 86400
-    assert "refresh_token" in tokens
+    assert "refresh_token" not in tokens
     assert tokens["scope"] == "prompts"
 
     issued_access_token = tokens["access_token"]
@@ -290,3 +291,39 @@ async def test_oauth_security_and_replay_rejection(client: AsyncClient, test_use
     assert replay_resp.status_code == 400
     assert replay_resp.json()["error"] == "invalid_grant"
     assert "already been used" in replay_resp.json()["error_description"]
+
+
+@pytest.mark.asyncio
+async def test_oauth_rejects_untrusted_redirect_uri(client: AsyncClient, test_users_and_groups):
+    """A logged-in user must never have an authorization code sent to an attacker-controlled redirect_uri."""
+    owner_token = test_users_and_groups["tokens"]["owner"]
+    _, challenge = _generate_pkce_pair()
+    for client_id in ("claude", "attacker-made-up-id"):
+        resp = await client.post(
+            "/oauth/authorize",
+            data={"action": "authorize", "client_id": client_id, "redirect_uri": "https://evil.example/cb",
+                  "code_challenge": challenge, "code_challenge_method": "S256"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+        assert resp.status_code == 400
+        assert "location" not in resp.headers
+
+    reg = (await client.post("/oauth/register", json={"redirect_uris": ["https://app.example/cb"]})).json()
+    resp = await client.get("/oauth/authorize", params={
+        "client_id": reg["client_id"], "redirect_uri": "https://evil.example/cb", "code_challenge": challenge})
+    assert resp.status_code == 400
+
+    bad_reg = await client.post("/oauth/register", json={"redirect_uris": ["javascript:alert(1)"]})
+    assert bad_reg.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_oauth_requires_pkce(client: AsyncClient, test_users_and_groups):
+    owner_token = test_users_and_groups["tokens"]["owner"]
+    resp = await client.post(
+        "/oauth/authorize",
+        data={"action": "authorize", "client_id": "claude", "redirect_uri": "https://claude.ai/api/mcp/oauth_callback"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert resp.status_code == 400
+    assert "location" not in resp.headers

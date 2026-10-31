@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 import re
 import secrets
@@ -28,7 +29,9 @@ AUTO_MIGRATE_DB = os.getenv("AUTO_MIGRATE_DB", "true").strip().lower() in {"1", 
 
 
 def should_seed_demo_data() -> bool:
-    """Seed demo accounts by default in development, and never in production unless explicitly forced."""
+    """Seed demo accounts by default in development; never in production (demo password is public)."""
+    if IS_PRODUCTION:
+        return False
     raw = os.getenv("SEED_DEMO_DATA")
     if raw is not None:
         return raw.strip().lower() in {"1", "true", "yes"}
@@ -57,6 +60,11 @@ def get_client_ip(request: Request | None) -> str:
     """Extract client IP safely, only trusting forwarding headers when TRUST_PROXY_HEADERS=true."""
     if request is None:
         return "unknown"
+    gateway_secret = os.getenv("GATEWAY_SECRET", "")
+    if gateway_secret and hmac.compare_digest(request.headers.get("x-gateway-secret", ""), gateway_secret):
+        client_ip = request.headers.get("x-client-ip", "").strip()
+        if client_ip:
+            return client_ip[:64]
     if TRUST_PROXY_HEADERS:
         cf_ip = request.headers.get("cf-connecting-ip")
         if cf_ip:

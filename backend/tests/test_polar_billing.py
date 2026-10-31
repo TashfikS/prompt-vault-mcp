@@ -145,3 +145,15 @@ async def test_webhook_signature_verification_failure(client: AsyncClient, monke
     )
     # Missing required svix signature headers
     assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_unsigned_events_in_production(client: AsyncClient, monkeypatch, test_users_and_groups):
+    """Without POLAR_WEBHOOK_SECRET, production must not let anyone forge plan upgrades."""
+    import polar_billing
+    monkeypatch.delenv("POLAR_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setattr(polar_billing, "IS_PRODUCTION", True)
+    member_user = test_users_and_groups["member"]
+    res = await client.post("/api/webhooks/polar", json={
+        "type": "order.paid", "data": {"metadata": {"user_id": member_user.id, "plan": "team"}}})
+    assert res.status_code == 503

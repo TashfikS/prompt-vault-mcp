@@ -1,6 +1,7 @@
 import base64
 import csv
 import hashlib
+import html
 import io
 import json
 import os
@@ -16,7 +17,7 @@ load_dotenv()
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -41,7 +42,7 @@ from database import (
     migrate_user_tier,
 )
 from auth import (DUMMY_PASSWORD_HASH, SESSION_LIFETIME, create_api_key_record, create_session,
-                  delete_all_user_sessions, delete_session, ensure_demo_passwords, hash_password, is_hash_upgrade_needed,
+                  delete_all_user_sessions, delete_session, ensure_demo_passwords, hash_password, lock_demo_accounts, is_hash_upgrade_needed,
                   resolve_api_key, upgrade_schema, user_for_session_token, verify_firebase_id_token, verify_password)
 from cache import (create_github_issue_for_feedback, invalidate_prompt_cache, set_cached_active_version_uuid,
                    set_cached_version_by_uuid)
@@ -53,7 +54,7 @@ from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership
                     OAuthClient, Prompt, PromptChunk, PromptProposal, PromptVersion, ProposalApproval,
                     ProposalComment, SharedDiffLink, User)
 from oauth import (create_authorization_code, exchange_authorization_code, get_oauth_protected_resource_metadata,
-                   get_oauth_server_metadata, get_or_create_client, register_oauth_client,
+                   get_oauth_server_metadata, get_or_create_client, is_redirect_uri_allowed, register_oauth_client,
                    render_oauth_authorize_html)
 from search import hybrid_search_prompts, sync_prompt_embeddings
 from schemas import (AssignMemberRequest, ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, CreateDiffShareRequest,
@@ -101,6 +102,8 @@ async def lifespan(application: FastAPI):
             if should_seed_demo_data():
                 seed_initial_data(db_neon)
                 ensure_demo_passwords(db_neon)
+            else:
+                lock_demo_accounts(db_neon)
             ensure_all_personal_groups(db_neon)
     except Exception as exc:
         import logging
@@ -112,6 +115,8 @@ async def lifespan(application: FastAPI):
             if should_seed_demo_data():
                 seed_initial_data(db_supa)
                 ensure_demo_passwords(db_supa)
+            else:
+                lock_demo_accounts(db_supa)
             ensure_all_personal_groups(db_supa)
     except Exception as exc:
         import logging
@@ -134,7 +139,10 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
-    allow_origin_regex=r"https://(prompthold|prompt-vault)(-[a-z0-9_-]+)?((\.[a-z0-9_-]+)?)\.(pages\.dev|workers\.dev|onrender\.com|hf\.space)",
+    # Exact project hosts only (incl. Pages branch previews like dev.prompthold.pages.dev); never "prompthold-*",
+    # since anyone can register such a Pages/Workers project name.
+    allow_origin_regex=os.getenv("ALLOWED_ORIGIN_REGEX")
+    or r"https://(([a-z0-9-]+\.)?prompthold\.pages\.dev|prompt-vault-gateway\.tashfiks\.workers\.dev)",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "If-None-Match"],
@@ -348,34 +356,40 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
     email = payload.email.strip().lower()
 
     is_test_env = is_test_session(db)
+    # New accounts always start on Community; paid plans are only granted by verified Polar webhooks.
+    plan = "community"
 
     if is_test_env:
         target_db = db
         close_target = False
     else:
-        target_factory = get_sessionmaker_for_plan(payload.plan)
-        target_db = target_factory()
+        target_db = get_sessionmaker_for_plan(plan)()
         close_target = True
 
     try:
         if target_db.query(User).filter(User.email == email).first():
             raise HTTPException(status_code=409, detail="An account with this email already exists. Try signing in.")
         if not is_test_env:
-            alt_factory = SessionNeon if is_community_plan(payload.plan) else SessionSupabase
+            exists_elsewhere = False
             try:
-                with alt_factory() as alt_db:
-                    if alt_db.query(User).filter(User.email == email).first():
-                        raise HTTPException(status_code=409, detail="An account with this email already exists. Try signing in.")
+                with SessionNeon() as alt_db:
+                    exists_elsewhere = alt_db.query(User.id).filter(User.email == email).first() is not None
             except Exception:
                 pass
+            if exists_elsewhere:
+                raise HTTPException(status_code=409, detail="An account with this email already exists. Try signing in.")
 
+        # Password sign-up never proves email ownership, so it cannot claim INITIAL_ADMIN_EMAIL in production
+        # (that is granted via verified Firebase SSO instead). Locally the first account becomes admin.
         initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
-        if initial_admin_email:
+        if IS_PRODUCTION:
+            is_admin = False
+        elif initial_admin_email:
             is_admin = email == initial_admin_email
         else:
-            is_admin = (not IS_PRODUCTION) and (target_db.query(User).count() == 0)
+            is_admin = target_db.query(User).count() == 0
         user = User(name=payload.name.strip(), email=email, is_workspace_admin=is_admin,
-                    password_hash=hash_password(payload.password), plan=payload.plan)
+                    password_hash=hash_password(payload.password), plan=plan)
         target_db.add(user)
         target_db.commit()
         ensure_personal_group(target_db, user)
@@ -618,22 +632,34 @@ async def oauth_dynamic_client_registration(
     grant_types = body.get("grant_types") or ["authorization_code", "refresh_token"]
     response_types = body.get("response_types") or ["code"]
 
-    client = register_oauth_client(
-        db=db,
-        client_name=client_name,
-        redirect_uris=redirect_uris,
-        grant_types=grant_types,
-        response_types=response_types,
-    )
+    try:
+        client = register_oauth_client(
+            db=db,
+            client_name=client_name,
+            redirect_uris=redirect_uris,
+            grant_types=grant_types,
+            response_types=response_types,
+        )
+    except ValueError as err:
+        return JSONResponse({"error": "invalid_redirect_uri", "error_description": str(err)}, status_code=400)
     return {
         "client_id": client.id,
         "client_secret": client.client_secret,
         "client_name": client.client_name,
-        "redirect_uris": redirect_uris,
+        "redirect_uris": json.loads(client.redirect_uris_json),
         "grant_types": grant_types,
         "response_types": response_types,
         "token_endpoint_auth_method": "none" if not client.client_secret else "client_secret_post",
     }
+
+
+def _oauth_error_page(message: str) -> HTMLResponse:
+    """Show OAuth request errors in-page; never redirect to an unverified redirect_uri."""
+    return HTMLResponse(
+        f"<!doctype html><title>Authorization error</title><p style='font-family:sans-serif;padding:24px'>"
+        f"Authorization request rejected: {html.escape(message)}</p>",
+        status_code=400,
+    )
 
 
 @app.get("/oauth/authorize", response_class=HTMLResponse, tags=["OAuth"])
@@ -650,13 +676,17 @@ async def oauth_authorize_get(
     user: User | None = Depends(maybe_user),
 ):
     """Browser consent screen for OAuth 2.0 / 2.1 authorization request."""
+    client = get_or_create_client(db, client_id)
+    if client is None or not is_redirect_uri_allowed(client, redirect_uri):
+        return _oauth_error_page("Unknown client or unregistered redirect_uri.")
+    if not code_challenge or (code_challenge_method or "S256").upper() != "S256":
+        return _oauth_error_page("PKCE with code_challenge_method=S256 is required.")
     if response_type != "code":
         err_target = f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}error=unsupported_response_type&error_description=Only+code+response_type+is+supported"
         if state:
             err_target += f"&state={urlencode({'s': state})[2:]}"
         return RedirectResponse(url=err_target, status_code=302)
 
-    client = get_or_create_client(db, client_id, redirect_uri)
     html_page = render_oauth_authorize_html(
         client_name=client.client_name,
         client_id=client.id,
@@ -686,7 +716,9 @@ async def oauth_authorize_post(
     user: User | None = Depends(maybe_user),
 ):
     """Handle approval or cancellation from the OAuth authorization consent screen."""
-    client = get_or_create_client(db, client_id, redirect_uri)
+    client = get_or_create_client(db, client_id)
+    if client is None or not is_redirect_uri_allowed(client, redirect_uri):
+        return _oauth_error_page("Unknown client or unregistered redirect_uri.")
 
     # If user cancelled, redirect with access_denied
     if action == "cancel":
@@ -763,9 +795,20 @@ async def oauth_authorize_post(
             return HTMLResponse(content=html_page, status_code=400)
         auth_user = candidate
 
+    if not code_challenge or (code_challenge_method or "S256").upper() != "S256":
+        if close_active_db and active_db:
+            active_db.close()
+        return _oauth_error_page("PKCE with code_challenge_method=S256 is required.")
+
     # Issue single-use authorization code
     try:
-        target_client = get_or_create_client(active_db, client.id, redirect_uri)
+        target_client = get_or_create_client(active_db, client.id)
+        if target_client is None:  # DCR client registered in the other tier database: mirror it
+            target_client = OAuthClient(id=client.id, client_secret=client.client_secret, client_name=client.client_name,
+                                        redirect_uris_json=client.redirect_uris_json, grant_types_json=client.grant_types_json,
+                                        response_types_json=client.response_types_json, created_at=datetime.utcnow())
+            active_db.add(target_client)
+            active_db.commit()
         code = create_authorization_code(
             db=active_db,
             client_id=target_client.id,

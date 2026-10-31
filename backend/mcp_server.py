@@ -32,7 +32,7 @@ from permissions import (
 )
 from models import ApiKey, Group, Prompt, PromptProposal, PromptVersion, ProposalApproval, ProposalComment, User
 from search import hybrid_search_prompts, sync_prompt_embeddings
-from security import escape_like, rate_limiter, record_audit_log
+from security import escape_like, get_client_ip, rate_limiter, record_audit_log
 
 mcp = FastMCP("PromptHold-Server")
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -100,6 +100,8 @@ _session_api_keys: dict[str, str] = {}
 def register_session_key(session_id: str, api_key: str):
     """Associate an MCP session ID with an authenticated PromptHold API key."""
     if session_id and api_key:
+        if len(_session_api_keys) >= 10_000:  # bound memory; oldest sessions simply re-send their key
+            _session_api_keys.pop(next(iter(_session_api_keys)))
         _session_api_keys[session_id] = api_key.strip()
 
 
@@ -119,21 +121,18 @@ def resolve_effective_api_key(explicit_key: str = "") -> str:
         if req.query_params.get("api_key"):
             k = req.query_params.get("api_key").strip()
             sess = req.headers.get("mcp-session-id")
-            if sess:
-                _session_api_keys[sess] = k
+            register_session_key(sess, k)
             return k
         if req.query_params.get("token"):
             k = req.query_params.get("token").strip()
             sess = req.headers.get("mcp-session-id")
-            if sess:
-                _session_api_keys[sess] = k
+            register_session_key(sess, k)
             return k
         match = re.search(r"/(?:s|k|key)/([^/?#]+)", req.url.path)
         if match:
             k = match.group(1).strip()
             sess = req.headers.get("mcp-session-id")
-            if sess:
-                _session_api_keys[sess] = k
+            register_session_key(sess, k)
             return k
         sess = req.headers.get("mcp-session-id")
         if sess and sess in _session_api_keys:
@@ -145,11 +144,13 @@ def resolve_effective_api_key(explicit_key: str = "") -> str:
 
 
 def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
-    if rate_limiter.count_recent("mcp_invalid_key", window_seconds=60) >= 20:
+    # Per-client bucket: a global one would let anyone lock every user out with 20 bad keys.
+    bucket = f"mcp_invalid_key:{get_client_ip(_current_http_request.get())}"
+    if rate_limiter.count_recent(bucket, window_seconds=60) >= 20:
         raise ValueError("Too many invalid API key attempts. Please wait a minute and try again.")
     resolved = resolve_api_key(db, api_key.strip()[:256])
     if resolved is None:
-        rate_limiter.record_hit("mcp_invalid_key")
+        rate_limiter.record_hit(bucket)
         raise ValueError("The supplied PromptHold API key is invalid or has been revoked.")
     return resolved
 

@@ -17,6 +17,10 @@ backend_dir = Path(__file__).resolve().parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
+# Pin the environment before backend modules load .env (load_dotenv does not override existing vars),
+# so a local production .env cannot change test behavior.
+os.environ["PROMPT_HOLD_ENV"] = "development"
+
 from auth import create_session, hash_password, upgrade_schema
 from database import Base, get_db
 from permissions import ensure_personal_group

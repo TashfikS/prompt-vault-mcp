@@ -134,7 +134,8 @@ def create_github_issue_for_feedback(
         f"### User {category.replace('_', ' ').title()} Submission",
         "",
         f"- **Category:** `{category}`",
-        f"- **Reporter:** {contact_name or 'Anonymous'} (`{contact_email or 'not provided'}`)",
+        # Never publish the reporter's email (the issue repo may be public); it is kept in feedback_submissions.
+        f"- **Reporter:** {'Signed-in user' if contact_name else 'Anonymous'}",
     ]
     if page_url:
         body_lines.append(f"- **Page / View:** `{page_url}`")

@@ -9,7 +9,7 @@ services:
       - key: PROMPT_HOLD_ENV
         value: production
       - key: SEED_DEMO_DATA
-        value: "true"
+        value: "false"
       - key: TRUST_PROXY_HEADERS
         value: "true"
       - key: DATABASE_URL
@@ -27,5 +27,7 @@ services:
       - key: FIREBASE_WEB_API_KEY
         sync: false
       - key: ALLOWED_ORIGINS
+        sync: false
+      - key: GATEWAY_SECRET
         sync: false
 

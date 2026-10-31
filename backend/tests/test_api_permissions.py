@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.orm import Session
 
 from permissions import ensure_personal_group
-from models import Group, Prompt, PromptVersion
+from models import Group, Prompt, PromptVersion, User
 
 
 @pytest.mark.asyncio
@@ -452,3 +452,14 @@ async def test_persistent_account_lockout(client: AsyncClient, test_users_and_gr
     assert "temporarily locked" in blocked.json()["detail"]
 
 
+
+
+@pytest.mark.asyncio
+async def test_register_cannot_self_assign_paid_plan(client: AsyncClient, test_users_and_groups, db: Session):
+    """Paid plans come only from verified billing webhooks, never from the sign-up payload."""
+    reg = await client.post(
+        "/api/auth/register",
+        json={"name": "Freeloader", "email": "freeloader@example.com", "password": "Password123", "plan": "enterprise"},
+    )
+    assert reg.status_code == 201
+    assert db.query(User).filter_by(email="freeloader@example.com").one().plan == "community"

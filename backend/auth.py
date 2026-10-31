@@ -298,52 +298,33 @@ def upgrade_schema(engine: Engine) -> None:
 
 
 def verify_firebase_id_token(id_token: str) -> dict[str, str] | None:
-    """Verify a Firebase Auth ID token using Firebase's official REST lookup endpoint or Google tokeninfo."""
+    """Verify a Firebase Auth ID token via Identity Toolkit, which only accepts tokens issued for this project's API key."""
     import json
     import os
-    import urllib.parse
     import urllib.request
 
-    if not id_token.strip():
-        return None
-
     api_key = os.getenv("FIREBASE_WEB_API_KEY", "").strip()
-    if api_key:
-        url = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={api_key}"
-        payload = json.dumps({"idToken": id_token.strip()}).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:  # nosec B310
-                data = json.loads(resp.read().decode("utf-8"))
-                users = data.get("users") or []
-                if users:
-                    account = users[0]
-                    email = (account.get("email") or "").strip().lower()
-                    if email and account.get("emailVerified", True):
-                        name = (account.get("displayName") or email.split("@")[0]).strip()
-                        return {"email": email, "name": name}
-        except Exception:
-            pass
-
-    # Universal Google OAuth / Firebase ID token verification
-    url = f"https://oauth2.googleapis.com/tokeninfo?id_token={urllib.parse.quote(id_token.strip())}"
-    req = urllib.request.Request(url, method="GET")
+    if not api_key or not id_token.strip():
+        return None
+    req = urllib.request.Request(
+        f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={api_key}",
+        data=json.dumps({"idToken": id_token.strip()}).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:  # nosec B310
-            data = json.loads(resp.read().decode("utf-8"))
-            email = (data.get("email") or "").strip().lower()
-            if email and (data.get("email_verified") in (True, "true")):
-                name = (data.get("name") or email.split("@")[0]).strip()
-                return {"email": email, "name": name}
+            users = json.loads(resp.read().decode("utf-8")).get("users") or []
     except Exception:
-        pass
-
-    return None
+        return None
+    if not users:
+        return None
+    account = users[0]
+    email = (account.get("email") or "").strip().lower()
+    # Accounts are matched by email, so an unverified email would allow takeover of an existing account.
+    if not email or account.get("emailVerified") is not True:
+        return None
+    return {"email": email, "name": (account.get("displayName") or email.split("@")[0]).strip()}
 
 
 def ensure_demo_passwords(db: Session) -> None:
@@ -369,3 +350,16 @@ def ensure_demo_passwords(db: Session) -> None:
         db.commit()
 
 
+
+
+def lock_demo_accounts(db: Session) -> None:
+    """Neutralize seeded demo accounts (public password, some admin) when demo data is disabled, e.g. in production."""
+    users = db.query(User).filter(User.email.in_(DEMO_EMAILS)).filter(
+        (User.password_hash.isnot(None)) | (User.is_workspace_admin.is_(True))).all()
+    for user in users:
+        user.password_hash = None
+        user.is_workspace_admin = False
+        db.query(AuthSession).filter_by(user_id=user.id).delete(synchronize_session=False)
+        db.query(ApiKey).filter_by(user_id=user.id).update({"is_active": False}, synchronize_session=False)
+    if users:
+        db.commit()

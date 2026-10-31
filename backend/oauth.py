@@ -33,8 +33,8 @@ def get_oauth_server_metadata(base_url: str) -> dict[str, Any]:
         "token_endpoint": f"{clean_base}/oauth/token",
         "registration_endpoint": f"{clean_base}/oauth/register",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "code_challenge_methods_supported": ["S256", "plain"],
+        "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": [
             "client_secret_post",
             "client_secret_basic",
@@ -57,6 +57,37 @@ def get_oauth_protected_resource_metadata(base_url: str) -> dict[str, Any]:
     }
 
 
+# Redirect hosts accepted for the well-known AI client IDs that are auto-provisioned without DCR.
+TRUSTED_REDIRECT_HOSTS = ("claude.ai", "claude.com", "chatgpt.com", "openai.com", "gemini.google.com", "cursor.com", "cursor.sh")
+KNOWN_CLIENT_NAMES = {
+    "claude": "Anthropic Claude",
+    "claude.ai": "Anthropic Claude.ai",
+    "chatgpt": "OpenAI ChatGPT",
+    "gemini": "Google Gemini",
+    "cursor": "Cursor IDE",
+}
+
+
+def _is_safe_redirect_scheme(uri: str) -> bool:
+    parsed = urlparse(uri)
+    if parsed.scheme == "https" and parsed.hostname:
+        return True
+    return parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
+
+
+def is_redirect_uri_allowed(client: OAuthClient, redirect_uri: str) -> bool:
+    """Only send authorization codes to a redirect URI the client registered (or a trusted AI host for known IDs)."""
+    if not redirect_uri or not _is_safe_redirect_scheme(redirect_uri):
+        return False
+    registered = [u.rstrip("/") for u in json.loads(client.redirect_uris_json or "[]")]
+    if client.id.lower() not in KNOWN_CLIENT_NAMES:
+        return redirect_uri.rstrip("/") in registered
+    host = (urlparse(redirect_uri).hostname or "").lower()
+    if urlparse(redirect_uri).scheme == "http":
+        return True  # localhost desktop clients
+    return any(host == h or host.endswith("." + h) for h in TRUSTED_REDIRECT_HOSTS)
+
+
 def register_oauth_client(
     db: Session,
     client_name: str = "AI Assistant",
@@ -67,7 +98,9 @@ def register_oauth_client(
     """RFC 7591 Dynamic Client Registration (DCR)."""
     client_id = f"ph_client_{secrets.token_hex(16)}"
     client_secret = f"ph_sec_{secrets.token_urlsafe(32)}"
-    uris = redirect_uris or []
+    uris = [u for u in (redirect_uris or []) if isinstance(u, str) and _is_safe_redirect_scheme(u)]
+    if not uris:
+        raise ValueError("At least one https (or localhost) redirect_uri is required.")
     grants = grant_types or ["authorization_code", "refresh_token"]
     responses = response_types or ["code"]
 
@@ -86,29 +119,17 @@ def register_oauth_client(
     return client
 
 
-def get_or_create_client(db: Session, client_id: str, redirect_uri: str = "") -> OAuthClient:
-    """Retrieve existing client or auto-provision well-known AI client IDs."""
+def get_or_create_client(db: Session, client_id: str) -> OAuthClient | None:
+    """Retrieve a registered client, auto-provisioning only the well-known AI client IDs."""
     client = db.query(OAuthClient).filter_by(id=client_id).first()
-    if client is not None:
+    if client is not None or client_id.lower() not in KNOWN_CLIENT_NAMES:
         return client
-
-    # Auto-provision standard AI clients (Claude, ChatGPT, Gemini, Cursor)
-    known_names = {
-        "claude": "Anthropic Claude",
-        "claude.ai": "Anthropic Claude.ai",
-        "chatgpt": "OpenAI ChatGPT",
-        "gemini": "Google Gemini",
-        "cursor": "Cursor IDE",
-    }
-    name = known_names.get(client_id.lower(), client_id)
-    uris = [redirect_uri] if redirect_uri else []
-
     client = OAuthClient(
         id=client_id,
         client_secret=None,
-        client_name=name,
-        redirect_uris_json=json.dumps(uris),
-        grant_types_json=json.dumps(["authorization_code", "refresh_token"]),
+        client_name=KNOWN_CLIENT_NAMES[client_id.lower()],
+        redirect_uris_json="[]",
+        grant_types_json=json.dumps(["authorization_code"]),
         response_types_json=json.dumps(["code"]),
         created_at=datetime.utcnow(),
     )
@@ -119,21 +140,12 @@ def get_or_create_client(db: Session, client_id: str, redirect_uri: str = "") ->
 
 
 def verify_pkce(code_verifier: str | None, code_challenge: str | None, method: str | None = "S256") -> bool:
-    """Verify PKCE code_verifier against code_challenge per RFC 7636."""
-    if not code_challenge:
-        return True
-    if not code_verifier:
+    """Verify an RFC 7636 S256 code_verifier. PKCE is mandatory (OAuth 2.1); `plain` is rejected."""
+    if not code_challenge or not code_verifier or (method or "S256").upper() != "S256":
         return False
-
-    clean_method = (method or "S256").upper()
-    if clean_method == "PLAIN":
-        return hmac.compare_digest(code_verifier.strip(), code_challenge.strip())
-    elif clean_method == "S256":
-        digest = hashlib.sha256(code_verifier.strip().encode("ascii")).digest()
-        computed = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-        target = code_challenge.strip().rstrip("=")
-        return hmac.compare_digest(computed, target)
-    return False
+    digest = hashlib.sha256(code_verifier.strip().encode("ascii")).digest()
+    computed = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return hmac.compare_digest(computed, code_challenge.strip().rstrip("="))
 
 
 def create_authorization_code(
@@ -186,9 +198,8 @@ def exchange_authorization_code(
     if redirect_uri and auth_code.redirect_uri.rstrip("/") != redirect_uri.strip().rstrip("/"):
         raise ValueError("redirect_uri does not match the original authorization request.")
 
-    if auth_code.code_challenge:
-        if not verify_pkce(code_verifier, auth_code.code_challenge, auth_code.code_challenge_method):
-            raise ValueError("PKCE verification failed: invalid code_verifier.")
+    if not verify_pkce(code_verifier, auth_code.code_challenge, auth_code.code_challenge_method):
+        raise ValueError("PKCE verification failed: invalid code_verifier.")
 
     # Mark authorization code as used immediately to prevent replay attacks
     auth_code.is_used = True
@@ -211,13 +222,10 @@ def exchange_authorization_code(
         scope_type="GLOBAL",
         access_level="READ_WRITE",
     )
-    refresh_token = f"ph_refr_{secrets.token_urlsafe(32)}"
-
+    # The issued key does not expire (revocable from Settings), so no expires_in / refresh_token is returned.
     return {
         "access_token": raw_token,
         "token_type": "Bearer",
-        "expires_in": 30 * 86400,  # 30 days
-        "refresh_token": refresh_token,
         "scope": auth_code.scope or "prompts",
     }
 
