@@ -57,7 +57,7 @@ jobs:
 
     steps:
       - name: Checkout the commit CI verified
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # workflow_run otherwise checks out the default branch, not the commit that was just tested.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
