@@ -49,8 +49,13 @@ def setup_test_db():
 
 
 @pytest.fixture(autouse=True)
-def clear_rate_limits():
-    """Clear in-memory rate limiter hits before every test."""
+def clear_rate_limits(monkeypatch):
+    """Give every test a fresh, in-memory rate limiter.
+
+    With REDIS_URL set (as in CI), hits would otherwise be stored in Redis and
+    carry over between tests, so e.g. the sign-up limit trips after 5 tests.
+    """
+    monkeypatch.setattr(type(rate_limiter), "_check_redis", lambda self, *args, **kwargs: False)
     with rate_limiter._lock:
         rate_limiter._hits.clear()
     yield
