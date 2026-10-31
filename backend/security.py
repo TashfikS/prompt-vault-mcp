@@ -251,10 +251,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         csp = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
+            # Google sign-in (Firebase Auth) loads Google's scripts and a hidden frame on <project>.firebaseapp.com.
+            "script-src 'self' 'unsafe-inline' https://apis.google.com https://www.gstatic.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com data:; "
-            "img-src 'self' data: blob:; "
+            "img-src 'self' data: blob: https://lh3.googleusercontent.com; "
+            "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; "
             "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*; "
             f"frame-ancestors {frame_ancestors}; "
             "base-uri 'self'; "
