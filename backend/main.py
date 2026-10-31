@@ -4,6 +4,7 @@ import hashlib
 import html
 import io
 import json
+import logging
 import os
 import re
 from contextlib import asynccontextmanager
@@ -1141,28 +1142,31 @@ def _create_prompt(db: Session, user: User, group_id: str, title: str, content: 
 
 
 @app.get("/api/health")
-def health_check(db: Session = Depends(get_db)) -> dict:
-    """Fast health check endpoint reporting status for both Neon (Paid) and Supabase (Community) tiers."""
+def health_check(deep: bool = False) -> dict:
+    """Health check.
+
+    By default only the community (Supabase) database is pinged. Render's health
+    checker and the keep-alive workflow hit this endpoint often; pinging Neon
+    here would stop it from ever scaling to zero and burn free compute hours
+    (it would also keep Supabase from pausing, which is what we want).
+    Pass ``?deep=1`` to also check the paid (Neon) tier.
+    """
     from sqlalchemy import text
-    db_ok = True
-    try:
-        db.execute(text("SELECT 1"))
-    except Exception:
-        db_ok = False
 
-    neon_status = "connected"
-    try:
-        with SessionNeon() as n_db:
-            n_db.execute(text("SELECT 1"))
-    except Exception:
-        neon_status = "unreachable"
+    def _ping(factory) -> str:
+        try:
+            with factory() as s:
+                s.execute(text("SELECT 1"))
+            return "connected"
+        except Exception as exc:
+            logging.getLogger("prompthold.health").warning("Health ping failed: %s", exc)
+            return "unreachable"
 
-    supa_status = "connected" if is_supabase_configured() else "local_fallback (prompthold_community.db)"
-    try:
-        with SessionSupabase() as s_db:
-            s_db.execute(text("SELECT 1"))
-    except Exception:
-        supa_status = "unreachable"
+    supa_status = _ping(SessionSupabase)
+    if supa_status == "connected" and not is_supabase_configured():
+        supa_status = "local_fallback (prompthold_community.db)"
+    neon_status = _ping(SessionNeon) if deep else "not_checked"
+    db_ok = supa_status != "unreachable" and neon_status != "unreachable"
 
     return {
         "status": "ok" if db_ok else "degraded",

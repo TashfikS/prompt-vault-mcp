@@ -185,3 +185,16 @@ def test_shared_team_group_stays_in_source_tier():
         with neon() as db:
             assert db.query(User).filter_by(id=oid).one().plan == "pro"
             assert db.query(Prompt).count() == 0
+
+
+def test_shallow_health_check_never_touches_neon():
+    import main
+
+    def neon_forbidden():
+        raise AssertionError("health check must not open a Neon session")
+
+    supa, _ = _two_tiers()
+    with patch.object(main, "SessionNeon", neon_forbidden), patch.object(main, "SessionSupabase", supa):
+        data = main.health_check(deep=False)
+    assert data["tiers"]["paid"]["status"] == "not_checked"
+    assert data["status"] == "ok"

@@ -1,0 +1,29 @@
+name: Keep free tiers awake
+
+# Supabase pauses free projects after ~7 days without activity. This pings the
+# shallow health check (Supabase only — Neon is never touched, so it can keep
+# scaling to zero). Override the URL with the KEEPALIVE_URL repository variable.
+on:
+  schedule:
+    - cron: "17 6 */3 * *"   # every 3 days
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping health endpoint (retries cover Render cold start)
+        env:
+          URL: ${{ vars.KEEPALIVE_URL || 'https://prompthold-backend.onrender.com/api/health' }}
+        run: |
+          for i in 1 2 3 4 5; do
+            if body=$(curl -fsS --max-time 60 "$URL"); then
+              echo "$body"
+              echo "$body" | grep -q '"community"' && exit 0
+            fi
+            echo "attempt $i failed; retrying in 30s"; sleep 30
+          done
+          exit 1

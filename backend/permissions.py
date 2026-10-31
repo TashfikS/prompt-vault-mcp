@@ -44,7 +44,9 @@ def ensure_personal_group(db: Session, user: User) -> Group:
 
 
 def ensure_all_personal_groups(db: Session) -> None:
-    for user in db.query(User).all():
+    """Create missing Personal spaces with one query instead of one per user (cheap on every boot)."""
+    has_personal = db.query(Group.personal_owner_id).filter(Group.personal_owner_id.isnot(None))
+    for user in db.query(User).filter(User.id.notin_(has_personal)).all():
         ensure_personal_group(db, user)
 
 
