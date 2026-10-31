@@ -57,6 +57,26 @@ async function login(page, email, password) {
   }
 }
 
+// Demo accounts are never seeded in production, so the live suite provisions its own users.
+async function registerUser(label) {
+  const email = `ci_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}@example.com`;
+  const password = 'Password123!';
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `CI ${label}`, email, password })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.token) return { email, password, token: data.token, id: data.user?.id };
+    if (res.status !== 429) throw new Error(`register ${label} failed: HTTP ${res.status}`);
+    await delay(20000);
+  }
+  throw new Error(`register ${label} rate-limited`);
+}
+
+const authHeaders = token => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` });
+
 async function run() {
   console.log(`=== STARTING 21-FEATURE LIVE BROWSER E2E QA SUITE ===`);
   console.log(`Target URL: ${BASE_URL}`);
@@ -144,34 +164,29 @@ async function run() {
       record('User Registration & Personal Space Auto-Provision', 'Auth', 'FAIL', err.message);
     }
 
-    // 3. Demo Accounts & RBAC Authentication
+    // 3. Multi-role RBAC: an Owner, Member and Guest each see the shared group with their own role
+    let userA, userB, userC;
     try {
-      const demoUsers = [
-        { email: 'alice@example.com', role: 'ADMIN' },
-        { email: 'bob@example.com', role: 'OWNER' },
-        { email: 'charlie@example.com', role: 'MEMBER' },
-        { email: 'ian@example.com', role: 'GUEST' }
-      ];
-      let allOk = true;
-      for (const u of demoUsers) {
-        let data = {};
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const res = await fetch(`${API_BASE}/api/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: u.email, password: 'demo1234' })
-            });
-            data = await res.json().catch(() => ({}));
-            if (res.status === 200 && data.token) break;
-          } catch {}
-          await delay(1500);
-        }
-        if (!data.token) allOk = false;
+      userA = await registerUser('owner');
+      userB = await registerUser('member');
+      userC = await registerUser('guest');
+      const grp = await fetch(`${API_BASE}/api/groups`, {
+        method: 'POST', headers: authHeaders(userA.token),
+        body: JSON.stringify({ name: `CI RBAC ${Date.now()}`, description: 'RBAC roles', required_approvals: 1 })
+      }).then(r => r.json());
+      for (const [u, role] of [[userB, 'MEMBER'], [userC, 'GUEST']]) {
+        await fetch(`${API_BASE}/api/groups/${grp.id}/members`, { method: 'POST', headers: authHeaders(userA.token), body: JSON.stringify({ email: u.email, role }) });
       }
-      record('Demo Accounts & Multi-Role RBAC Authentication', 'Auth & RBAC', allOk ? 'PASS' : 'FAIL', 'Verified Alice, Bob, Charlie, and Ian login tokens');
+      let allOk = Boolean(grp.id);
+      for (const [u, role] of [[userA, 'GROUP_MANAGER'], [userB, 'MEMBER'], [userC, 'GUEST']]) {
+        const groups = await fetch(`${API_BASE}/api/groups`, { headers: authHeaders(u.token) }).then(r => r.json());
+        const g = Array.isArray(groups) && groups.find(x => x.id === grp.id);
+        const me = g && g.members.find(m => m.email === u.email);
+        if (!me || me.role !== role) allOk = false;
+      }
+      record('Multi-Role RBAC Authentication (Owner / Member / Guest)', 'Auth & RBAC', allOk ? 'PASS' : 'FAIL', 'Owner, Member and Guest each resolved their own group role');
     } catch (err) {
-      record('Demo Accounts & Multi-Role RBAC Authentication', 'Auth & RBAC', 'FAIL', err.message);
+      record('Multi-Role RBAC Authentication (Owner / Member / Guest)', 'Auth & RBAC', 'FAIL', err.message);
     }
 
     // 4-9. Prompt Core, Personalizer, Direct Versioning, Diff Viewer, Diff Share, and Active Rollback
@@ -351,12 +366,16 @@ async function run() {
       record('Embedded In-Chat MCP Drawer (?mcp_mode=1)', 'MCP Integration', 'FAIL', err.message);
     }
 
-    // 12. FastMCP SSE Protocol Gateway (/mcp)
+    // 12. FastMCP gateway (/mcp): stateless streamable HTTP; anonymous clients get an OAuth challenge
     try {
-      const res = await fetch(`${API_BASE}/mcp`);
-      const text = await res.text();
-      const mcpOk = text.includes('-32600') || text.includes('Missing session ID');
-      record('FastMCP Protocol Gateway Routing (/mcp)', 'MCP Integration', mcpOk ? 'PASS' : 'FAIL', 'Normalized root /mcp directly routes to FastMCP SSE handler');
+      const res = await fetch(`${API_BASE}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'ci-e2e', version: '1.0' } } })
+      });
+      const challenge = res.headers.get('www-authenticate') || '';
+      const mcpOk = res.status === 401 && challenge.includes('resource_metadata=');
+      record('FastMCP Protocol Gateway Routing (/mcp)', 'MCP Integration', mcpOk ? 'PASS' : 'FAIL', `Anonymous MCP request challenged with RFC 9728 resource metadata (HTTP ${res.status})`);
     } catch (err) {
       record('FastMCP Protocol Gateway Routing (/mcp)', 'MCP Integration', 'FAIL', err.message);
     }
@@ -377,7 +396,7 @@ async function run() {
     try {
       const ctx = await browser.createBrowserContext();
       const page = await ctx.newPage();
-      await login(page, 'alice@example.com', 'demo1234');
+      await login(page, testUser.email, testUser.password);
 
       await page.waitForFunction(() => Array.from(document.querySelectorAll('button')).some(b => b.innerText.includes('Upload files')));
       await page.evaluate(() => Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Upload files')).click());
@@ -413,10 +432,12 @@ async function run() {
     try {
       const ctx = await browser.createBrowserContext();
       const page = await ctx.newPage();
-      await login(page, 'alice@example.com', 'demo1234');
+      await login(page, testUser.email, testUser.password);
 
-      await page.waitForFunction(() => Array.from(document.querySelectorAll('button')).some(b => b.innerText.includes('Duplicate')));
-      await page.evaluate(() => Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Duplicate')).click());
+      // Card duplicate buttons are icon-only; match their accessible name as well as visible text.
+      const isDuplicateBtn = "b => b.innerText.includes('Duplicate') || (b.getAttribute('aria-label') || '').startsWith('Duplicate')";
+      await page.waitForFunction(`Array.from(document.querySelectorAll('button')).some(${isDuplicateBtn})`);
+      await page.evaluate(`Array.from(document.querySelectorAll('button')).find(${isDuplicateBtn}).click()`);
       await delay(2000);
 
       await page.evaluate(() => {
@@ -438,7 +459,7 @@ async function run() {
       const ctx = await browser.createBrowserContext();
       const page = await ctx.newPage();
       await page.setViewport({ width: 1440, height: 900 });
-      await login(page, 'alice@example.com', 'demo1234');
+      await login(page, testUser.email, testUser.password);
 
       // Click the feedback button - floating button or navbar help menu
       const opened = await page.evaluate(() => {
@@ -499,13 +520,9 @@ async function run() {
 
     // 17-20. Team Group Administration (Invite, Role Change, Member Removal, Settings Threshold)
     try {
-      const aliceLogin = await fetch(`${API_BASE}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'alice@example.com', password: 'demo1234' })
-      });
-      const aliceData = await aliceLogin.json();
-      const aliceToken = aliceData.token;
+      // Each Community account may own one team group, so the registered CI user owns this one.
+      const aliceToken = sessionToken;
+      if (!userB) throw new Error('RBAC users were not provisioned');
 
       // Create group
       const grpRes = await fetch(`${API_BASE}/api/groups`, {
@@ -519,7 +536,7 @@ async function run() {
       const inviteRes = await fetch(`${API_BASE}/api/groups/${grp.id}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aliceToken}` },
-        body: JSON.stringify({ email: 'charlie@example.com', role: 'MEMBER' })
+        body: JSON.stringify({ email: userB.email, role: 'MEMBER' })
       });
       const inviteData = await inviteRes.json();
       record('Team Group Administration: Member Invite', 'Team RBAC', inviteRes.status === 201 ? 'PASS' : 'FAIL', 'Invited registered teammate to team group');
@@ -528,7 +545,7 @@ async function run() {
       const roleRes = await fetch(`${API_BASE}/api/groups/${grp.id}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aliceToken}` },
-        body: JSON.stringify({ email: 'charlie@example.com', role: 'GUEST' })
+        body: JSON.stringify({ email: userB.email, role: 'GUEST' })
       });
       const roleData = await roleRes.json();
       record('Team Group Administration: Role Change (Member ↔ Guest)', 'Team RBAC', (roleRes.status === 200 || roleRes.status === 201) && roleData.role === 'GUEST' ? 'PASS' : 'FAIL', 'Changed member permission to read-only Guest');
@@ -554,12 +571,9 @@ async function run() {
 
     // 21. Proposal Review Gate & Auto-Merge
     try {
-      const aliceLogin = await fetch(`${API_BASE}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'alice@example.com', password: 'demo1234' })
-      });
-      const aliceToken = (await aliceLogin.json()).token;
+      if (!userB || !userC) throw new Error('RBAC users were not provisioned');
+      const gateOwner = userC;
+      const aliceToken = gateOwner.token;
 
       const time = Date.now();
       const gRes = await fetch(`${API_BASE}/api/groups`, {
@@ -569,13 +583,8 @@ async function run() {
       });
       const group = await gRes.json();
 
-      const memberEmail = `ci_member_${time}@example.com`;
-      const reg = await fetch(`${API_BASE}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'CI Member', email: memberEmail, password: 'Password123!', plan: 'team' })
-      });
-      const memberToken = (await reg.json()).token;
+      const memberEmail = userB.email;
+      const memberToken = userB.token;
 
       await fetch(`${API_BASE}/api/groups/${group.id}/members`, {
         method: 'POST',
@@ -598,7 +607,7 @@ async function run() {
 
       const ctx = await browser.createBrowserContext();
       const page = await ctx.newPage();
-      await login(page, 'alice@example.com', 'demo1234');
+      await login(page, gateOwner.email, gateOwner.password);
 
       await page.evaluate(() => {
         const nav = Array.from(document.querySelectorAll('button, a')).find(b => b.innerText.includes('Review requests') || b.innerText.includes('Reviews'));
