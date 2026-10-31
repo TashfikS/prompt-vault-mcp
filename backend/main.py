@@ -73,7 +73,9 @@ from mcp_server import has_session_key, mcp, register_session_key
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 SESSION_COOKIE_NAME = "ph_session"
-mcp_asgi = mcp.http_app(path="/")
+# Stateless: each request authenticates on its own, so Render free-tier restarts/sleeps (and multiple pods)
+# never strand clients on an in-memory MCP session that no longer exists (404 -> client gives up).
+mcp_asgi = mcp.http_app(path="/", stateless_http=True)
 mcp_sse_asgi = create_sse_app(server=mcp, message_path="/messages", sse_path="/sse")
 
 
