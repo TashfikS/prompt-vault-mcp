@@ -103,7 +103,8 @@ async def test_feedback_submission_and_admin_listing(client: AsyncClient, test_u
             "error": None,
         }
 
-    monkeypatch.setattr(main_module, "create_github_issue_for_feedback", fake_create_github_issue)
+    import routers.sharing as sharing_routes
+    monkeypatch.setattr(sharing_routes, "create_github_issue_for_feedback", fake_create_github_issue)
 
     res_submit = await client.post(
         "/api/feedback",
@@ -148,7 +149,8 @@ async def test_firebase_sso_login(client: AsyncClient, monkeypatch):
             "uid": "firebase-uid-123",
         }
 
-    monkeypatch.setattr(main_module, "verify_firebase_id_token", fake_verify_firebase_token)
+    import routers.auth_routes as auth_routes
+    monkeypatch.setattr(auth_routes, "verify_firebase_id_token", fake_verify_firebase_token)
 
     res = await client.post(
         "/api/auth/firebase",

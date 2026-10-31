@@ -35,7 +35,7 @@ ui-guardrails: ## Verify AGENTS.md Rule #5 (no native <select>, <datalist>, aler
 	@echo "✔ UI Guardrails passed: 0 native OS dialogs or <select>/<datalist> elements."
 
 lint: ui-guardrails typecheck ## Run backend bytecode syntax check, UI guardrails, and TypeScript check
-	$(PYTHON) -m py_compile backend/*.py backend/services/*.py backend/tests/*.py
+	$(PYTHON) -m py_compile backend/*.py backend/services/*.py backend/routers/*.py backend/tests/*.py
 	@echo "✔ Python bytecode syntax check passed."
 
 build: ## Build production frontend static bundle into frontend/dist

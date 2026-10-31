@@ -308,7 +308,7 @@ def save_prompt_version_from_chat(prompt_id: str, new_content: str,
                 "message": "Submitted as a proposal awaiting approval.",
             }
         if not user.is_workspace_admin:
-            from main import PLAN_LIMITS_MAP
+            from domain import PLAN_LIMITS_MAP
             user_plan = getattr(user, "plan", "community") or "community"
             plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
             max_versions = plan_info.get("max_versions_per_prompt", 10)
@@ -398,7 +398,7 @@ def duplicate_or_move_prompt(prompt_id: str, target_group_id: str,
             f"{prompt.title} (Copy)"[:240] if prompt.group_id == target_group.id else prompt.title[:240]
         )
         if not user.is_workspace_admin:
-            from main import PLAN_LIMITS_MAP
+            from domain import PLAN_LIMITS_MAP
             user_plan = getattr(user, "plan", "community") or "community"
             plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
             max_prompts = plan_info.get("max_prompts", 20)
@@ -471,7 +471,7 @@ def create_prompt_from_chat(title: str, content: str, group_id: str = "", group_
             raise ValueError("Guests have view-only access and cannot create prompts or proposals.")
 
         if not user.is_workspace_admin:
-            from main import PLAN_LIMITS_MAP
+            from domain import PLAN_LIMITS_MAP
             user_plan = getattr(user, "plan", "community") or "community"
             plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
             max_prompts = plan_info.get("max_prompts", 20)
