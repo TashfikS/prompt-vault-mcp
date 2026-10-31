@@ -126,7 +126,9 @@ Render hosts the Docker container running FastAPI, FastMCP server, and backgroun
    | `GATEWAY_SECRET` | `<random string>` | Shared with the Worker so the real client IP is trusted |
    | `TRUST_PROXY_HEADERS` | `true` | Honour `X-Forwarded-*` from the gateway |
    | `GEMINI_API_KEY` | `<key>` | Optional: semantic search embeddings |
-   | `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_PRO_PRODUCT_ID`, `POLAR_TEAM_PRODUCT_ID`, `POLAR_ENVIRONMENT` | | Optional: billing |
+   | `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_PRO_PRODUCT_ID`, `POLAR_PRO_ANNUAL_PRODUCT_ID`, `POLAR_TEAM_PRODUCT_ID`, `POLAR_TEAM_ANNUAL_PRODUCT_ID`, `POLAR_ENVIRONMENT` | | Billing. Team products must use seat-based pricing |
+   | `RESEND_API_KEY`, `EMAIL_FROM` | | Email confirmation and password-reset emails |
+   | `PUBLIC_BASE_URL` | `https://<your-app-domain>` | Required: base URL for links in emails |
    | `GITHUB_ISSUE_REPO`, `GITHUB_ISSUE_TOKEN` | | Optional: feedback → GitHub Issues |
    | `REDIS_URL` | `<upstash-redis-url>` | Upstash TCP Redis URL (`rediss://...:6379`) |
    | `FIREBASE_WEB_API_KEY` | `<firebase-api-key>` | Firebase Web API Key for SSO verification |

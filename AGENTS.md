@@ -53,6 +53,8 @@ Users can belong to multiple groups with distinct roles per group:
 - **Active Version Ranking & Instant Switching:** Rolling back to an older version activates that version directly by updating `current_version_number` (setting it as the Active Version) without creating a redundant version clone or deleting history. In the version timeline, the active version is ranked on top and highlighted with an Active Version badge. Only the Group Owner can switch the active version.
 
 ### Pillar 4: Authentication & Session Security
+- **Sign-up:** name, email, password, and a required Terms/Privacy checkbox (`terms_accepted_at` + `terms_version` stored); marketing email is a separate, unchecked-by-default opt-in. Password accounts must confirm their email before checkout. Verify/reset tokens are stored only as SHA-256 hashes on `users`. Signing in with Google/GitHub on an unverified password account clears that password and its sessions, so whoever registered an address they don't own loses access.
+- **Plan limits (`backend/plans.py`, `backend/services/limits.py`):** every limit shown on the pricing page is enforced in REST and MCP: prompts, versions, groups, API keys, monthly MCP calls (counted in `_auth_key`), share links and multi-file upload (Pro+), and Team editor seats (`billed_seats` from Polar) plus free guests per seat. Unbuilt features go in a tier's `coming_soon`, never in `features`.
 - **Authentication:** Token-based session authentication (`auth_sessions` table) with PBKDF2 password hashing (`hashlib.pbkdf2_hmac` with SHA-256 and salt).
 - **Dual Credential Support:**
   - Web UI: Authenticates via `Authorization: Bearer <session_token>` header.
@@ -260,6 +262,11 @@ Routes are grouped by file: `auth_routes.py` (register/login/logout/SSO), `oauth
 | `POST` | `/api/auth/register` | Register a new user and create their personal space | No |
 | `POST` | `/api/auth/login` | Authenticate with email/password and obtain session token | No |
 | `POST` | `/api/auth/logout` | Invalidate the current session token | Yes |
+| `POST` | `/api/auth/verify-email` | Confirm email ownership with the emailed one-time token | No |
+| `POST` | `/api/auth/resend-verification` | Re-send the confirmation email | Yes |
+| `POST` | `/api/auth/forgot-password` | Email a 1-hour reset link (same response whether or not the account exists) | No |
+| `POST` | `/api/auth/reset-password` | Set a new password with the reset token; signs out all sessions | No |
+| `PUT` | `/api/me/marketing` | Opt in/out of marketing email (consent timestamp stored) | Yes |
 | `GET` | `/api/me` | Current user profile, groups, and membership roles | Yes |
 | `GET` | `/api/users` | List registered teammates for member invitations | Yes |
 | `GET` | `/api/groups` | List groups visible to the current user | Yes |
@@ -281,6 +288,8 @@ Routes are grouped by file: `auth_routes.py` (register/login/logout/SSO), `oauth
 | `POST` | `/api/proposals/{id}/reject` | Reject a review request | Yes (Owner/Member) |
 | `POST` | `/api/diff-shares` | Create a shareable diff comparison link | Yes |
 | `GET` | `/api/diff-shares/{share_id}` | Retrieve pre-configured diff data for zero-config view | Open |
+| `GET` | `/api/pricing` | Plan catalogue (single source for the UI) plus the caller's usage | Open |
+| `GET` | `/api/audit-logs/export` | Download the audit trail as CSV | Yes (Workspace Admin) |
 | `GET` | `/api/billing/config` | Inspect Polar billing configuration status | Open |
 | `POST` | `/api/billing/checkout` | Create Polar checkout session URL for paid plan upgrade | Yes |
 | `POST` | `/api/billing/portal` | Create Polar customer portal session URL | Yes |
