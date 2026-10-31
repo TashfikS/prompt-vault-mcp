@@ -233,22 +233,22 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
 
         if user.plan != desired_plan:
             # Handle cross-database tier migration (Supabase <-> Neon)
+            audit_db = db
             if not is_test_env and is_community_plan(old_plan) != is_community_plan(desired_plan):
+                # Persist the Polar ids before the move so they travel with the user row.
+                db.commit()
                 migrate_user_tier(user.id, old_plan, desired_plan)
-                new_factory = get_sessionmaker_for_plan(desired_plan)
-                with new_factory() as new_db:
-                    migrated_user = new_db.query(User).filter_by(id=user.id).first()
-                    if migrated_user:
-                        migrated_user.plan = desired_plan
-                        if customer_id and hasattr(migrated_user, "polar_customer_id"):
-                            migrated_user.polar_customer_id = str(customer_id)
-                        if subscription_id and hasattr(migrated_user, "polar_subscription_id"):
-                            migrated_user.polar_subscription_id = str(subscription_id)
-                        new_db.commit()
-
-            user.plan = desired_plan
-            db.commit()
-            db.refresh(user)
+                db.expunge(user)  # the source row may now be gone; never flush it again
+                audit_db = get_sessionmaker_for_plan(desired_plan)()
+                migrated_user = audit_db.query(User).filter_by(id=user.id).first()
+                if migrated_user:
+                    migrated_user.plan = desired_plan
+                    audit_db.commit()
+                user.plan = desired_plan
+            else:
+                user.plan = desired_plan
+                db.commit()
+                db.refresh(user)
 
             # Record audit log
             try:
@@ -259,10 +259,13 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
                     target_id=user.id,
                     details=f"Upgraded plan from {old_plan} to {desired_plan} via Polar event '{event_type}'",
                 )
-                db.add(audit)
-                db.commit()
+                audit_db.add(audit)
+                audit_db.commit()
             except Exception:
-                pass
+                logger.exception("Failed to record upgrade audit log for user %s", user.id)
+            finally:
+                if audit_db is not db:
+                    audit_db.close()
 
             logger.info("Successfully upgraded user %s (%s) to %s via Polar event %s", user.id, user.email, desired_plan, event_type)
             return {"status": "upgraded", "user_id": user.id, "plan": desired_plan}
@@ -274,11 +277,16 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
         is_test_env = is_test_session(db)
         if user.plan != "community":
             # Migrate back to community tier
+            audit_db = db
             if not is_test_env and is_community_plan(old_plan) != is_community_plan("community"):
                 migrate_user_tier(user.id, old_plan, "community")
-            user.plan = "community"
-            db.commit()
-            db.refresh(user)
+                db.expunge(user)
+                audit_db = get_sessionmaker_for_plan("community")()
+                user.plan = "community"
+            else:
+                user.plan = "community"
+                db.commit()
+                db.refresh(user)
 
             try:
                 audit = AuditLog(
@@ -288,10 +296,13 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
                     target_id=user.id,
                     details=f"Subscription canceled on Polar event '{event_type}'. Reverted to community plan.",
                 )
-                db.add(audit)
-                db.commit()
+                audit_db.add(audit)
+                audit_db.commit()
             except Exception:
-                pass
+                logger.exception("Failed to record downgrade audit log for user %s", user.id)
+            finally:
+                if audit_db is not db:
+                    audit_db.close()
 
             logger.info("Downgraded user %s (%s) to community via Polar event %s", user.id, user.email, event_type)
             return {"status": "downgraded", "user_id": user.id, "plan": "community"}

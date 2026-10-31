@@ -1380,7 +1380,9 @@ def update_my_plan(payload: PlanUpdateRequest, request: Request, db: Session = D
 
     # If transitioning across database tiers (Community <-> Paid), migrate the user's data!
     if not is_test_env and is_community_plan(old_plan) != is_community_plan(payload.plan):
+        db.commit()
         migrate_user_tier(user.id, old_plan, payload.plan)
+        db.expunge(user)  # source row may be deleted now; never flush it from this session
         new_factory = get_sessionmaker_for_plan(payload.plan)
         with new_factory() as new_db:
             migrated_user = new_db.query(User).filter_by(id=user.id).first()

@@ -93,8 +93,10 @@ def verify_password(password: str, stored_hash: str | None) -> bool:
     return hmac.compare_digest(digest.hex(), expected)
 
 
-def generate_api_key() -> str:
-    return f"pv_live_{secrets.token_urlsafe(24)}"
+def generate_api_key(plan: str | None = None) -> str:
+    """Raw API key; the c/p tier hint lets the DB router skip the other database."""
+    from database import tier_hint_for_plan
+    return f"pv_live_{tier_hint_for_plan(plan)}_{secrets.token_urlsafe(24)}"
 
 
 def hash_api_key(raw_key: str) -> str:
@@ -121,7 +123,7 @@ def create_api_key_record(
     access_level: str = "READ_WRITE",
 ) -> tuple[ApiKey, str]:
     """Generate a new API key, persist its hash + metadata, and return (record, one_time_raw_key)."""
-    raw_key = generate_api_key()
+    raw_key = generate_api_key(getattr(user, "plan", None))
     normalized_access = "READ_ONLY" if access_level == "READ_ONLY" else "READ_WRITE"
     record = ApiKey(
         user_id=user.id,
@@ -140,7 +142,7 @@ def create_api_key_record(
     db.refresh(record)
     try:
         from database import cache_token_plan
-        cache_token_plan(raw_key, getattr(user, "plan", "community") or "community")
+        cache_token_plan(raw_key, getattr(user, "plan", "community") or "community", user_id=user.id)
     except Exception:
         pass
     return record, raw_key
@@ -158,7 +160,7 @@ def resolve_api_key(db: Session, token: str) -> tuple[User, ApiKey | None] | Non
         db.commit()
         try:
             from database import cache_token_plan
-            cache_token_plan(token, getattr(user, "plan", "community") or "community")
+            cache_token_plan(token, getattr(user, "plan", "community") or "community", user_id=user.id)
         except Exception:
             pass
         return user, record
@@ -166,13 +168,14 @@ def resolve_api_key(db: Session, token: str) -> tuple[User, ApiKey | None] | Non
 
 
 def create_session(db: Session, user: User) -> str:
-    raw_token = secrets.token_urlsafe(32)
+    from database import tier_hint_for_plan
+    raw_token = f"ph{tier_hint_for_plan(getattr(user, 'plan', None))}_{secrets.token_urlsafe(32)}"
     token_hash = hash_session_token(raw_token)
     db.add(AuthSession(token=token_hash, user_id=user.id, expires_at=datetime.utcnow() + SESSION_LIFETIME))
     db.commit()
     try:
         from database import cache_token_plan
-        cache_token_plan(raw_token, getattr(user, "plan", "community") or "community")
+        cache_token_plan(raw_token, getattr(user, "plan", "community") or "community", user_id=user.id)
     except Exception:
         pass
     return raw_token
@@ -205,7 +208,7 @@ def user_for_session_token(db: Session, token: str) -> User | None:
     if user is not None:
         try:
             from database import cache_token_plan
-            cache_token_plan(token, getattr(user, "plan", "community") or "community")
+            cache_token_plan(token, getattr(user, "plan", "community") or "community", user_id=user.id)
         except Exception:
             pass
     return user

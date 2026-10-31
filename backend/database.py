@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -179,25 +180,64 @@ def is_test_session(db: Session) -> bool:
 
 
 # -----------------------------------------------------------------------------
-# 3. In-Memory Token-to-Tier Routing Cache
+# 3. Token-to-Tier Routing
 # -----------------------------------------------------------------------------
+# New session tokens and API keys carry a tier hint so a request only touches the
+# database it needs (community traffic never wakes Neon's compute):
+#   sessions: "phc_..." (community) / "php_..." (paid)
+#   API keys: "pv_live_c_..." / "pv_live_p_..."
+# The hint is only a first guess: after a tier migration the token keeps its
+# prefix, so a miss falls back to the other database.
+
 
 _MAX_TOKEN_CACHE_SIZE = 2048
+_NEGATIVE_TTL_SECONDS = 60
 _token_plan_cache: dict[str, str] = {}
+_negative_cache: dict[str, float] = {}
+_user_token_index: dict[str, set[str]] = {}
 
 
-def cache_token_plan(token: str, plan: str) -> None:
-    """Associate a session token or API key with its database plan in cache."""
-    if not token:
-        return
-    clean_token = token.strip()
-    clean_plan = plan.strip().lower()
+def tier_hint_for_plan(plan: str | None) -> str:
+    return "c" if is_community_plan(plan) else "p"
+
+
+def token_tier_hint(token: str) -> str | None:
+    """Return 'c'/'p' when the token carries a tier prefix, else None (legacy token)."""
+    t = (token or "").strip()
+    for prefix, hint in (("phc_", "c"), ("php_", "p"), ("pv_live_c_", "c"), ("pv_live_p_", "p")):
+        if t.startswith(prefix):
+            return hint
+    return None
+
+
+def _hash(token: str) -> str:
+    return hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+
+
+def _evict_if_full() -> None:
     if len(_token_plan_cache) >= _MAX_TOKEN_CACHE_SIZE:
         for _ in range(min(128, len(_token_plan_cache))):
             _token_plan_cache.pop(next(iter(_token_plan_cache)), None)
+    if len(_negative_cache) >= _MAX_TOKEN_CACHE_SIZE:
+        now = time.monotonic()
+        for k in [k for k, exp in _negative_cache.items() if exp < now] or list(_negative_cache)[:128]:
+            _negative_cache.pop(k, None)
+
+
+def cache_token_plan(token: str, plan: str, user_id: str | None = None) -> None:
+    """Associate a session token or API key (raw or hashed) with its database plan."""
+    if not token:
+        return
+    clean_token = token.strip()
+    clean_plan = (plan or COMMUNITY_PLAN).strip().lower()
+    _evict_if_full()
+    token_h = _hash(clean_token)
     _token_plan_cache[clean_token] = clean_plan
-    token_h = hashlib.sha256(clean_token.encode("utf-8")).hexdigest()
     _token_plan_cache[token_h] = clean_plan
+    _negative_cache.pop(clean_token, None)
+    _negative_cache.pop(token_h, None)
+    if user_id:
+        _user_token_index.setdefault(user_id, set()).update({clean_token, token_h})
 
 
 def get_cached_token_plan(token: str) -> str | None:
@@ -207,8 +247,7 @@ def get_cached_token_plan(token: str) -> str | None:
     clean_token = token.strip()
     if clean_token in _token_plan_cache:
         return _token_plan_cache[clean_token]
-    token_h = hashlib.sha256(clean_token.encode("utf-8")).hexdigest()
-    return _token_plan_cache.get(token_h)
+    return _token_plan_cache.get(_hash(clean_token))
 
 
 def invalidate_token_plan(token: str) -> None:
@@ -216,13 +255,47 @@ def invalidate_token_plan(token: str) -> None:
     if not token:
         return
     clean_token = token.strip()
-    _token_plan_cache.pop(clean_token, None)
-    token_h = hashlib.sha256(clean_token.encode("utf-8")).hexdigest()
-    _token_plan_cache.pop(token_h, None)
+    for k in (clean_token, _hash(clean_token)):
+        _token_plan_cache.pop(k, None)
+        _negative_cache.pop(k, None)
+
+
+def invalidate_user_token_plans(user_id: str) -> None:
+    """Drop every cached token of a user (call after a plan / tier change)."""
+    for k in _user_token_index.pop(user_id, set()):
+        _token_plan_cache.pop(k, None)
+
+
+def _lookup_plan_in(session_factory: sessionmaker[Session], token: str, default_plan: str) -> tuple[str, str] | None:
+    """Return (plan, user_id) if the token is a live session or API key in this database."""
+    from models import ApiKey, AuthSession, User
+
+    clean = token.strip()
+    token_h = _hash(clean)
+    with session_factory() as db:
+        user_id = None
+        sess = db.query(AuthSession.user_id).filter(AuthSession.token.in_([token_h, clean])).first()
+        if sess is not None:
+            user_id = sess[0]
+        else:
+            key = db.query(ApiKey.user_id).filter_by(key_hash=token_h, is_active=True).first()
+            if key is not None:
+                user_id = key[0]
+        if user_id is None:
+            return None
+        row = db.query(User.plan).filter_by(id=user_id).first()
+        plan = (row[0] if row else None) or default_plan
+        return plan, user_id
 
 
 def resolve_token_plan(token: str) -> str:
-    """Determine whether an authentication token belongs to Supabase (community) or Neon (paid)."""
+    """Determine whether a token belongs to Supabase (community) or Neon (paid).
+
+    Tier-prefixed tokens query their own database first; legacy tokens probe
+    Supabase first. Unknown tokens are negatively cached for a short time so
+    bots and expired sessions do not repeatedly wake Neon. Database errors are
+    logged (not swallowed) and the request falls through to the default tier.
+    """
     if not token:
         return COMMUNITY_PLAN
 
@@ -231,50 +304,29 @@ def resolve_token_plan(token: str) -> str:
         return cached
 
     clean_token = token.strip()
-    token_h = hashlib.sha256(clean_token.encode("utf-8")).hexdigest()
+    neg_exp = _negative_cache.get(clean_token)
+    if neg_exp is not None:
+        if neg_exp > time.monotonic():
+            return COMMUNITY_PLAN
+        _negative_cache.pop(clean_token, None)
 
-    # Local import to prevent circular dependency
-    from models import ApiKey, AuthSession, User
+    order = [("community", SessionSupabase, COMMUNITY_PLAN), ("paid", SessionNeon, "team")]
+    if token_tier_hint(clean_token) == "p":
+        order.reverse()
 
-    # 1. Probe Supabase (Free/Community tier)
-    try:
-        with SessionSupabase() as s_db:
-            sess = s_db.query(AuthSession).filter(AuthSession.token.in_([token_h, clean_token])).first()
-            if sess is not None:
-                user = s_db.query(User).filter_by(id=sess.user_id).first()
-                plan = getattr(user, "plan", COMMUNITY_PLAN) or COMMUNITY_PLAN
-                cache_token_plan(token, plan)
-                return plan
+    for label, factory, default_plan in order:
+        try:
+            found = _lookup_plan_in(factory, clean_token, default_plan)
+        except Exception as exc:
+            logger.warning("[PromptHold DB Router] %s database lookup failed: %s", label, exc)
+            continue
+        if found is not None:
+            plan, user_id = found
+            cache_token_plan(clean_token, plan, user_id=user_id)
+            return plan
 
-            key = s_db.query(ApiKey).filter_by(key_hash=token_h, is_active=True).first()
-            if key is not None:
-                user = s_db.query(User).filter_by(id=key.user_id).first()
-                plan = getattr(user, "plan", COMMUNITY_PLAN) or COMMUNITY_PLAN
-                cache_token_plan(token, plan)
-                return plan
-    except Exception:
-        pass
-
-    # 2. Probe Neon (Paid tiers: Pro, Team, Enterprise)
-    try:
-        with SessionNeon() as n_db:
-            sess = n_db.query(AuthSession).filter(AuthSession.token.in_([token_h, clean_token])).first()
-            if sess is not None:
-                user = n_db.query(User).filter_by(id=sess.user_id).first()
-                plan = getattr(user, "plan", "team") or "team"
-                cache_token_plan(token, plan)
-                return plan
-
-            key = n_db.query(ApiKey).filter_by(key_hash=token_h, is_active=True).first()
-            if key is not None:
-                user = n_db.query(User).filter_by(id=key.user_id).first()
-                plan = getattr(user, "plan", "team") or "team"
-                cache_token_plan(token, plan)
-                return plan
-    except Exception:
-        pass
-
-    cache_token_plan(token, COMMUNITY_PLAN)
+    _evict_if_full()
+    _negative_cache[clean_token] = time.monotonic() + _NEGATIVE_TTL_SECONDS
     return COMMUNITY_PLAN
 
 
@@ -282,12 +334,29 @@ def resolve_token_plan(token: str) -> str:
 # 4. Seamless Data Migration Across Database Tiers (Plan Upgrade/Downgrade)
 # -----------------------------------------------------------------------------
 
+def _copy_rows(dst_db: Session, rows: list[Any]) -> None:
+    """Upsert ORM rows into another database by primary key (safe to re-run)."""
+    for row in rows:
+        mapper = inspect(type(row))
+        values = {attr.key: getattr(row, attr.key) for attr in mapper.column_attrs}
+        dst_db.merge(type(row)(**values))
+    dst_db.flush()
+
+
 def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
-    """Migrate a user and their prompts, versions, API keys, and sessions between Supabase and Neon."""
+    """Move a user and the data they own between Supabase (community) and Neon (paid).
+
+    Idempotent: rows are upserted by primary key, so a retry after a crash
+    completes the move instead of failing or duplicating. The source copy is
+    only deleted after the destination commit succeeds. What moves: the user,
+    their Personal space, team groups where they are the only member, all
+    prompts/versions/chunks/diff links/proposals inside those groups, and the
+    user's API keys and sessions. Shared team groups stay in the source tier.
+    Raises on failure so callers (billing webhooks) can log and retry.
+    """
     from_community = is_community_plan(from_plan)
     to_community = is_community_plan(to_plan)
     if from_community == to_community:
-        # Both are in the same database tier (e.g. Pro -> Team in Neon)
         return
 
     from models import (
@@ -296,9 +365,12 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
         Group,
         GroupMembership,
         Prompt,
+        PromptChunk,
         PromptProposal,
         PromptVersion,
         ProposalApproval,
+        ProposalComment,
+        SharedDiffLink,
         User,
     )
 
@@ -308,167 +380,96 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
     with src_factory() as src_db, dst_factory() as dst_db:
         src_user = src_db.query(User).filter_by(id=user_id).first()
         if not src_user:
+            # Already moved (or never existed): just make sure routing is fresh.
+            invalidate_user_token_plans(user_id)
             return
 
-        # 1. Migrate or update User record in destination
-        dst_user = dst_db.query(User).filter_by(id=user_id).first()
-        if not dst_user:
-            dst_user = User(
-                id=src_user.id,
-                name=src_user.name,
-                email=src_user.email,
-                is_workspace_admin=src_user.is_workspace_admin,
-                api_key=src_user.api_key,
-                password_hash=src_user.password_hash,
-                onboarding_completed=src_user.onboarding_completed,
-                plan=to_plan,
-                polar_customer_id=getattr(src_user, "polar_customer_id", None),
-                polar_subscription_id=getattr(src_user, "polar_subscription_id", None),
-                failed_login_attempts=getattr(src_user, "failed_login_attempts", 0) or 0,
-                locked_until=getattr(src_user, "locked_until", None),
-                last_login_at=getattr(src_user, "last_login_at", None),
-                created_at=src_user.created_at,
-            )
-            dst_db.add(dst_user)
-        else:
-            dst_user.plan = to_plan
-            dst_user.name = src_user.name
-            dst_user.polar_customer_id = getattr(src_user, "polar_customer_id", None)
-            dst_user.polar_subscription_id = getattr(src_user, "polar_subscription_id", None)
-            dst_user.password_hash = src_user.password_hash
-            dst_user.failed_login_attempts = getattr(src_user, "failed_login_attempts", 0) or 0
-            dst_user.locked_until = getattr(src_user, "locked_until", None)
-            dst_user.last_login_at = getattr(src_user, "last_login_at", None)
-        dst_db.flush()
-
-        # 2. Migrate User's Groups (Personal space & created groups)
-        user_groups = src_db.query(Group).filter(
+        candidate_groups = src_db.query(Group).filter(
             (Group.personal_owner_id == user_id) | (Group.created_by == user_id)
         ).all()
-        for g in user_groups:
-            existing_g = dst_db.query(Group).filter_by(id=g.id).first()
-            if not existing_g:
-                dst_g = Group(
-                    id=g.id,
-                    name=g.name,
-                    description=g.description,
-                    created_by=g.created_by,
-                    created_at=g.created_at,
-                    personal_owner_id=g.personal_owner_id,
-                    required_approvals=g.required_approvals,
-                )
-                dst_db.add(dst_g)
-        dst_db.flush()
-
-        # 3. Migrate Group Memberships
-        memberships = src_db.query(GroupMembership).filter_by(user_id=user_id).all()
-        for m in memberships:
-            if not dst_db.query(Group).filter_by(id=m.group_id).first():
+        groups = []
+        for g in candidate_groups:
+            if g.personal_owner_id == user_id:
+                groups.append(g)
                 continue
-            existing_m = dst_db.query(GroupMembership).filter_by(id=m.id).first()
-            if not existing_m:
-                dst_m = GroupMembership(
-                    id=m.id,
-                    user_id=m.user_id,
-                    group_id=m.group_id,
-                    role=m.role,
-                    added_at=m.added_at,
-                )
-                dst_db.add(dst_m)
-        dst_db.flush()
+            others = src_db.query(GroupMembership).filter(
+                GroupMembership.group_id == g.id, GroupMembership.user_id != user_id
+            ).count()
+            if others == 0:
+                groups.append(g)
+            else:
+                logger.info("Tier migration: shared group %s stays in the %s tier", g.id, from_plan)
+        group_ids = [g.id for g in groups]
 
-        # 4. Migrate Prompts & Prompt Versions
-        user_prompts = src_db.query(Prompt).filter_by(created_by=user_id).all()
-        for p in user_prompts:
-            if not dst_db.query(Group).filter_by(id=p.group_id).first():
-                continue
-            existing_p = dst_db.query(Prompt).filter_by(id=p.id).first()
-            if not existing_p:
-                dst_p = Prompt(
-                    id=p.id,
-                    group_id=p.group_id,
-                    title=p.title,
-                    description=p.description,
-                    current_version_number=p.current_version_number,
-                    current_version_id=p.current_version_id,
-                    created_by=p.created_by,
-                    updated_at=p.updated_at,
-                    is_archived=p.is_archived,
-                )
-                dst_db.add(dst_p)
-                dst_db.flush()
-
-            versions = src_db.query(PromptVersion).filter_by(prompt_id=p.id).all()
-            for v in versions:
-                existing_v = dst_db.query(PromptVersion).filter_by(id=v.id).first()
-                if not existing_v:
-                    dst_v = PromptVersion(
-                        id=v.id,
-                        prompt_id=v.prompt_id,
-                        version_number=v.version_number,
-                        content=v.content,
-                        variables_json=v.variables_json,
-                        change_Note=v.change_Note,
-                        source_filename=v.source_filename,
-                        author_id=v.author_id,
-                        created_at=v.created_at,
-                    )
-                    dst_db.add(dst_v)
-            dst_db.flush()
-
-        # 5. Migrate ApiKeys
+        prompts = src_db.query(Prompt).filter(Prompt.group_id.in_(group_ids)).all() if group_ids else []
+        prompt_ids = [p.id for p in prompts]
+        versions = src_db.query(PromptVersion).filter(PromptVersion.prompt_id.in_(prompt_ids)).all() if prompt_ids else []
+        chunks = src_db.query(PromptChunk).filter(PromptChunk.prompt_id.in_(prompt_ids)).all() if prompt_ids else []
+        diffs = src_db.query(SharedDiffLink).filter(SharedDiffLink.prompt_id.in_(prompt_ids)).all() if prompt_ids else []
+        proposals = src_db.query(PromptProposal).filter(PromptProposal.prompt_id.in_(prompt_ids)).all() if prompt_ids else []
+        proposal_ids = [p.id for p in proposals]
+        approvals = src_db.query(ProposalApproval).filter(ProposalApproval.proposal_id.in_(proposal_ids)).all() if proposal_ids else []
+        comments = src_db.query(ProposalComment).filter(ProposalComment.proposal_id.in_(proposal_ids)).all() if proposal_ids else []
+        memberships = src_db.query(GroupMembership).filter(
+            GroupMembership.user_id == user_id, GroupMembership.group_id.in_(group_ids)
+        ).all() if group_ids else []
         keys = src_db.query(ApiKey).filter_by(user_id=user_id).all()
-        for k in keys:
-            existing_k = dst_db.query(ApiKey).filter_by(id=k.id).first()
-            if not existing_k:
-                dst_k = ApiKey(
-                    id=k.id,
-                    user_id=k.user_id,
-                    name=k.name,
-                    description=k.description,
-                    key_prefix=k.key_prefix,
-                    key_hash=k.key_hash,
-                    scope_type=k.scope_type,
-                    access_level=k.access_level,
-                    group_id=k.group_id,
-                    is_active=k.is_active,
-                    last_used_at=k.last_used_at,
-                    revoked_at=k.revoked_at,
-                    created_at=k.created_at,
-                )
-                dst_db.add(dst_k)
-                cache_token_plan(k.key_hash, to_plan)
-
-        # 6. Migrate AuthSessions
         sessions = src_db.query(AuthSession).filter_by(user_id=user_id).all()
-        for s in sessions:
-            existing_s = dst_db.query(AuthSession).filter_by(token=s.token).first()
-            if not existing_s:
-                dst_s = AuthSession(
-                    token=s.token,
-                    user_id=s.user_id,
-                    created_at=s.created_at,
-                    expires_at=s.expires_at,
-                )
-                dst_db.add(dst_s)
-            cache_token_plan(s.token, to_plan)
+        # Group-scoped keys pointing at a group that stays behind cannot move with a valid FK.
+        keys = [k for k in keys if not k.group_id or k.group_id in group_ids]
 
-        dst_db.commit()
-
-        # 7. Clean up transferred entities from source database
+        # 1. Upsert into destination, parents before children.
         try:
-            src_db.query(AuthSession).filter_by(user_id=user_id).delete(synchronize_session=False)
-            src_db.query(ApiKey).filter_by(user_id=user_id).delete(synchronize_session=False)
-            for p in user_prompts:
-                src_db.query(PromptVersion).filter_by(prompt_id=p.id).delete(synchronize_session=False)
-                src_db.query(Prompt).filter_by(id=p.id).delete(synchronize_session=False)
-            src_db.query(GroupMembership).filter_by(user_id=user_id).delete(synchronize_session=False)
-            src_db.query(Group).filter_by(personal_owner_id=user_id).delete(synchronize_session=False)
-            src_db.query(User).filter_by(id=user_id).delete(synchronize_session=False)
+            _copy_rows(dst_db, [src_user])
+            dst_db.query(User).filter_by(id=user_id).update({"plan": to_plan}, synchronize_session=False)
+            for batch in (groups, memberships, prompts, versions, chunks, diffs, proposals, approvals, comments, keys, sessions):
+                _copy_rows(dst_db, batch)
+            dst_db.commit()
+        except Exception:
+            dst_db.rollback()
+            logger.exception("Tier migration of user %s (%s -> %s) failed while copying", user_id, from_plan, to_plan)
+            raise
+
+        # 2. Routing now points at the destination before anything is deleted.
+        invalidate_user_token_plans(user_id)
+        for k in keys:
+            cache_token_plan(k.key_hash, to_plan, user_id=user_id)
+        for sess in sessions:
+            cache_token_plan(sess.token, to_plan, user_id=user_id)
+
+        # 3. Delete the source copy, children before parents.
+        try:
+            def _delete(model: Any, ids: list[str], col: str = "id") -> None:
+                if ids:
+                    src_db.query(model).filter(getattr(model, col).in_(ids)).delete(synchronize_session=False)
+
+            _delete(ProposalComment, [c.id for c in comments])
+            _delete(ProposalApproval, [a.id for a in approvals])
+            _delete(PromptProposal, proposal_ids)
+            _delete(SharedDiffLink, [d.id for d in diffs])
+            _delete(PromptChunk, [c.id for c in chunks])
+            if prompt_ids:
+                src_db.query(Prompt).filter(Prompt.id.in_(prompt_ids)).update({"current_version_id": None}, synchronize_session=False)
+            _delete(PromptVersion, [v.id for v in versions])
+            _delete(Prompt, prompt_ids)
+            _delete(AuthSession, [x.token for x in sessions], col="token")
+            _delete(ApiKey, [k.id for k in keys])
+            _delete(GroupMembership, [m.id for m in memberships])
+            _delete(Group, group_ids)
+            remaining = src_db.query(GroupMembership).filter_by(user_id=user_id).count()
+            if remaining == 0:
+                src_db.query(User).filter_by(id=user_id).delete(synchronize_session=False)
+            else:
+                # Still a member of shared groups in this tier: keep a stub so FKs stay valid.
+                src_db.query(User).filter_by(id=user_id).update({"plan": to_plan}, synchronize_session=False)
             src_db.commit()
-        except Exception as e:
-            logger.error("Error cleaning up source database after migration: %s", e)
+        except Exception:
             src_db.rollback()
+            logger.exception(
+                "Tier migration of user %s copied to %s but source cleanup failed; re-run migrate_user_tier to finish",
+                user_id, to_plan,
+            )
+            raise
 
 
 # -----------------------------------------------------------------------------
