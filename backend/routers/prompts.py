@@ -25,6 +25,7 @@ from schemas import (PromptCreateRequest, PromptDuplicateRequest, PromptUpdateRe
 from security import (MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES,
                       MAX_UPLOAD_FILE_BYTES, get_client_ip, rate_limiter, record_audit_log, sanitize_filename, validate_text_upload_content)
 
+import services.prompts as prompt_service
 from deps import (current_user, _active_key, _require_write_permission)
 from domain import (_version_read, _check_prompt_quota, _check_version_quota, _create_prompt, _accessible_prompt)
 
@@ -118,49 +119,23 @@ def create_prompt(payload: PromptCreateRequest, db: Session = Depends(get_db), u
     role = get_user_group_role(db, user, payload.group_id)
     if role == "GUEST":
         raise HTTPException(status_code=403, detail="Guests have view-only access and cannot create prompts.")
-    _check_prompt_quota(db, user, payload.group_id)
-    if not can_user_direct_write_prompt(db, user, payload.group_id):
-        safe_title = (payload.title.strip() or "Untitled prompt")[:240]
-        safe_desc = (payload.description or "")[:2000]
-        safe_note = (payload.change_note or "Initial creation proposal")[:500]
-        prompt = Prompt(
-            group_id=payload.group_id,
-            title=safe_title,
-            description=safe_desc,
-            current_version_number=1,
-            created_by=user.id,
-            is_archived=True,
-        )
-        db.add(prompt)
-        db.flush()
-        proposal = PromptProposal(
-            prompt_id=prompt.id,
-            group_id=payload.group_id,
-            proposer_id=user.id,
-            title=safe_title,
-            description=safe_desc,
-            content=payload.content,
-            change_note=safe_note,
-            status="PENDING",
-        )
-        db.add(proposal)
-        db.commit()
-        db.refresh(proposal)
-        record_audit_log(db, "PROPOSAL_CREATED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"New prompt proposal: {safe_title}")
+    try:
+        result = prompt_service.create_or_propose(db, user, payload.group_id, payload.title, payload.content,
+                                                  payload.description, payload.change_note, payload.source_filename)
+    except prompt_service.PromptError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    prompt = result.prompt
+    if result.proposal is not None:
+        record_audit_log(db, "PROPOSAL_CREATED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"New prompt proposal: {prompt.title}")
         return {
             "id": prompt.id,
             "title": prompt.title,
             "group_id": prompt.group_id,
             "proposal_created": True,
-            "proposal_id": proposal.id,
+            "proposal_id": result.proposal.id,
             "status": "PENDING",
             "message": "Your new prompt proposal has been submitted for team review before publishing.",
         }
-
-    prompt = _create_prompt(db, user, payload.group_id, payload.title, payload.content, payload.description,
-                            payload.change_note, payload.source_filename)
-    db.commit()
-    db.refresh(prompt)
     return {
         "id": prompt.id,
         "title": prompt.title,
@@ -433,32 +408,18 @@ def duplicate_or_move_prompt_route(
             detail="Guests have view-only access and cannot add prompts to the target group. You must be a Member or Owner of the target group.",
         )
 
-    source_group = db.query(Group).filter_by(id=prompt.group_id).first()
-    src_name = group_display_name(source_group) if source_group else "Source group"
     tgt_name = group_display_name(target_group)
+    try:
+        if payload.mode == "move":
+            old_group_id = prompt_service.move(db, prompt, target_group, payload.title or "")
+        else:
+            new_prompt = prompt_service.duplicate(db, user, prompt, target_group, payload.title or "")
+    except prompt_service.PromptError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     if payload.mode == "move":
-        if prompt.group_id == payload.target_group_id:
-            raise HTTPException(status_code=400, detail="The prompt is already in this space.")
-        old_group_id = prompt.group_id
-        prompt.group_id = payload.target_group_id
-        if payload.title and payload.title.strip():
-            prompt.title = payload.title.strip()[:240]
-        prompt.updated_at = datetime.utcnow()
-        # Transfer any pending proposals for this prompt
-        db.query(PromptProposal).filter_by(prompt_id=prompt.id).update({"group_id": payload.target_group_id})
-        db.commit()
-        db.refresh(prompt)
-        invalidate_prompt_cache(prompt.id)
-        record_audit_log(
-            db,
-            "PROMPT_MOVED",
-            user_id=user.id,
-            ip_address=get_client_ip(request),
-            target_type="prompt",
-            target_id=prompt.id,
-            details=f"Moved from {old_group_id} to {payload.target_group_id}",
-        )
+        record_audit_log(db, "PROMPT_MOVED", user_id=user.id, ip_address=get_client_ip(request), target_type="prompt",
+                         target_id=prompt.id, details=f"Moved from {old_group_id} to {target_group.id}")
         return {
             "id": prompt.id,
             "title": prompt.title,
@@ -469,58 +430,8 @@ def duplicate_or_move_prompt_route(
             "message": f"Prompt successfully moved to {tgt_name}.",
         }
 
-    # Otherwise mode == "copy" (Duplicate)
-    active_version = None
-    if prompt.current_version_id:
-        active_version = db.query(PromptVersion).filter_by(id=prompt.current_version_id).first()
-    if not active_version:
-        active_version = (
-            db.query(PromptVersion)
-            .filter_by(prompt_id=prompt.id, version_number=prompt.current_version_number)
-            .first()
-        )
-    if not active_version:
-        active_version = (
-            db.query(PromptVersion)
-            .filter_by(prompt_id=prompt.id)
-            .order_by(PromptVersion.version_number.desc())
-            .first()
-        )
-    if not active_version:
-        raise HTTPException(status_code=400, detail="Source prompt has no content to duplicate.")
-
-    _check_prompt_quota(db, user, payload.target_group_id, 1)
-
-    if payload.title and payload.title.strip():
-        new_title = payload.title.strip()[:240]
-    else:
-        if prompt.group_id == payload.target_group_id:
-            new_title = f"{prompt.title} (Copy)"[:240]
-        else:
-            new_title = prompt.title[:240]
-
-    change_note = f"Duplicated from {src_name} (v{prompt.current_version_number})"
-    new_prompt = _create_prompt(
-        db=db,
-        user=user,
-        group_id=payload.target_group_id,
-        title=new_title,
-        content=active_version.content,
-        description=prompt.description,
-        change_note=change_note,
-        source_filename=active_version.source_filename,
-    )
-    db.commit()
-    db.refresh(new_prompt)
-    record_audit_log(
-        db,
-        "PROMPT_DUPLICATED",
-        user_id=user.id,
-        ip_address=get_client_ip(request),
-        target_type="prompt",
-        target_id=new_prompt.id,
-        details=f"Duplicated from {prompt.id} ({prompt.title}) to {target_group.id}",
-    )
+    record_audit_log(db, "PROMPT_DUPLICATED", user_id=user.id, ip_address=get_client_ip(request), target_type="prompt",
+                     target_id=new_prompt.id, details=f"Duplicated from {prompt.id} ({prompt.title}) to {target_group.id}")
     return {
         "id": new_prompt.id,
         "title": new_prompt.title,
@@ -530,7 +441,6 @@ def duplicate_or_move_prompt_route(
         "mode": "copy",
         "message": f"Prompt successfully duplicated to {tgt_name}.",
     }
-
 
 
 @router.get("/api/prompts/{prompt_id}/versions")

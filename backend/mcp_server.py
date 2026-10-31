@@ -32,6 +32,7 @@ from permissions import (
 )
 from models import ApiKey, Group, Prompt, PromptProposal, PromptVersion, ProposalApproval, ProposalComment, User
 import services.proposals as proposal_service
+import services.prompts as prompt_service
 from search import hybrid_search_prompts, sync_prompt_embeddings
 from security import escape_like, get_client_ip, rate_limiter, record_audit_log
 
@@ -308,7 +309,7 @@ def save_prompt_version_from_chat(prompt_id: str, new_content: str,
                 "message": "Submitted as a proposal awaiting approval.",
             }
         if not user.is_workspace_admin:
-            from domain import PLAN_LIMITS_MAP
+            from plans import PLAN_LIMITS_MAP
             user_plan = getattr(user, "plan", "community") or "community"
             plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
             max_versions = plan_info.get("max_versions_per_prompt", 10)
@@ -360,21 +361,16 @@ def duplicate_or_move_prompt(prompt_id: str, target_group_id: str,
         if target_role == "GUEST" or target_role not in {"GROUP_MANAGER", "MEMBER"}:
             raise ValueError("Guests have view-only access and cannot add prompts to the target group.")
 
-        source_group = db.query(Group).filter_by(id=prompt.group_id).first()
-        src_name = group_display_name(source_group) if source_group else "Source space"
         tgt_name = group_display_name(target_group)
+        try:
+            if clean_mode == "move":
+                old_group_id = prompt_service.move(db, prompt, target_group, new_title)
+            else:
+                new_prompt = prompt_service.duplicate(db, user, prompt, target_group, new_title)
+        except prompt_service.PromptError as exc:
+            raise ValueError(str(exc)) from exc
 
         if clean_mode == "move":
-            if prompt.group_id == target_group.id:
-                raise ValueError("The prompt is already in this space.")
-            old_group_id = prompt.group_id
-            prompt.group_id = target_group.id
-            if new_title.strip():
-                prompt.title = new_title.strip()[:240]
-            prompt.updated_at = datetime.utcnow()
-            db.query(PromptProposal).filter_by(prompt_id=prompt.id).update({"group_id": target_group.id})
-            db.commit()
-            invalidate_prompt_cache(prompt.id)
             record_audit_log(db, "MCP_PROMPT_MOVED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"Moved from {old_group_id} to {target_group.id}")
             return {
                 "id": prompt.id,
@@ -385,43 +381,6 @@ def duplicate_or_move_prompt(prompt_id: str, target_group_id: str,
                 "message": f"Prompt successfully moved to {tgt_name}."
             }
 
-        # Otherwise copy (Duplicate)
-        active_ver = None
-        if prompt.current_version_id:
-            active_ver = db.query(PromptVersion).filter_by(id=prompt.current_version_id).first()
-        if not active_ver:
-            active_ver = db.query(PromptVersion).filter_by(prompt_id=prompt.id, version_number=prompt.current_version_number).first()
-        if not active_ver:
-            raise ValueError("Source prompt has no saved version to duplicate.")
-
-        prompt_title = new_title.strip()[:240] if new_title.strip() else (
-            f"{prompt.title} (Copy)"[:240] if prompt.group_id == target_group.id else prompt.title[:240]
-        )
-        if not user.is_workspace_admin:
-            from domain import PLAN_LIMITS_MAP
-            user_plan = getattr(user, "plan", "community") or "community"
-            plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
-            max_prompts = plan_info.get("max_prompts", 20)
-            existing_count = db.query(Prompt).filter(Prompt.created_by == user.id, Prompt.is_archived.is_(False)).count()
-            if existing_count >= max_prompts:
-                raise ValueError(f"Prompt limit reached ({existing_count}/{max_prompts}) for the {plan_info['name']} plan.")
-
-        safe_note = f"Duplicated from {src_name} (v{prompt.current_version_number})"
-        new_prompt = Prompt(group_id=target_group.id, title=prompt_title, description=prompt.description,
-                            current_version_number=1, created_by=user.id)
-        db.add(new_prompt)
-        db.flush()
-        v1 = PromptVersion(prompt_id=new_prompt.id, version_number=1, content=active_ver.content,
-                           variables_json=json.dumps(extract_variables(active_ver.content)),
-                           change_Note=safe_note, source_filename=active_ver.source_filename, author_id=user.id)
-        db.add(v1)
-        db.flush()
-        new_prompt.current_version_id = v1.id
-        db.commit()
-        db.refresh(new_prompt)
-        set_cached_version_by_uuid(v1.id, {"id": v1.id, "content": v1.content})
-        set_cached_active_version_uuid(new_prompt.id, v1.id)
-        sync_prompt_embeddings(db, new_prompt, v1)
         record_audit_log(db, "MCP_PROMPT_DUPLICATED", user_id=user.id, target_type="prompt", target_id=new_prompt.id, details=f"Duplicated from {prompt.id} to {target_group.id}")
         return {
             "id": new_prompt.id,
@@ -470,40 +429,13 @@ def create_prompt_from_chat(title: str, content: str, group_id: str = "", group_
         if role == "GUEST":
             raise ValueError("Guests have view-only access and cannot create prompts or proposals.")
 
-        if not user.is_workspace_admin:
-            from domain import PLAN_LIMITS_MAP
-            user_plan = getattr(user, "plan", "community") or "community"
-            plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
-            max_prompts = plan_info.get("max_prompts", 20)
-            existing_count = db.query(Prompt).filter(Prompt.created_by == user.id, Prompt.is_archived.is_(False)).count()
-            if existing_count >= max_prompts:
-                raise ValueError(f"Prompt limit reached ({existing_count}/{max_prompts}) for the {plan_info['name']} plan.")
-
         tgt_name = group_display_name(target_group)
-        if not can_user_direct_write_prompt(db, user, target_group.id):
-            # Member proposing a new prompt in a team space!
-            prompt = Prompt(
-                group_id=target_group.id,
-                title=safe_title,
-                description=safe_desc,
-                current_version_number=1,
-                created_by=user.id,
-                is_archived=True,
-            )
-            db.add(prompt)
-            db.flush()
-            proposal = PromptProposal(
-                prompt_id=prompt.id,
-                group_id=target_group.id,
-                proposer_id=user.id,
-                title=safe_title,
-                description=safe_desc,
-                content=content,
-                change_note=safe_note,
-                status="PENDING",
-            )
-            db.add(proposal)
-            db.commit()
+        try:
+            result = prompt_service.create_or_propose(db, user, target_group.id, safe_title, content, safe_desc, safe_note)
+        except prompt_service.PromptError as exc:
+            raise ValueError(str(exc)) from exc
+        prompt = result.prompt
+        if result.proposal is not None:
             record_audit_log(db, "MCP_PROMPT_PROPOSAL_CREATED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"New prompt proposal: {safe_title}")
             return {
                 "id": prompt.id,
@@ -511,36 +443,11 @@ def create_prompt_from_chat(title: str, content: str, group_id: str = "", group_
                 "group_id": prompt.group_id,
                 "group_name": tgt_name,
                 "proposal_created": True,
-                "proposal_id": proposal.id,
+                "proposal_id": result.proposal.id,
                 "status": "PENDING",
                 "message": f"Prompt submitted for team review in '{tgt_name}' before going live.",
             }
 
-        prompt = Prompt(
-            group_id=target_group.id,
-            title=safe_title,
-            description=safe_desc,
-            current_version_number=1,
-            created_by=user.id,
-        )
-        db.add(prompt)
-        db.flush()
-        v1 = PromptVersion(
-            prompt_id=prompt.id,
-            version_number=1,
-            content=content,
-            variables_json=json.dumps(extract_variables(content)),
-            change_Note=safe_note,
-            author_id=user.id,
-        )
-        db.add(v1)
-        db.flush()
-        prompt.current_version_id = v1.id
-        db.commit()
-        db.refresh(prompt)
-        set_cached_version_by_uuid(v1.id, {"id": v1.id, "content": v1.content})
-        set_cached_active_version_uuid(prompt.id, v1.id)
-        sync_prompt_embeddings(db, prompt, v1)
         record_audit_log(db, "MCP_PROMPT_CREATED", user_id=user.id, target_type="prompt", target_id=prompt.id, details=f"Created {prompt.title}")
         return {
             "id": prompt.id,
@@ -548,7 +455,7 @@ def create_prompt_from_chat(title: str, content: str, group_id: str = "", group_
             "group_id": prompt.group_id,
             "group_name": tgt_name,
             "current_version_number": 1,
-            "current_version_id": v1.id,
+            "current_version_id": prompt.current_version_id,
             "message": f"Prompt successfully created in '{tgt_name}'.",
         }
 

@@ -7,13 +7,10 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from cache import (set_cached_active_version_uuid,
-                   set_cached_version_by_uuid)
-from permissions import (can_access_group_with_key, extract_variables)
+from permissions import (can_access_group_with_key)
 from models import (ApiKey, Group, Prompt, PromptProposal, PromptVersion, User)
-from search import sync_prompt_embeddings
-from security import (sanitize_filename)
 
+import services.prompts as prompt_service
 from deps import (_active_key)
 
 
@@ -30,117 +27,14 @@ def _version_read(db: Session, version: PromptVersion, author_name: str | None =
             "created_at": version.created_at.isoformat() + "Z"}
 
 
-PLAN_TIERS = [
-    {
-        "id": "community",
-        "name": "Community",
-        "tagline": "Individual developers exploring version-controlled prompts and MCP in-chat access.",
-        "price_monthly": 0,
-        "price_annual": 0,
-        "price_label": "$0",
-        "max_prompts": 20,
-        "max_versions_per_prompt": 10,
-        "max_groups": 1,
-        "free_guests_per_editor": 0,
-        "mcp_monthly_calls": 1000,
-        "storage_type": "Free Cloud Database (Supabase / SQLite)",
-        "features": [
-            "1 User · Personal space + 1 team group",
-            "Up to 20 active prompts",
-            "Last 10 versions per prompt",
-            "Direct Save (instant versioning)",
-            "FastMCP In-Chat Drawer & Personal API Key",
-            "Word & sentence basic diff viewer",
-        ],
-    },
-    {
-        "id": "pro",
-        "name": "Pro",
-        "tagline": "Power prompt crafters and freelancers managing extensive prompt libraries.",
-        "price_monthly": 5,
-        "price_annual": 4,  # $48/year
-        "price_label": "$5/mo",
-        "max_prompts": 100,
-        "max_versions_per_prompt": 50,
-        "max_groups": 1,
-        "free_guests_per_editor": 0,
-        "mcp_monthly_calls": 10000,
-        "storage_type": "Cloud DB + Bring Your Own Storage (Google Drive / Local)",
-        "features": [
-            "Everything in Community",
-            "Up to 100 active prompts",
-            "Up to 50 versions per prompt",
-            "Word & Sentence Diff Viewer (Split & Inline)",
-            "Shareable Zero-Config Diff Links",
-            "Batch File Upload (.txt, .md, .csv, .json)",
-            "Bring Your Own Storage (Google Drive & local sync)",
-        ],
-    },
-    {
-        "id": "team",
-        "name": "Team",
-        "badge": "Most Popular",
-        "tagline": "Startups and product teams collaborating with approval workflows and RBAC.",
-        "price_monthly": 12,
-        "price_annual": 10,  # $120/year
-        "price_label": "$10/editor/mo",
-        "max_prompts": 500,
-        "max_versions_per_prompt": 100,
-        "max_groups": 5,
-        "free_guests_per_editor": 2,
-        "mcp_monthly_calls": 50000,
-        "storage_type": "Team Cloud DB + Google Drive Team Sync",
-        "features": [
-            "Everything in Pro",
-            "No seat minimums (starts at 1 editor)",
-            "2 Free Read-Only Guests per paid editor",
-            "Up to 500 prompts across 5 Team Groups",
-            "Proposal & Approval Workflow (required_approvals)",
-            "Central Review Requests Inbox & auto-merge",
-            "3 Team MCP API Keys for automated agents",
-            "Team Cloud & Google Drive Sync",
-        ],
-    },
-    {
-        "id": "enterprise",
-        "name": "Enterprise",
-        "tagline": "Organizations requiring self-hosting, strict compliance, and custom infrastructure.",
-        "price_monthly": None,
-        "price_annual": None,
-        "price_label": "Contact Us",
-        "max_prompts": 10000,
-        "max_versions_per_prompt": 1000,
-        "max_groups": 100,
-        "free_guests_per_editor": 10,
-        "mcp_monthly_calls": 1000000,
-        "storage_type": "Self-Hosted Docker / VPC / Private PostgreSQL",
-        "features": [
-            "Everything in Team",
-            "Self-Hosted Deployment (Docker / VPC / On-Prem)",
-            "Dedicated PostgreSQL or custom DB cluster",
-            "SSO / SAML 2.0 (Okta, Google Workspace, Azure AD)",
-            "Custom prompt & version quotas",
-            "Full Compliance & Audit Logs Export",
-            "Dedicated SLA & onboarding support",
-        ],
-    },
-]
-
-PLAN_LIMITS_MAP = {tier["id"]: tier for tier in PLAN_TIERS}
+from plans import PLAN_LIMITS_MAP, PLAN_TIERS  # noqa: F401  (re-exported)
 
 
 def _check_prompt_quota(db: Session, user: User, group_id: str, new_prompts_count: int = 1) -> None:
-    if user.is_workspace_admin:
-        return
-    user_plan = getattr(user, "plan", "community") or "community"
-    plan_info = PLAN_LIMITS_MAP.get(user_plan, PLAN_LIMITS_MAP["community"])
-    max_prompts = plan_info.get("max_prompts", 20)
-    existing_count = db.query(Prompt).filter(Prompt.created_by == user.id, Prompt.is_archived.is_(False)).count()
-    if existing_count + new_prompts_count > max_prompts:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Prompt limit reached ({existing_count}/{max_prompts}) for the {plan_info['name']} plan. Please upgrade to Pro or Team for more space.",
-        )
+    try:
+        prompt_service.check_prompt_quota(db, user, new_prompts_count)
+    except prompt_service.PromptError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 def _check_version_quota(db: Session, user: User, prompt: Prompt) -> None:
@@ -171,27 +65,7 @@ def _check_group_quota(db: Session, user: User) -> None:
         )
 
 
-def _create_prompt(db: Session, user: User, group_id: str, title: str, content: str,
-                   description: str = "", change_note: str = "Initial creation", source_filename: str | None = None) -> Prompt:
-    safe_title = (title.strip() or "Untitled prompt")[:240]
-    safe_desc = (description or "")[:2000]
-    safe_note = (change_note or "Initial creation")[:500]
-    safe_source = sanitize_filename(source_filename) if source_filename else None
-    prompt = Prompt(group_id=group_id, title=safe_title, description=safe_desc,
-                    current_version_number=1, created_by=user.id)
-    db.add(prompt)
-    db.flush()
-    v1 = PromptVersion(prompt_id=prompt.id, version_number=1, content=content,
-                       variables_json=json.dumps(extract_variables(content)), change_Note=safe_note,
-                       source_filename=safe_source, author_id=user.id)
-    db.add(v1)
-    db.flush()
-    prompt.current_version_id = v1.id
-    set_cached_version_by_uuid(v1.id, {"id": v1.id, "content": v1.content})
-    set_cached_active_version_uuid(prompt.id, v1.id)
-    sync_prompt_embeddings(db, prompt, v1)
-    return prompt
-
+_create_prompt = prompt_service.create_prompt
 
 
 def _accessible_prompt(db: Session, user: User, prompt_id: str) -> Prompt:
