@@ -268,7 +268,7 @@ def test_mcp_proposal_review_and_comments(test_users_and_groups, db: Session, mo
     assert "Looks great" in comment_res["comment"]
 
     # 4. Member tries self-approval via MCP when disabled -> error
-    with pytest.raises(ValueError, match="disabled proposer self-approval"):
+    with pytest.raises(ValueError, match="self-approval is disabled"):
         review_proposal(
             proposal_id=proposal_id,
             action="APPROVE",

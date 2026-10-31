@@ -19,7 +19,7 @@ else
     export PYTHONPATH="$ROOT_DIR/.venv/lib/python3.12/site-packages:$ROOT_DIR/backend:${PYTHONPATH:-}"
     PYTEST_CMD=("python3" "-m" "pytest")
 fi
-"$PYTHON_BIN" -m py_compile backend/*.py backend/tests/*.py
+"$PYTHON_BIN" -m py_compile backend/*.py backend/services/*.py backend/tests/*.py
 
 # 2. Backend Pytest Suite
 echo ""

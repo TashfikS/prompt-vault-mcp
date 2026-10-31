@@ -31,6 +31,7 @@ from permissions import (
     group_display_name,
 )
 from models import ApiKey, Group, Prompt, PromptProposal, PromptVersion, ProposalApproval, ProposalComment, User
+import services.proposals as proposal_service
 from search import hybrid_search_prompts, sync_prompt_embeddings
 from security import escape_like, get_client_ip, rate_limiter, record_audit_log
 
@@ -666,106 +667,34 @@ def review_proposal(proposal_id: str, action: str = "APPROVE", comment: str = ""
         if role == "GUEST" or role not in {"GROUP_MANAGER", "MEMBER"}:
             raise ValueError("Guests have view-only access and cannot approve or reject proposals.")
 
-        if proposal.status != "PENDING":
-            raise ValueError(f"This proposal has already been {proposal.status.lower()}.")
-
-        group = db.query(Group).filter_by(id=proposal.group_id).first()
-        allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
-        if clean_action == "APPROVE" and proposal.proposer_id == user.id and not allow_self:
-            raise ValueError("You cannot approve your own proposal because the group owner has disabled proposer self-approval.")
-
         safe_comment = (comment or "").strip()[:2000]
+        try:
+            if clean_action == "REJECT":
+                proposal_service.reject(db, proposal, user, safe_comment, comment_prefix="[Rejected via AI] ")
+                record_audit_log(db, "MCP_PROPOSAL_REJECTED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=safe_comment)
+                return {
+                    "proposal_id": proposal.id,
+                    "status": "REJECTED",
+                    "message": f"Proposal for '{proposal.title}' has been rejected.",
+                }
+            result = proposal_service.approve(db, proposal, prompt, user, safe_comment, comment_prefix="[Approved via AI] ")
+        except proposal_service.ProposalError as exc:
+            raise ValueError(str(exc)) from exc
 
-        if clean_action == "REJECT":
-            proposal.status = "REJECTED"
-            if safe_comment:
-                db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=f"[Rejected via AI] {safe_comment}"))
-            db.commit()
-            record_audit_log(db, "MCP_PROPOSAL_REJECTED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=safe_comment)
-            return {
-                "proposal_id": proposal.id,
-                "status": "REJECTED",
-                "message": f"Proposal for '{proposal.title}' has been rejected.",
-            }
-
-        # Handle APPROVE
-        existing_approval = db.query(ProposalApproval).filter_by(proposal_id=proposal.id, user_id=user.id).first()
-        if existing_approval:
-            raise ValueError("You have already voted to approve this proposal.")
-
-        approval = ProposalApproval(proposal_id=proposal.id, user_id=user.id)
-        db.add(approval)
-        if safe_comment:
-            db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=f"[Approved via AI] {safe_comment}"))
-        db.flush()
-
-        total_approvals = db.query(ProposalApproval).filter_by(proposal_id=proposal.id).count()
-        required = getattr(group, "required_approvals", 1) if group else 1
-
-        if total_approvals >= required:
-            proposal.status = "APPROVED"
-            is_initial_creation = (prompt.current_version_id is None) or prompt.is_archived
-            variables_list = extract_variables(proposal.content)
-            prompt.title = proposal.title
-            if proposal.description:
-                prompt.description = proposal.description
-            prompt.updated_at = datetime.utcnow()
-
-            if is_initial_creation:
-                prompt.is_archived = False
-                prompt.current_version_number = 1
-                new_version = PromptVersion(
-                    prompt_id=prompt.id,
-                    version_number=1,
-                    content=proposal.content,
-                    variables_json=json.dumps(variables_list),
-                    change_Note=f"[Approved Creation] {proposal.change_note}"[:500],
-                    author_id=proposal.proposer_id,
-                )
-            else:
-                max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
-                prompt.current_version_number = max_ver + 1
-                new_version = PromptVersion(
-                    prompt_id=prompt.id,
-                    version_number=prompt.current_version_number,
-                    content=proposal.content,
-                    variables_json=json.dumps(variables_list),
-                    change_Note=f"[Approved] {proposal.change_note}"[:500],
-                    author_id=proposal.proposer_id,
-                )
-
-            db.add(new_version)
-            db.flush()
-            prompt.current_version_id = new_version.id
-            db.commit()
-
-            invalidate_prompt_cache(prompt.id)
-            set_cached_version_by_uuid(
-                new_version.id,
-                {
-                    "id": new_version.id,
-                    "prompt_id": prompt.id,
-                    "title": prompt.title,
-                    "version_number": new_version.version_number,
-                    "content": new_version.content,
-                    "variables": variables_list,
-                },
-            )
-            set_cached_active_version_uuid(prompt.id, new_version.id)
-            sync_prompt_embeddings(db, prompt, new_version)
-            record_audit_log(db, "MCP_PROPOSAL_MERGED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=f"Merged v{new_version.version_number}")
+        total_approvals, required = result.approvals_count, result.required_approvals
+        if result.merged and result.version is not None:
+            record_audit_log(db, "MCP_PROPOSAL_MERGED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=f"Merged v{result.version.version_number}")
             return {
                 "proposal_id": proposal.id,
                 "prompt_id": prompt.id,
                 "status": "APPROVED",
                 "merged": True,
-                "version_number": prompt.current_version_number,
+                "version_number": result.version.version_number,
                 "approvals_count": total_approvals,
                 "required_approvals": required,
-                "message": f"Proposal approved and merged! Version {prompt.current_version_number} is now active.",
+                "message": f"Proposal approved and merged! Version {result.version.version_number} is now active.",
             }
 
-        db.commit()
         record_audit_log(db, "MCP_PROPOSAL_APPROVED", user_id=user.id, target_type="proposal", target_id=proposal.id, details=f"Voted {total_approvals}/{required}")
         return {
             "proposal_id": proposal.id,

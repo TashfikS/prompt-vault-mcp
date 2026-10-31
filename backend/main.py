@@ -57,6 +57,7 @@ from models import (ApiKey, AuditLog, FeedbackSubmission, Group, GroupMembership
 from oauth import (create_authorization_code, exchange_authorization_code, get_oauth_protected_resource_metadata,
                    get_oauth_server_metadata, get_or_create_client, is_redirect_uri_allowed, register_oauth_client,
                    render_oauth_authorize_html)
+import services.proposals as proposal_service
 from search import hybrid_search_prompts, sync_prompt_embeddings
 from schemas import (AssignMemberRequest, ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, CreateDiffShareRequest,
                      FeedbackCreateRequest, FirebaseAuthRequest, GroupCreate, GroupSettingsUpdate, LoginRequest,
@@ -2308,93 +2309,25 @@ def approve_proposal(proposal_id: str, payload: ProposalReviewAction | None = No
     prompt = _accessible_prompt(db, user, proposal.prompt_id)
     if not can_user_approve_proposals(db, user, prompt.group_id):
         raise HTTPException(status_code=403, detail="Guests cannot approve proposals.")
-    if proposal.status != "PENDING":
-        raise HTTPException(status_code=400, detail=f"Proposal is already {proposal.status.lower()}.")
-    group = db.query(Group).filter_by(id=proposal.group_id).first()
-    allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
-    if proposal.proposer_id == user.id and not allow_self:
-        raise HTTPException(status_code=400, detail="You cannot approve your own proposal because self-approval is disabled for this group.")
-
-    existing_approval = db.query(ProposalApproval).filter_by(proposal_id=proposal.id, user_id=user.id).first()
-    if existing_approval:
-        raise HTTPException(status_code=400, detail="You have already approved this proposal.")
-
-    approval = ProposalApproval(proposal_id=proposal.id, user_id=user.id)
-    db.add(approval)
-    if payload and payload.comment and payload.comment.strip():
-        db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=payload.comment.strip()[:2000]))
-    db.flush()
-
-    total_approvals = db.query(ProposalApproval).filter_by(proposal_id=proposal.id).count()
-    required = getattr(group, "required_approvals", 1) if group else 1
-
-    if total_approvals >= required:
-        proposal.status = "APPROVED"
-        is_initial_creation = (prompt.current_version_id is None) or prompt.is_archived
-        variables_list = extract_variables(proposal.content)
-        prompt.title = proposal.title
-        if proposal.description:
-            prompt.description = proposal.description
-        prompt.updated_at = datetime.utcnow()
-
-        if is_initial_creation:
-            prompt.is_archived = False
-            prompt.current_version_number = 1
-            new_version = PromptVersion(
-                prompt_id=prompt.id,
-                version_number=1,
-                content=proposal.content,
-                variables_json=json.dumps(variables_list),
-                change_Note=f"[Approved Creation] {proposal.change_note}"[:500],
-                author_id=proposal.proposer_id,
-            )
-        else:
-            max_ver = db.query(func.max(PromptVersion.version_number)).filter_by(prompt_id=prompt.id).scalar() or 0
-            prompt.current_version_number = max_ver + 1
-            new_version = PromptVersion(
-                prompt_id=prompt.id,
-                version_number=prompt.current_version_number,
-                content=proposal.content,
-                variables_json=json.dumps(variables_list),
-                change_Note=f"[Approved] {proposal.change_note}"[:500],
-                author_id=proposal.proposer_id,
-            )
-
-        db.add(new_version)
-        db.flush()
-        prompt.current_version_id = new_version.id
-        db.commit()
-
-        invalidate_prompt_cache(prompt.id)
-        set_cached_version_by_uuid(
-            new_version.id,
-            {
-                "id": new_version.id,
-                "prompt_id": prompt.id,
-                "title": prompt.title,
-                "version_number": new_version.version_number,
-                "content": new_version.content,
-                "variables": variables_list,
-            },
-        )
-        set_cached_active_version_uuid(prompt.id, new_version.id)
-        sync_prompt_embeddings(db, prompt, new_version)
+    try:
+        result = proposal_service.approve(db, proposal, prompt, user, payload.comment if payload else None)
+    except proposal_service.ProposalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if result.merged and result.version is not None:
         return {
             "status": "APPROVED",
             "merged": True,
-            "approvals_count": total_approvals,
-            "required_approvals": required,
-            "version_number": prompt.current_version_number,
-            "version_id": new_version.id,
+            "approvals_count": result.approvals_count,
+            "required_approvals": result.required_approvals,
+            "version_number": result.version.version_number,
+            "version_id": result.version.id,
         }
-    else:
-        db.commit()
-        return {
-            "status": "PENDING",
-            "merged": False,
-            "approvals_count": total_approvals,
-            "required_approvals": required,
-        }
+    return {
+        "status": "PENDING",
+        "merged": False,
+        "approvals_count": result.approvals_count,
+        "required_approvals": result.required_approvals,
+    }
 
 
 @app.post("/api/proposals/{proposal_id}/reject")
@@ -2406,12 +2339,10 @@ def reject_proposal(proposal_id: str, payload: ProposalReviewAction | None = Non
     prompt = _accessible_prompt(db, user, proposal.prompt_id)
     if not can_user_approve_proposals(db, user, prompt.group_id):
         raise HTTPException(status_code=403, detail="Guests cannot reject proposals.")
-    if proposal.status != "PENDING":
-        raise HTTPException(status_code=400, detail=f"Proposal is already {proposal.status.lower()}.")
-    proposal.status = "REJECTED"
-    if payload and payload.comment and payload.comment.strip():
-        db.add(ProposalComment(proposal_id=proposal.id, user_id=user.id, comment=payload.comment.strip()[:2000]))
-    db.commit()
+    try:
+        proposal_service.reject(db, proposal, user, payload.comment if payload else None)
+    except proposal_service.ProposalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return {"status": "REJECTED"}
 
 
