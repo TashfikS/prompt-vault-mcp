@@ -80,16 +80,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         applyTheme(next)
       }
 
-      // Smooth cross-fade via View Transitions API in modern browsers
-      const doc = typeof document !== 'undefined' ? (document as unknown as { startViewTransition?: (cb: () => void) => void }) : null
-      const prefersReducedMotion =
-        typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-      if (doc?.startViewTransition && !prefersReducedMotion) {
-        doc.startViewTransition(update)
-      } else {
-        update()
-      }
+      // Applied instantly: a View Transition cross-fade blocks clicks for its duration.
+      update()
     },
     [applyTheme]
   )

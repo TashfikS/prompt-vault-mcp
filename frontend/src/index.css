@@ -216,12 +216,6 @@ html.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b
 html.dark .custom-scrollbar { scrollbar-color: #3f3f46 transparent; }
 
 /* Smooth View Transitions cross-fade between light and dark themes */
-/* The transition overlay covers the page; let clicks fall through to the live DOM
-   so a click made during the 450ms theme cross-fade is not swallowed. */
-::view-transition {
-  pointer-events: none;
-}
-
 ::view-transition-image-pair(root) {
   isolation: isolate;
 }
