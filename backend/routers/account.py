@@ -21,7 +21,7 @@ from schemas import (ChangePasswordRequest, CheckoutSessionRequest, CreateApiKey
                      PlanUpdateRequest, UpdateProfileRequest)
 from services.limits import PlanLimitError, check_api_key_quota, mcp_usage, team_seat_usage
 from services.credential_policy import BREACHED_PASSWORD_MESSAGE, is_password_breached
-from polar_billing import (create_checkout_session, create_customer_portal_session, is_polar_configured,
+from polar_billing import (create_checkout_session, create_customer_portal_session, is_polar_configured, polar_environment,
                            process_polar_event, verify_polar_webhook_signature)
 from security import (get_client_ip, record_audit_log)
 
@@ -262,7 +262,7 @@ def get_billing_configuration() -> dict:
     return {
         "provider": "polar",
         "configured": is_polar_configured(),
-        "environment": os.getenv("POLAR_ENVIRONMENT", "sandbox").strip().lower(),
+        "environment": polar_environment(),
     }
 
 

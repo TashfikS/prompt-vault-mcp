@@ -24,34 +24,42 @@ from security import IS_PRODUCTION
 
 logger = logging.getLogger("uvicorn.error")
 
-# Configuration from environment variables
-POLAR_ACCESS_TOKEN = os.getenv("POLAR_ACCESS_TOKEN", "").strip()
-POLAR_WEBHOOK_SECRET = os.getenv("POLAR_WEBHOOK_SECRET", "").strip()
-POLAR_ENVIRONMENT = os.getenv("POLAR_ENVIRONMENT", "sandbox").strip().lower()
-POLAR_PRO_PRODUCT_ID = os.getenv("POLAR_PRO_PRODUCT_ID", "").strip()
-POLAR_TEAM_PRODUCT_ID = os.getenv("POLAR_TEAM_PRODUCT_ID", "").strip()
-POLAR_CHECKOUT_SUCCESS_URL = os.getenv("POLAR_CHECKOUT_SUCCESS_URL", "").strip()
+# Polar settings are read per request (not at import) so a Render env change applies on restart
+# without code changes. Each setting can be stored once per Polar environment, e.g.
+# POLAR_SANDBOX_ACCESS_TOKEN and POLAR_PRODUCTION_ACCESS_TOKEN; POLAR_ENVIRONMENT picks the set.
+# The unprefixed name (POLAR_ACCESS_TOKEN) is the fallback for single-environment setups.
+
+
+def polar_environment() -> str:
+    """'production' only when explicitly configured; anything else is the sandbox."""
+    return "production" if os.getenv("POLAR_ENVIRONMENT", "sandbox").strip().lower() == "production" else "sandbox"
+
+
+def polar_setting(name: str) -> str:
+    """Value of POLAR_<ENV>_<name>, falling back to POLAR_<name> (e.g. name="ACCESS_TOKEN")."""
+    env = polar_environment().upper()
+    return (os.getenv(f"POLAR_{env}_{name}", "").strip() or os.getenv(f"POLAR_{name}", "").strip())
 
 
 def is_polar_configured() -> bool:
-    """Check if Polar live/sandbox credentials are configured in the environment."""
-    return bool(os.getenv("POLAR_ACCESS_TOKEN", "").strip())
+    """Check if Polar credentials are configured for the active environment."""
+    return bool(polar_setting("ACCESS_TOKEN"))
 
 
 # Env vars holding the Polar product for each (plan, interval). Team products must use
 # seat-based pricing in Polar so the checkout charges per editor.
 _PRODUCT_ENV = {
-    ("pro", "month"): "POLAR_PRO_PRODUCT_ID",
-    ("pro", "year"): "POLAR_PRO_ANNUAL_PRODUCT_ID",
-    ("team", "month"): "POLAR_TEAM_PRODUCT_ID",
-    ("team", "year"): "POLAR_TEAM_ANNUAL_PRODUCT_ID",
+    ("pro", "month"): "PRO_PRODUCT_ID",
+    ("pro", "year"): "PRO_ANNUAL_PRODUCT_ID",
+    ("team", "month"): "TEAM_PRODUCT_ID",
+    ("team", "year"): "TEAM_ANNUAL_PRODUCT_ID",
 }
 
 
 def get_product_id_for_plan(plan: str, interval: str = "month") -> str | None:
     """Retrieve the configured Polar product ID for a tier and billing interval."""
     env = _PRODUCT_ENV.get((plan, interval))
-    return (os.getenv(env, "").strip() or None) if env else None
+    return (polar_setting(env) or None) if env else None
 
 
 def plan_for_product_id(product_id: str | None) -> tuple[str, str] | None:
@@ -59,7 +67,7 @@ def plan_for_product_id(product_id: str | None) -> tuple[str, str] | None:
     if not product_id:
         return None
     for (plan, interval), env in _PRODUCT_ENV.items():
-        configured = os.getenv(env, "").strip()
+        configured = polar_setting(env)
         if configured and configured == product_id:
             return plan, interval
     return None
@@ -67,13 +75,12 @@ def plan_for_product_id(product_id: str | None) -> tuple[str, str] | None:
 
 def get_polar_client():
     """Instantiate a Polar SDK client using environment settings."""
-    token = os.getenv("POLAR_ACCESS_TOKEN", "").strip()
+    token = polar_setting("ACCESS_TOKEN")
     if not token:
         return None
     try:
         from polar.v2026_10 import Polar
-        env = "sandbox" if os.getenv("POLAR_ENVIRONMENT", "sandbox").strip().lower() == "sandbox" else "production"
-        return Polar(access_token=token, environment=env)
+        return Polar(access_token=token, environment=polar_environment())
     except Exception as exc:
         logger.warning("Failed to initialize Polar SDK client: %s", exc)
         return None
@@ -98,7 +105,7 @@ def create_checkout_session(
     product_id = get_product_id_for_plan(plan, interval)
     if client and not product_id:
         raise HTTPException(status_code=503, detail=f"{'Annual' if interval == 'year' else 'Monthly'} billing for {plan.title()} is not available yet.")
-    fallback_success = success_url or os.getenv("POLAR_CHECKOUT_SUCCESS_URL", "").strip() or "http://localhost:5173/?billing=success&tier=" + plan
+    fallback_success = success_url or polar_setting("CHECKOUT_SUCCESS_URL") or "http://localhost:5173/?billing=success&tier=" + plan
 
     # 1. Real Polar SDK flow when credentials and product ID exist
     if client and product_id:
@@ -174,7 +181,7 @@ def verify_polar_webhook_signature(raw_body: bytes, headers: dict[str, str]) -> 
 
     Raises HTTPException(403) on signature mismatch.
     """
-    secret = os.getenv("POLAR_WEBHOOK_SECRET", "").strip()
+    secret = polar_setting("WEBHOOK_SECRET")
     # Webhooks grant paid plans and move user data between tiers, so production must never accept unsigned events.
     if not secret and IS_PRODUCTION:
         raise HTTPException(status_code=503, detail="Billing webhooks are not configured.")

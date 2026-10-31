@@ -202,3 +202,84 @@ def test_checkout_passes_interval_product_and_seats(monkeypatch, test_users_and_
     with pytest.raises(HTTPException) as exc:
         polar_billing.create_checkout_session(user, "pro", interval="year")
     assert exc.value.status_code == 503
+
+
+# --- Per-environment settings (POLAR_SANDBOX_* / POLAR_PRODUCTION_*) ---------------------------
+
+_POLAR_KEYS = ["ENVIRONMENT", "ACCESS_TOKEN", "WEBHOOK_SECRET", "PRO_PRODUCT_ID", "PRO_ANNUAL_PRODUCT_ID",
+               "TEAM_PRODUCT_ID", "TEAM_ANNUAL_PRODUCT_ID", "CHECKOUT_SUCCESS_URL"]
+
+
+@pytest.fixture
+def clean_polar_env(monkeypatch):
+    for key in _POLAR_KEYS:
+        for prefix in ("POLAR_", "POLAR_SANDBOX_", "POLAR_PRODUCTION_"):
+            monkeypatch.delenv(prefix + key, raising=False)
+    return monkeypatch
+
+
+def test_environment_selects_matching_prefixed_settings(clean_polar_env):
+    import polar_billing as pb
+    m = clean_polar_env
+    m.setenv("POLAR_SANDBOX_ACCESS_TOKEN", "sandbox-token")
+    m.setenv("POLAR_PRODUCTION_ACCESS_TOKEN", "live-token")
+    m.setenv("POLAR_SANDBOX_PRO_PRODUCT_ID", "sb-pro")
+    m.setenv("POLAR_PRODUCTION_PRO_PRODUCT_ID", "live-pro")
+    m.setenv("POLAR_SANDBOX_WEBHOOK_SECRET", "sb-secret")
+    m.setenv("POLAR_PRODUCTION_WEBHOOK_SECRET", "live-secret")
+
+    m.setenv("POLAR_ENVIRONMENT", "sandbox")
+    assert pb.polar_environment() == "sandbox"
+    assert pb.polar_setting("ACCESS_TOKEN") == "sandbox-token"
+    assert pb.get_product_id_for_plan("pro", "month") == "sb-pro"
+    assert pb.plan_for_product_id("sb-pro") == ("pro", "month")
+    assert pb.plan_for_product_id("live-pro") is None  # a live product must not grant a plan in sandbox
+    assert pb.polar_setting("WEBHOOK_SECRET") == "sb-secret"
+
+    m.setenv("POLAR_ENVIRONMENT", "production")
+    assert pb.polar_environment() == "production"
+    assert pb.polar_setting("ACCESS_TOKEN") == "live-token"
+    assert pb.get_product_id_for_plan("pro", "month") == "live-pro"
+    assert pb.plan_for_product_id("live-pro") == ("pro", "month")
+    assert pb.plan_for_product_id("sb-pro") is None
+    assert pb.polar_setting("WEBHOOK_SECRET") == "live-secret"
+
+
+def test_unprefixed_names_still_work_as_fallback(clean_polar_env):
+    import polar_billing as pb
+    m = clean_polar_env
+    m.setenv("POLAR_ENVIRONMENT", "production")
+    m.setenv("POLAR_ACCESS_TOKEN", "plain-token")
+    m.setenv("POLAR_TEAM_ANNUAL_PRODUCT_ID", "plain-team-year")
+    assert pb.is_polar_configured()
+    assert pb.polar_setting("ACCESS_TOKEN") == "plain-token"
+    assert pb.get_product_id_for_plan("team", "year") == "plain-team-year"
+    # A prefixed value wins over the plain one.
+    m.setenv("POLAR_PRODUCTION_ACCESS_TOKEN", "prefixed-token")
+    assert pb.polar_setting("ACCESS_TOKEN") == "prefixed-token"
+
+
+@pytest.mark.parametrize("value", ["", "sandbox", "SANDBOX", "live", "prod", "staging"])
+def test_only_explicit_production_uses_live_polar(clean_polar_env, value):
+    import polar_billing as pb
+    clean_polar_env.setenv("POLAR_ENVIRONMENT", value)
+    assert pb.polar_environment() == "sandbox"
+
+
+def test_client_uses_active_environment(clean_polar_env):
+    import polar_billing as pb
+    m = clean_polar_env
+    m.setenv("POLAR_ENVIRONMENT", "production")
+    m.setenv("POLAR_PRODUCTION_ACCESS_TOKEN", "live-token")
+    seen = {}
+
+    class FakePolar:
+        def __init__(self, access_token, environment):
+            seen.update(token=access_token, environment=environment)
+
+    import types, sys
+    fake_mod = types.ModuleType("polar.v2026_10")
+    fake_mod.Polar = FakePolar
+    m.setitem(sys.modules, "polar.v2026_10", fake_mod)
+    assert pb.get_polar_client() is not None
+    assert seen == {"token": "live-token", "environment": "production"}
