@@ -208,21 +208,16 @@ def test_password_complexity_validation():
     from schemas import validate_password_complexity
     import pytest
 
-    # Valid passwords
+    # Length is the only composition rule (NIST SP 800-63B): 12+ characters, any characters.
     assert validate_password_complexity("StrongP@ss123") == "StrongP@ss123"
-    assert validate_password_complexity("abcde12345") == "abcde12345"
+    assert validate_password_complexity("alllettersonly") == "alllettersonly"
+    assert validate_password_complexity("123456789012") == "123456789012"
+    assert validate_password_complexity("purple tiger eats pizza") == "purple tiger eats pizza"
 
     # Too short
-    with pytest.raises(ValueError, match="at least 8 characters"):
-        validate_password_complexity("short1")
-
-    # Letters only (no digits)
-    with pytest.raises(ValueError, match="both letters and numbers"):
-        validate_password_complexity("alllettersonly")
-
-    # Digits only (no letters)
-    with pytest.raises(ValueError, match="both letters and numbers"):
-        validate_password_complexity("1234567890")
+    for short in ("short1", "abcde12345", "Ab1!Ab1!Ab1"):
+        with pytest.raises(ValueError, match="at least 12 characters"):
+            validate_password_complexity(short)
 
 
 def test_user_security_attributes(db: Session):

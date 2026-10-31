@@ -97,7 +97,7 @@ def test_mcp_monthly_quota(db: Session, test_users_and_groups, monkeypatch):
 
 
 def _new_user(db: Session, email: str) -> User:
-    u = User(name=email.split("@")[0], email=email, password_hash=hash_password("Password123"), email_verified_at=datetime.utcnow())
+    u = User(name=email.split("@")[0], email=email, password_hash=hash_password("Password1234"), email_verified_at=datetime.utcnow())
     db.add(u)
     db.flush()
     return u

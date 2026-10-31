@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from models import User
 from services import account_tokens
 
-SIGNUP = {"name": "New Person", "email": "new@example.com", "password": "Password123", "accept_terms": True}
+SIGNUP = {"name": "New Person", "email": "new@example.com", "password": "Password1234", "accept_terms": True}
 
 
 @pytest.fixture
@@ -107,13 +107,13 @@ async def test_reset_password_flow(client: AsyncClient, db: Session, captured_em
     weak = await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "short"})
     assert weak.status_code == 422
 
-    ok = await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "BrandNew456"})
+    ok = await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "BrandNew4567"})
     assert ok.status_code == 200
     # Old sessions are signed out, the new password works, the old one doesn't, the link is spent.
     assert (await client.get("/api/me", headers={"Authorization": f"Bearer {old_token}"})).status_code == 401
-    assert (await client.post("/api/auth/login", json={"email": "new@example.com", "password": "BrandNew456"})).status_code == 200
-    assert (await client.post("/api/auth/login", json={"email": "new@example.com", "password": "Password123"})).status_code == 401
-    assert (await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "Another789"})).status_code == 400
+    assert (await client.post("/api/auth/login", json={"email": "new@example.com", "password": "BrandNew4567"})).status_code == 200
+    assert (await client.post("/api/auth/login", json={"email": "new@example.com", "password": "Password1234"})).status_code == 401
+    assert (await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "Another78901"})).status_code == 400
     # Proving inbox access via the reset link also verifies the email.
     assert db.query(User).filter_by(email="new@example.com").one().email_verified_at is not None
 
@@ -126,7 +126,7 @@ async def test_expired_reset_token_rejected(client: AsyncClient, db: Session, ca
     user.reset_token_expires_at = datetime.utcnow() - timedelta(seconds=1)
     db.commit()
     raw = _token(captured_emails[-1]["url"], "reset_token")
-    assert (await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "BrandNew456"})).status_code == 400
+    assert (await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "BrandNew4567"})).status_code == 400
 
 
 @pytest.mark.asyncio
@@ -142,7 +142,7 @@ async def test_sso_claims_unverified_squatted_account(client: AsyncClient, db: S
     user = db.query(User).filter_by(email="owner@corp.com").one()
     assert user.email_verified_at is not None and user.password_hash is None
     assert (await client.get("/api/me", headers={"Authorization": f"Bearer {squat_token}"})).status_code == 401
-    assert (await client.post("/api/auth/login", json={"email": "owner@corp.com", "password": "Password123"})).status_code == 401
+    assert (await client.post("/api/auth/login", json={"email": "owner@corp.com", "password": "Password1234"})).status_code == 401
 
 
 @pytest.mark.asyncio

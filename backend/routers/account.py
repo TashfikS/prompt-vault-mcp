@@ -20,6 +20,7 @@ from models import (ApiKey, Group, GroupMembership, Prompt, User)
 from schemas import (ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, MarketingPreferenceRequest,
                      PlanUpdateRequest, UpdateProfileRequest)
 from services.limits import PlanLimitError, check_api_key_quota, mcp_usage, team_seat_usage
+from services.credential_policy import BREACHED_PASSWORD_MESSAGE, is_password_breached
 from polar_billing import (create_checkout_session, create_customer_portal_session, is_polar_configured,
                            process_polar_event, verify_polar_webhook_signature)
 from security import (get_client_ip, record_audit_log)
@@ -143,6 +144,8 @@ def change_password(
     # 2. Check that new password is not identical to current
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="New password must be different from your current password.")
+    if is_password_breached(payload.new_password):
+        raise HTTPException(status_code=400, detail=BREACHED_PASSWORD_MESSAGE)
 
     # 3. Update password hash (using Argon2id) and reset any lockout state
     user.password_hash = hash_password(payload.new_password)

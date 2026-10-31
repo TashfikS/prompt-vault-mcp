@@ -26,6 +26,7 @@ from plans import TERMS_VERSION
 from services.account_tokens import (find_user_by_reset_token, find_user_by_verify_token, issue_reset_token,
                                      issue_verify_token, mark_email_verified)
 from services.email import link_base_url, send_password_reset_email, send_verification_email
+from services.credential_policy import BREACHED_PASSWORD_MESSAGE, is_password_breached
 
 from deps import (SESSION_COOKIE_NAME, _bearer_token, _clear_session_cookie, current_user, _get_public_base_url,
                   _require_web_session, _auth_response)
@@ -39,6 +40,8 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
     rate_limiter.check(f"register_ip:{client_ip}", limit=5, window_seconds=60,
                        detail="Too many registration attempts from this IP. Please wait a minute.")
     email = payload.email.strip().lower()
+    if is_password_breached(payload.password):
+        raise HTTPException(status_code=400, detail=BREACHED_PASSWORD_MESSAGE)
 
     is_test_env = is_test_session(db)
     # New accounts always start on Community; paid plans are only granted by verified Polar webhooks.
@@ -361,6 +364,8 @@ def reset_password(payload: ResetPasswordRequest, request: Request, db: Session 
     client_ip = get_client_ip(request)
     rate_limiter.check(f"reset_ip:{client_ip}", limit=10, window_seconds=600,
                        detail="Too many attempts. Please wait a few minutes.")
+    if is_password_breached(payload.new_password):
+        raise HTTPException(status_code=400, detail=BREACHED_PASSWORD_MESSAGE)
     user, target_db, close = _find_user_any_tier(db, lambda s: find_user_by_reset_token(s, payload.token.strip()))
     try:
         if user is None:

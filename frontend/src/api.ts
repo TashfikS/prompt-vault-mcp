@@ -59,7 +59,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     try {
       const body = await response.json() as { detail?: string | { msg?: string }[] }
       if (typeof body.detail === 'string') message = body.detail
-      else if (Array.isArray(body.detail) && body.detail[0]?.msg) message = body.detail[0].msg
+      // Pydantic prefixes custom validator messages with "Value error, "; users don't need that.
+      else if (Array.isArray(body.detail) && body.detail[0]?.msg) message = body.detail[0].msg.replace(/^Value error, /, '')
     } catch { /* response was not JSON */ }
     if (response.status === 401 && token && !path.startsWith('/api/auth/')) { clearSessionToken(); window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT)) }
     throw new Error(message)

@@ -11,3 +11,4 @@ httpx==0.28.1
 argon2-cffi==25.1.0
 polar-sdk==1.0.2
 alembic==1.20.1
+disposable-email-domains==0.0.288

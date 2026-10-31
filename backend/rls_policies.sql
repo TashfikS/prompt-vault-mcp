@@ -1,5 +1,5 @@
 -- ==============================================================================
--- PromptHold PostgreSQL Row-Level Security (RLS) Policies
+-- PromptFolders PostgreSQL Row-Level Security (RLS) Policies
 -- ==============================================================================
 -- These policies provide defense-in-depth on Supabase and Neon PostgreSQL.
 -- Even if an application-layer authorization check is somehow bypassed or a

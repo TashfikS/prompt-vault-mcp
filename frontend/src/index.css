@@ -146,6 +146,22 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   html.dark .shadow-pop { box-shadow: 0 16px 36px -8px rgb(0 0 0 / 0.8), 0 4px 12px -2px rgb(0 0 0 / 0.6); }
 }
 
+/*
+  Tailwind v4 moved space-y-* to a bottom margin on the previous sibling, so a
+  child's own mt-* now adds to the gap. Restore the v3 rule (top margin on every
+  following sibling, overriding the child's mt-*) so layouts match v3 exactly.
+*/
+@utility space-y-* {
+  /* Cancel v4's :where() gap (specificity 0) but lose to a child's own mb-* class,
+     as in v3: :is(html *) only adds type specificity (0,0,1). */
+  :where(& > :not(:last-child)):is(html *) {
+    margin-block-end: 0;
+  }
+  & > :not([hidden]) ~ :not([hidden]) {
+    margin-top: --spacing(--value(number));
+  }
+}
+
 @utility break-anywhere {
   overflow-wrap: anywhere;
   word-break: break-word;

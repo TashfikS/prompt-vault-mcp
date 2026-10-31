@@ -1,23 +1,21 @@
 """Validated API request and response models."""
 
-import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from services.credential_policy import PASSWORD_MAX_LENGTH, email_domain_problem, validate_password_rules
+
 
 def validate_password_complexity(v: str) -> str:
-    if len(v) < 8:
-        raise ValueError("Password must be at least 8 characters long.")
-    if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
-        raise ValueError("Password must include both letters and numbers.")
-    return v
+    # Length only (NIST SP 800-63B); breached passwords are rejected in the routes.
+    return validate_password_rules(v)
 
 
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    password: str = Field(min_length=8, max_length=200)
+    password: str = Field(max_length=PASSWORD_MAX_LENGTH)
     accept_terms: bool = Field(default=False, validate_default=True)
     marketing_opt_in: bool = False
 
@@ -25,6 +23,14 @@ class RegisterRequest(BaseModel):
     @classmethod
     def validate_password_strength(cls, v: str) -> str:
         return validate_password_complexity(v)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_domain(cls, v: str) -> str:
+        problem = email_domain_problem(v)
+        if problem:
+            raise ValueError(problem)
+        return v
 
     @field_validator("accept_terms")
     @classmethod
@@ -44,7 +50,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str = Field(min_length=10, max_length=200)
-    new_password: str = Field(min_length=8, max_length=200)
+    new_password: str = Field(max_length=PASSWORD_MAX_LENGTH)
 
     @field_validator("new_password")
     @classmethod
@@ -67,7 +73,7 @@ class UpdateProfileRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=200)
-    new_password: str = Field(min_length=8, max_length=200)
+    new_password: str = Field(max_length=PASSWORD_MAX_LENGTH)
 
     @field_validator("new_password")
     @classmethod

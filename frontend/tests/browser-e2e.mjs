@@ -11,6 +11,11 @@ const CHROME_PATH = process.env.CHROME_BIN || (
 
 const BASE_URL = process.env.E2E_BASE_URL || 'https://prompthold.pages.dev';
 const API_BASE = process.env.E2E_API_BASE || 'https://prompt-vault-gateway.tashfiks.workers.dev';
+// Sign-up rejects reserved domains like example.com unless the target backend lists the domain in
+// ALLOWED_TEST_EMAIL_DOMAINS, so the domain is configurable per environment.
+const E2E_EMAIL_DOMAIN = process.env.E2E_EMAIL_DOMAIN || 'example.com';
+// Sign-up needs 12+ characters and rejects passwords found in data breaches, so use a random one per run.
+const e2ePassword = () => `ci e2e ${Math.random().toString(36).slice(2, 10)} ${Math.random().toString(36).slice(2, 10)} pass`;
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -59,8 +64,8 @@ async function login(page, email, password) {
 
 // Demo accounts are never seeded in production, so the live suite provisions its own users.
 async function registerUser(label) {
-  const email = `ci_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}@example.com`;
-  const password = 'Password123!';
+  const email = `ci_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}@${E2E_EMAIL_DOMAIN}`;
+  const password = e2ePassword();
   for (let attempt = 0; attempt < 4; attempt++) {
     const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: 'POST',
@@ -94,8 +99,8 @@ async function run() {
   const ts = Date.now();
   const testUser = {
     name: `CI Runner ${ts}`,
-    email: `ci_test_${ts}@example.com`,
-    password: 'Password123!'
+    email: `ci_test_${ts}@${E2E_EMAIL_DOMAIN}`,
+    password: e2ePassword()
   };
 
   let sessionToken = '';
