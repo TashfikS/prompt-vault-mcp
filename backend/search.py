@@ -17,7 +17,7 @@ import re
 from typing import Any
 
 import httpx
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 from models import Group, Prompt, PromptChunk, PromptVersion
@@ -191,6 +191,7 @@ def sync_prompt_embeddings(db: Session, prompt: Prompt, version: PromptVersion) 
             db.add(chunk_record)
 
         db.commit()
+        backfill_vector_column(db, prompt.id)
         return True
     except Exception as exc:
         logger.warning("Error syncing prompt embeddings for %s: %s", prompt.id, exc)
@@ -236,6 +237,73 @@ def _compute_lexical_score(query: str, title: str, description: str, content: st
     score += (matched_content / len(tokens)) * 0.2
 
     return min(1.0, score)
+
+
+
+_PGVECTOR_READY: dict[str, bool] = {}
+
+
+def pgvector_ready(db: Session) -> bool:
+    """True when this session's database has the pgvector ``embedding`` column."""
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        return False
+    key = str(getattr(bind, "url", "") or getattr(getattr(bind, "engine", None), "url", ""))
+    if key not in _PGVECTOR_READY:
+        try:
+            row = db.execute(text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'prompt_chunks' AND column_name = 'embedding'"
+            )).first()
+            _PGVECTOR_READY[key] = row is not None
+        except Exception:
+            db.rollback()
+            _PGVECTOR_READY[key] = False
+    return _PGVECTOR_READY[key]
+
+
+def backfill_vector_column(db: Session, prompt_id: str | None = None) -> None:
+    """Copy embedding_json into the native pgvector column (no-op elsewhere)."""
+    if not pgvector_ready(db):
+        return
+    try:
+        sql = "UPDATE prompt_chunks SET embedding = embedding_json::vector WHERE embedding IS NULL"
+        params: dict[str, Any] = {}
+        if prompt_id:
+            sql += " AND prompt_id = :pid"
+            params["pid"] = prompt_id
+        db.execute(text(sql), params)
+        db.commit()
+    except Exception as exc:
+        logger.warning("pgvector backfill failed: %s", exc)
+        db.rollback()
+
+
+def _semantic_scores_sql(db: Session, query_vector: list[float], prompt_ids: list[str]) -> dict[str, float]:
+    """Max cosine similarity per prompt computed inside Postgres with pgvector."""
+    rows = db.execute(
+        text(
+            "SELECT prompt_id, MAX(1 - (embedding <=> CAST(:q AS vector))) AS sim "
+            "FROM prompt_chunks "
+            "WHERE prompt_id = ANY(:ids) AND embedding IS NOT NULL AND vector_dims(embedding) = :dim "
+            "GROUP BY prompt_id"
+        ),
+        {"q": json.dumps(query_vector), "ids": prompt_ids, "dim": len(query_vector)},
+    ).all()
+    return {r[0]: float(r[1]) for r in rows if r[1] is not None}
+
+
+def _semantic_scores_python(db: Session, query_vector: list[float], prompt_ids: list[str]) -> dict[str, float]:
+    prompt_max_sim: dict[str, float] = {}
+    rows = db.query(PromptChunk.prompt_id, PromptChunk.embedding_json).filter(PromptChunk.prompt_id.in_(prompt_ids)).all()
+    for prompt_id, embedding_json in rows:
+        try:
+            sim = cosine_similarity(query_vector, json.loads(embedding_json))
+        except Exception:
+            continue
+        if sim > prompt_max_sim.get(prompt_id, -1.0):
+            prompt_max_sim[prompt_id] = sim
+    return prompt_max_sim
 
 
 def hybrid_search_prompts(
@@ -305,17 +373,16 @@ def hybrid_search_prompts(
 
     if query_vector:
         prompt_ids = list(candidates_by_id.keys())
-        chunks = db.query(PromptChunk).filter(PromptChunk.prompt_id.in_(prompt_ids)).all()
-        # Group chunks by prompt_id, finding maximum similarity per prompt
         prompt_max_sim: dict[str, float] = {}
-        for ch in chunks:
+        if pgvector_ready(db):
             try:
-                emb = json.loads(ch.embedding_json)
-                sim = cosine_similarity(query_vector, emb)
-                if sim > prompt_max_sim.get(ch.prompt_id, -1.0):
-                    prompt_max_sim[ch.prompt_id] = sim
-            except Exception:
-                continue
+                prompt_max_sim = _semantic_scores_sql(db, query_vector, prompt_ids)
+            except Exception as exc:
+                logger.warning("pgvector search failed, using Python fallback: %s", exc)
+                db.rollback()
+                prompt_max_sim = _semantic_scores_python(db, query_vector, prompt_ids)
+        else:
+            prompt_max_sim = _semantic_scores_python(db, query_vector, prompt_ids)
 
         # Keep candidates with meaningful semantic similarity (>0.35)
         semantic_scored = [(p_id, sim) for p_id, sim in prompt_max_sim.items() if sim > 0.35]

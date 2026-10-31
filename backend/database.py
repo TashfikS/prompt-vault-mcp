@@ -123,6 +123,19 @@ if not SUPABASE_DATABASE_URL.startswith("sqlite"):
 
 engine_supabase = create_engine(SUPABASE_DATABASE_URL, **supabase_engine_kwargs)
 
+
+def _warn_if_unpooled(label: str, url: str) -> None:
+    """Free tiers cap direct connections; the pooled endpoints (Neon "-pooler" host,
+    Supabase "pooler.supabase.com" on 6543) are free and survive cold starts better."""
+    if url.startswith("sqlite") or "pooler" in url:
+        return
+    logger.warning("[PromptHold DB Router] %s URL is not a pooled endpoint; use the provider's pooled connection string.", label)
+
+
+_warn_if_unpooled("Neon", NEON_DATABASE_URL)
+if SUPABASE_DATABASE_URL != NEON_DATABASE_URL:
+    _warn_if_unpooled("Supabase", SUPABASE_DATABASE_URL)
+
 # Primary default engine and sessionmaker (for backward compatibility)
 engine = engine_neon
 SessionNeon = sessionmaker(bind=engine_neon, autoflush=False, autocommit=False)
@@ -425,6 +438,8 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
             for batch in (groups, memberships, prompts, versions, chunks, diffs, proposals, approvals, comments, keys, sessions):
                 _copy_rows(dst_db, batch)
             dst_db.commit()
+            from search import backfill_vector_column
+            backfill_vector_column(dst_db)
         except Exception:
             dst_db.rollback()
             logger.exception("Tier migration of user %s (%s -> %s) failed while copying", user_id, from_plan, to_plan)

@@ -289,15 +289,39 @@ def upgrade_schema(engine: Engine) -> None:
         OAuthClient.__table__.create(bind=connection, checkfirst=True)
         OAuthAuthorizationCode.__table__.create(bind=connection, checkfirst=True)
         ProposalComment.__table__.create(bind=connection, checkfirst=True)
-        if is_postgres:
-            try:
-                connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-            except Exception:
-                pass
-            try:
-                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            except Exception:
-                pass
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_prompt_proposals_group_status ON prompt_proposals (group_id, status)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_shared_diff_links_prompt_id ON shared_diff_links (prompt_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_prompts_group_archived ON prompts (group_id, is_archived)"))
+    if is_postgres:
+        _upgrade_postgres_extensions(engine)
+
+
+def _upgrade_postgres_extensions(engine: Engine) -> None:
+    """Optional Postgres features, each in its own transaction.
+
+    A failed statement aborts a Postgres transaction, so these must not share
+    one with the required DDL above. pgvector is free on both Neon and Supabase;
+    when it is unavailable search falls back to Python cosine similarity.
+    """
+    import logging
+
+    log = logging.getLogger("prompthold.schema")
+    steps = [
+        "CREATE EXTENSION IF NOT EXISTS pg_trgm",
+        "CREATE EXTENSION IF NOT EXISTS vector",
+        # Dimension-less column: gemini-embedding-001 (3072-d) and text-embedding-004 (768-d) can coexist.
+        "ALTER TABLE prompt_chunks ADD COLUMN IF NOT EXISTS embedding vector",
+        "UPDATE prompt_chunks SET embedding = embedding_json::vector "
+        "WHERE embedding IS NULL AND embedding_json LIKE '[%'",
+    ]
+    for sql in steps:
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(sql))
+        except Exception as exc:
+            log.info("Optional schema step skipped (%s): %s", sql.split(" ")[0:4], exc)
+            if "vector" in sql and "EXTENSION" in sql:
+                return
 
 
 def verify_firebase_id_token(id_token: str) -> dict[str, str] | None:
