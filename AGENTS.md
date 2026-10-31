@@ -41,7 +41,7 @@ Users can belong to multiple groups with distinct roles per group:
 
 #### Proposal & Approval Workflow
 - Group Owners configure `required_approvals` (default 1).
-- In team groups, prompt edits (by Group Owners, Admins, and Members alike) create a `PromptProposal` in `PENDING` status.
+- In team groups, Member edits create a `PromptProposal` in `PENDING` status. Group Owners and Workspace Admins save a new version directly (they may still submit a proposal explicitly via `POST /api/prompts/{id}/proposals`).
 - Group Owners and other Members cast distinct `ProposalApproval` votes. Self-approval is blocked.
 - Once total approvals reach `required_approvals`, the proposal is merged as the next sequential `PromptVersion` (`vN+1`) and automatically becomes the active version.
 - Every user has an automatically provisioned `Personal` group (`is_personal = True`, `personal_owner_id = user.id`).

@@ -125,19 +125,21 @@ export default function AccessGroupManager({
   const [roleChoice, setRoleChoice] = useState<Record<string, GroupRole>>({})
   const [memberSearch, setMemberSearch] = useState<Record<string, string>>({})
 
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     try {
       await action()
       notify(success)
       onChanged()
+      return true
     } catch (e) {
       notify(e instanceof Error ? e.message : 'That change could not be saved.', { tone: 'error' })
+      return false
     }
   }
 
   async function createGroup(event: FormEvent) {
     event.preventDefault()
-    await run(
+    const created = await run(
       () =>
         api('/api/groups', {
           method: 'POST',
@@ -149,6 +151,7 @@ export default function AccessGroupManager({
         }),
       `Group “${name}” created.`
     )
+    if (!created) return
     setName('')
     setDescription('')
     setLeader('')

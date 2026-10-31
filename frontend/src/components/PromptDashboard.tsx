@@ -58,6 +58,8 @@ export default function PromptDashboard({
     })
   }, [prompts, search, activeGroupId])
 
+  const scopeTotal = activeGroupId ? prompts.filter(p => p.group_id === activeGroupId).length : prompts.length
+
   const resetAll = () => {
     setGroupId(null)
     setSearch('')
@@ -204,7 +206,7 @@ export default function PromptDashboard({
           </div>
 
           <span className="text-xs font-medium tabular-nums text-slate-400 dark:text-zinc-500">
-            Showing {filtered.length} of {prompts.length} {prompts.length === 1 ? 'prompt' : 'prompts'}
+            Showing {filtered.length} of {scopeTotal} {scopeTotal === 1 ? 'prompt' : 'prompts'}
           </span>
         </div>
       </div>

@@ -20,7 +20,7 @@ const FALLBACK_TIERS: PricingTier[] = [
     mcp_monthly_calls: 1000,
     storage_type: 'Free Cloud Database',
     features: [
-      '1 User (Private Personal Space)',
+      '1 User · Personal space + 1 team group',
       'Up to 20 active prompts',
       'Last 10 versions per prompt',
       'Direct Save (instant v1 → v2)',
