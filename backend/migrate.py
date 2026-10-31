@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 from auth import ensure_demo_passwords, upgrade_schema
+from migrations import run_migrations as run_alembic_migrations
 from database import Base, SessionNeon, SessionSupabase, engine_neon, engine_supabase
 from permissions import ensure_all_personal_groups
 from security import should_seed_demo_data
@@ -27,6 +28,7 @@ def run_migrations() -> None:
     try:
         Base.metadata.create_all(bind=engine_neon)
         upgrade_schema(engine_neon)
+        run_alembic_migrations(engine_neon)
         print("      ✓ Schema and tables initialized on Neon.")
 
         with SessionNeon() as db_neon:
@@ -45,6 +47,7 @@ def run_migrations() -> None:
     try:
         Base.metadata.create_all(bind=engine_supabase)
         upgrade_schema(engine_supabase)
+        run_alembic_migrations(engine_supabase)
         print("      ✓ Schema and tables initialized on Supabase.")
 
         with SessionSupabase() as db_supa:

@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from migrations import run_migrations
 from database import (
     Base,
     SessionNeon,
@@ -43,6 +44,7 @@ async def lifespan(application: FastAPI):
         try:
             Base.metadata.create_all(bind=engine_neon)
             upgrade_schema(engine_neon)
+            run_migrations(engine_neon)
         except Exception as exc:
             import logging
             logging.getLogger("uvicorn.error").warning("Neon automatic DDL migration skipped: %s", exc)
@@ -51,6 +53,7 @@ async def lifespan(application: FastAPI):
         try:
             Base.metadata.create_all(bind=engine_supabase)
             upgrade_schema(engine_supabase)
+            run_migrations(engine_supabase)
         except Exception as exc:
             import logging
             logging.getLogger("uvicorn.error").warning("Supabase automatic DDL migration skipped: %s", exc)
