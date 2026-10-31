@@ -108,6 +108,7 @@ jobs:
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: ${{ matrix.db_backend == 'postgres' && 'postgresql+psycopg://promptvault:promptvault_test_pw@localhost:5432/promptvault_test' || 'sqlite:///./test_ci.db' }}
+          PGVECTOR_TEST_DATABASE_URL: ${{ matrix.db_backend == 'postgres' && 'postgresql+psycopg://promptvault:promptvault_test_pw@localhost:5432/promptvault_test' || '' }}
         run: |
           pytest -v --cov=. --cov-report=term-missing
 

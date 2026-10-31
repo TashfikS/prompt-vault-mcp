@@ -11,8 +11,9 @@ from auth import upgrade_schema
 from database import Base, normalize_db_url
 from models import Group, Prompt, PromptChunk, PromptVersion, User
 
-PG_URL = normalize_db_url(os.getenv("DATABASE_URL", ""))
-pytestmark = pytest.mark.skipif(not PG_URL.startswith("postgresql"), reason="needs Postgres")
+# Explicit opt-in only: never fall back to DATABASE_URL, which .env may point at a real database.
+PG_URL = normalize_db_url(os.getenv("PGVECTOR_TEST_DATABASE_URL", ""))
+pytestmark = pytest.mark.skipif(not PG_URL.startswith("postgresql"), reason="set PGVECTOR_TEST_DATABASE_URL to a throwaway Postgres")
 
 
 def test_sql_and_python_semantic_scores_agree():
