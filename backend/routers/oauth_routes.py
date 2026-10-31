@@ -188,13 +188,13 @@ async def oauth_authorize_post(
         clean_email = email.strip().lower()
         candidate = None
         if is_test_session(db):
-            c = db.query(User).filter_by(email=clean_email).first()
+            c = db.query(User).filter_by(email=clean_email, is_peer_stub=False).first()
             if c and c.password_hash and verify_password(password, c.password_hash):
                 candidate = c
         else:
             try:
                 n_db = SessionNeon()
-                n_user = n_db.query(User).filter_by(email=clean_email).first()
+                n_user = n_db.query(User).filter_by(email=clean_email, is_peer_stub=False).first()
                 if n_user and n_user.password_hash and verify_password(password, n_user.password_hash):
                     candidate = n_user
                     active_db = n_db
@@ -205,7 +205,7 @@ async def oauth_authorize_post(
             if not candidate:
                 try:
                     s_db = SessionSupabase()
-                    s_user = s_db.query(User).filter_by(email=clean_email).first()
+                    s_user = s_db.query(User).filter_by(email=clean_email, is_peer_stub=False).first()
                     if s_user and s_user.password_hash and verify_password(password, s_user.password_hash):
                         candidate = s_user
                         active_db = s_db

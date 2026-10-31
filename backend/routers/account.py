@@ -25,6 +25,7 @@ from polar_billing import (create_checkout_session, create_customer_portal_sessi
                            process_polar_event, verify_polar_webhook_signature)
 from security import (get_client_ip, record_audit_log)
 
+import tiers
 from deps import (current_user, maybe_user, _require_web_session)
 from domain import (PLAN_TIERS, PLAN_LIMITS_MAP, _api_key_read)
 
@@ -102,6 +103,7 @@ def update_profile(
     user.name = new_name
     db.commit()
     db.refresh(user)
+    tiers.sync_stub(db, user)  # teammates in the other database tier see the new name too
     record_audit_log(
         db,
         "USER_PROFILE_UPDATED",

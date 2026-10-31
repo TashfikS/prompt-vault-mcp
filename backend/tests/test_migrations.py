@@ -13,9 +13,9 @@ def test_run_migrations_reaches_head_and_is_idempotent():
     Base.metadata.create_all(bind=engine)
     upgrade_schema(engine)
     run_migrations(engine)
-    assert current_revision(engine) == "0002_signup_billing"
+    assert current_revision(engine) == "0003_cross_tier_teams"
     run_migrations(engine)  # second run is a no-op
-    assert current_revision(engine) == "0002_signup_billing"
+    assert current_revision(engine) == "0003_cross_tier_teams"
 
 
 def test_signup_columns_added_to_pre_existing_users_table():

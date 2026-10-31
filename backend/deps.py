@@ -128,6 +128,29 @@ def current_user(
     raise HTTPException(status_code=401, detail="Your session or API key is invalid or has expired. Please sign in again.")
 
 
+def routed_db(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """The session for the database holding the group/prompt/proposal named in the path (see tiers.py).
+
+    Usually the user's home database; for a team stored in the other tier, a session on that tier.
+    Pair with ``routed_user`` so permission checks run as the user's row in the same database.
+    """
+    from tiers import ROUTED_RESOURCES, db_for
+
+    for key, model in ROUTED_RESOURCES:
+        row_id = request.path_params.get(key)
+        if row_id:
+            with db_for(db, user, model, row_id) as (target_db, target_user):
+                request.state.routed_user = target_user
+                yield target_db
+            return
+    request.state.routed_user = user
+    yield db
+
+
+def routed_user(request: Request, db: Session = Depends(routed_db)) -> User:
+    return request.state.routed_user
+
+
 def maybe_user(
     request: Request,
     authorization: str | None = Header(default=None),

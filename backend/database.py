@@ -445,8 +445,9 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
 
         # 1. Upsert into destination, parents before children.
         try:
+            # If the user was already a team member in the destination, this overwrites their stub (tiers.py).
             _copy_rows(dst_db, [src_user])
-            dst_db.query(User).filter_by(id=user_id).update({"plan": to_plan}, synchronize_session=False)
+            dst_db.query(User).filter_by(id=user_id).update({"plan": to_plan, "is_peer_stub": False}, synchronize_session=False)
             for batch in (groups, memberships, prompts, versions, chunks, diffs, proposals, approvals, comments, keys, sessions):
                 _copy_rows(dst_db, batch)
             dst_db.commit()
@@ -488,8 +489,15 @@ def migrate_user_tier(user_id: str, from_plan: str, to_plan: str) -> None:
                 src_db.query(User).filter_by(id=user_id).delete(synchronize_session=False)
             else:
                 # Still a member of shared groups in this tier: keep a stub so FKs stay valid.
-                src_db.query(User).filter_by(id=user_id).update({"plan": to_plan}, synchronize_session=False)
+                src_db.query(User).filter_by(id=user_id).update(
+                    {"plan": to_plan, "is_peer_stub": True, "password_hash": None, "has_peer_memberships": False,
+                     "verify_token_hash": None, "reset_token_hash": None},
+                    synchronize_session=False,
+                )
             src_db.commit()
+            # The real account now lists the teams it still has in the old tier (and only those).
+            dst_db.query(User).filter_by(id=user_id).update({"has_peer_memberships": remaining > 0}, synchronize_session=False)
+            dst_db.commit()
         except Exception:
             src_db.rollback()
             logger.exception(

@@ -117,7 +117,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     close_target = False
 
     if is_test_env:
-        user = db.query(User).filter(User.email == email).first()
+        user = db.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first()
     else:
         n_user = None
         s_user = None
@@ -125,7 +125,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         s_db = None
         try:
             n_db = SessionNeon()
-            n_user = n_db.query(User).filter(User.email == email).first()
+            n_user = n_db.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first()
         except Exception:
             if n_db:
                 n_db.close()
@@ -133,7 +133,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
 
         try:
             s_db = SessionSupabase()
-            s_user = s_db.query(User).filter(User.email == email).first()
+            s_user = s_db.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first()
         except Exception:
             if s_db:
                 s_db.close()
@@ -217,11 +217,11 @@ def firebase_sso_login(payload: FirebaseAuthRequest, request: Request, response:
     close_target = False
 
     if is_test_env:
-        user = db.query(User).filter(User.email == email).first()
+        user = db.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first()
     else:
         try:
             s_db = SessionSupabase()
-            found = s_db.query(User).filter(User.email == email).first()
+            found = s_db.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first()
             if found:
                 user = found
                 target_db = s_db
@@ -234,7 +234,7 @@ def firebase_sso_login(payload: FirebaseAuthRequest, request: Request, response:
         if user is None:
             try:
                 n_db = SessionNeon()
-                found = n_db.query(User).filter(User.email == email).first()
+                found = n_db.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first()
                 if found:
                     user = found
                     target_db = n_db
@@ -350,7 +350,7 @@ def resend_verification_by_email(payload: ForgotPasswordRequest, request: Reques
                        detail="We've sent a few confirmation emails already. Check your inbox and spam, or try again in 10 minutes.")
     email = payload.email.strip().lower()
     generic = {"sent": True, "message": "If that account still needs confirming, we've sent a new link."}
-    user, target_db, close = _find_user_any_tier(db, lambda s: s.query(User).filter(User.email == email).first())
+    user, target_db, close = _find_user_any_tier(db, lambda s: s.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first())
     try:
         if user is None or not _awaiting_email_verification(user):
             return generic
@@ -390,7 +390,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Sessio
         base = link_base_url(_get_public_base_url(request))
     except RuntimeError:
         return generic
-    user, target_db, close = _find_user_any_tier(db, lambda s: s.query(User).filter(User.email == email).first())
+    user, target_db, close = _find_user_any_tier(db, lambda s: s.query(User).filter(User.email == email, User.is_peer_stub.is_(False)).first())
     try:
         if user is None:
             return generic

@@ -22,6 +22,8 @@ from cache import (
 )
 from contextlib import contextmanager
 from sqlalchemy.orm import Session
+import tiers
+from contextlib import ExitStack
 from database import SessionLocal, SessionNeon, SessionSupabase, get_sessionmaker_for_plan, resolve_token_plan
 from permissions import (
     can_access_group_with_key,
@@ -173,74 +175,82 @@ def list_my_accessible_prompts(api_key: str = "", search_query: str = "", group_
     effective_key = resolve_effective_api_key(api_key)
     with _get_mcp_session(effective_key) as db:
         user, key_record = _auth_key(db, effective_key)
-        group_ids = get_scoped_group_ids(db, user, key_record)
-        if not group_ids:
-            return {"prompts": []}
-        query = (
-            db.query(Prompt, Group, PromptVersion)
-            .join(Group, Prompt.group_id == Group.id)
-            .join(
-                PromptVersion,
-                (PromptVersion.id == Prompt.current_version_id)
-                | (
-                    Prompt.current_version_id.is_(None)
-                    & (PromptVersion.prompt_id == Prompt.id)
-                    & (PromptVersion.version_number == Prompt.current_version_number)
-                ),
-            )
-            .filter(Prompt.group_id.in_(group_ids), Prompt.is_archived.is_(False))
+        rows = tiers.merged(db, user, lambda tier_db, tier_user: _accessible_prompts_in(
+            tier_db, tier_user, key_record, search_query, group_name))
+        return {"prompts": rows}
+
+
+def _accessible_prompts_in(db, user: User, key_record, search_query: str, group_name: str) -> list[dict]:
+    """Prompts visible to ``user`` in one database tier (see tiers.py)."""
+    group_ids = get_scoped_group_ids(db, user, key_record)
+    if not group_ids:
+        return []
+    query = (
+        db.query(Prompt, Group, PromptVersion)
+        .join(Group, Prompt.group_id == Group.id)
+        .join(
+            PromptVersion,
+            (PromptVersion.id == Prompt.current_version_id)
+            | (
+                Prompt.current_version_id.is_(None)
+                & (PromptVersion.prompt_id == Prompt.id)
+                & (PromptVersion.version_number == Prompt.current_version_number)
+            ),
         )
-        if search_query.strip():
-            target_group_ids = group_ids
-            if group_name.strip().lower() == "personal":
-                personal_grp = db.query(Group.id).filter(Group.personal_owner_id == user.id).first()
-                target_group_ids = [personal_grp[0]] if personal_grp else []
-            elif group_name.strip():
-                escaped_group = escape_like(group_name.strip()[:160])
-                named_grps = [
-                    g.id for g in db.query(Group.id).filter(
-                        Group.id.in_(group_ids),
-                        Group.name.ilike(escaped_group, escape="\\"),
-                        Group.personal_owner_id.is_(None),
-                    ).all()
-                ]
-                target_group_ids = named_grps
-
-            hybrid_results = hybrid_search_prompts(
-                db=db,
-                query_text=search_query.strip(),
-                accessible_group_ids=target_group_ids,
-                limit=200,
-            )
-            return {"prompts": hybrid_results}
-
+        .filter(Prompt.group_id.in_(group_ids), Prompt.is_archived.is_(False))
+    )
+    if search_query.strip():
+        target_group_ids = group_ids
         if group_name.strip().lower() == "personal":
-            query = query.filter(Group.personal_owner_id == user.id)
+            personal_grp = db.query(Group.id).filter(Group.personal_owner_id == user.id).first()
+            target_group_ids = [personal_grp[0]] if personal_grp else []
         elif group_name.strip():
             escaped_group = escape_like(group_name.strip()[:160])
-            query = query.filter(Group.name.ilike(escaped_group, escape="\\"), Group.personal_owner_id.is_(None))
-        rows = [
-            {
-                "id": prompt.id,
-                "title": prompt.title,
-                "group_name": group_display_name(group),
-                "description": prompt.description,
-                "content": version.content,
-                "variables": json.loads(version.variables_json),
-                "current_version_number": prompt.current_version_number,
-                "current_version_id": version.id,
-            }
-            for prompt, group, version in query.order_by(Prompt.title).limit(200).all()
-        ]
-        return {"prompts": rows}
+            named_grps = [
+                g.id for g in db.query(Group.id).filter(
+                    Group.id.in_(group_ids),
+                    Group.name.ilike(escaped_group, escape="\\"),
+                    Group.personal_owner_id.is_(None),
+                ).all()
+            ]
+            target_group_ids = named_grps
+
+        hybrid_results = hybrid_search_prompts(
+            db=db,
+            query_text=search_query.strip(),
+            accessible_group_ids=target_group_ids,
+            limit=200,
+        )
+        return hybrid_results
+
+    if group_name.strip().lower() == "personal":
+        query = query.filter(Group.personal_owner_id == user.id)
+    elif group_name.strip():
+        escaped_group = escape_like(group_name.strip()[:160])
+        query = query.filter(Group.name.ilike(escaped_group, escape="\\"), Group.personal_owner_id.is_(None))
+    rows = [
+        {
+            "id": prompt.id,
+            "title": prompt.title,
+            "group_name": group_display_name(group),
+            "description": prompt.description,
+            "content": version.content,
+            "variables": json.loads(version.variables_json),
+            "current_version_number": prompt.current_version_number,
+            "current_version_id": version.id,
+        }
+        for prompt, group, version in query.order_by(Prompt.title).limit(200).all()
+    ]
+    return rows
 
 
 @mcp.tool()
 def get_and_fill_prompt(prompt_id: str, api_key: str = "", variables: dict[str, str] | None = None) -> dict[str, str]:
     """Get the latest accessible prompt by UUID and substitute provided variable values."""
     effective_key = resolve_effective_api_key(api_key)
-    with _get_mcp_session(effective_key) as db:
+    with _get_mcp_session(effective_key) as db, ExitStack() as stack:
         user, key_record = _auth_key(db, effective_key)
+        db, user = stack.enter_context(tiers.db_for(db, user, Prompt, prompt_id.strip()[:64]))
         prompt = db.query(Prompt).filter_by(id=prompt_id.strip()[:64]).first()
         if prompt is None or not can_access_group_with_key(db, user, prompt.group_id, key_record):
             raise ValueError("Prompt not found or this API key does not have access to its group.")
@@ -281,8 +291,9 @@ def save_prompt_version_from_chat(prompt_id: str, new_content: str,
         raise ValueError("Prompt content must be between 1 and 100,000 characters.")
     safe_note = (change_note or "Updated via AI Chat").strip()[:500]
     effective_key = resolve_effective_api_key(api_key)
-    with _get_mcp_session(effective_key) as db:
+    with _get_mcp_session(effective_key) as db, ExitStack() as stack:
         user, key_record = _auth_key(db, effective_key)
+        db, user = stack.enter_context(tiers.db_for(db, user, Prompt, prompt_id.strip()[:64]))
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot modify or propose changes to prompts.")
         prompt = db.query(Prompt).filter_by(id=prompt_id.strip()[:64]).first()
@@ -347,8 +358,9 @@ def duplicate_or_move_prompt(prompt_id: str, target_group_id: str,
     """Duplicate (copy) or move a prompt to another group or Personal space. Requires Member or Owner role in both spaces."""
     clean_mode = "move" if mode.strip().lower() == "move" else "copy"
     effective_key = resolve_effective_api_key(api_key)
-    with _get_mcp_session(effective_key) as db:
-        user, key_record = _auth_key(db, effective_key)
+    with _get_mcp_session(effective_key) as home_db, ExitStack() as stack:
+        home_user, key_record = _auth_key(home_db, effective_key)
+        db, user = stack.enter_context(tiers.db_for(home_db, home_user, Prompt, prompt_id.strip()[:64]))
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot duplicate or move prompts.")
         prompt = db.query(Prompt).filter_by(id=prompt_id.strip()[:64]).first()
@@ -360,6 +372,31 @@ def duplicate_or_move_prompt(prompt_id: str, target_group_id: str,
             raise ValueError("Guests have view-only access and cannot duplicate or move prompts.")
 
         target_group = db.query(Group).filter_by(id=target_group_id.strip()[:64]).first()
+        if target_group is None:
+            # The target may be stored in the other database tier (see tiers.py): copy across.
+            if db is not home_db:
+                other = (home_db, home_user)
+            else:
+                other = stack.enter_context(tiers.open_peer(home_db, home_user))
+            if other is not None:
+                other_db, other_user = other
+                other_group = other_db.query(Group).filter_by(id=target_group_id.strip()[:64]).first()
+                if other_group is not None and can_access_group_with_key(other_db, other_user, other_group.id, key_record):
+                    if get_user_group_role(other_db, other_user, other_group.id) not in {"GROUP_MANAGER", "MEMBER"}:
+                        raise ValueError("Guests have view-only access and cannot add prompts to the target group.")
+                    if clean_mode == "move":
+                        raise ValueError("That space is in a different workspace, so the prompt can't be moved there. Duplicate it instead.")
+                    try:
+                        result = prompt_service.duplicate_into_other_tier(db, prompt, other_db, other_user, other_group, new_title)
+                    except prompt_service.PromptError as exc:
+                        raise ValueError(str(exc)) from exc
+                    tgt_name = group_display_name(other_group)
+                    record_audit_log(other_db, "MCP_PROMPT_DUPLICATED", user_id=other_user.id, target_type="prompt",
+                                     target_id=result.prompt.id, details=f"Duplicated from {prompt.id} to {other_group.id}")
+                    return {"id": result.prompt.id, "title": result.prompt.title, "group_id": other_group.id,
+                            "group_name": tgt_name, "current_version_number": 1, "mode": "copy",
+                            "proposal_created": result.proposal is not None,
+                            "message": f"Prompt successfully duplicated to {tgt_name}."}
         if target_group is None or not can_access_group_with_key(db, user, target_group.id, key_record):
             raise ValueError("Target group not found or you do not have access to it.")
 
@@ -412,7 +449,7 @@ def create_prompt_from_chat(title: str, content: str, group_id: str = "", group_
     safe_note = (change_note or "Created via AI Chat").strip()[:500]
 
     effective_key = resolve_effective_api_key(api_key)
-    with _get_mcp_session(effective_key) as db:
+    with _get_mcp_session(effective_key) as db, ExitStack() as stack:
         user, key_record = _auth_key(db, effective_key)
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot create prompts or proposals.")
@@ -427,6 +464,18 @@ def create_prompt_from_chat(title: str, content: str, group_id: str = "", group_
                 target_group = db.query(Group).filter(Group.name.ilike(escape_like(group_name.strip()[:160]), escape="\\")).first()
         else:
             target_group = db.query(Group).filter_by(personal_owner_id=user.id).first()
+        if target_group is None and (group_id.strip() or (group_name.strip() and group_name.strip().lower() != "personal")):
+            # A team stored in the other database tier (see tiers.py).
+            peer = stack.enter_context(tiers.open_peer(db, user))
+            if peer is not None:
+                peer_db, peer_user = peer
+                if group_id.strip():
+                    found = peer_db.query(Group).filter_by(id=group_id.strip()[:64]).first()
+                else:
+                    found = peer_db.query(Group).filter(Group.name.ilike(escape_like(group_name.strip()[:160]), escape="\\"),
+                                                        Group.personal_owner_id.is_(None)).first()
+                if found is not None:
+                    db, user, target_group = peer_db, peer_user, found
 
         if not target_group or not can_access_group_with_key(db, user, target_group.id, key_record):
             raise ValueError("Target group not found or you do not have permission to access it.")
@@ -472,87 +521,94 @@ def list_pending_proposals(api_key: str = "", group_name: str = "") -> dict[str,
     effective_key = resolve_effective_api_key(api_key)
     with _get_mcp_session(effective_key) as db:
         user, key_record = _auth_key(db, effective_key)
-        group_ids = get_scoped_group_ids(db, user, key_record)
-        if not group_ids:
-            return {"proposals": []}
+        results = tiers.merged(db, user, lambda tier_db, tier_user: _pending_proposals_in(tier_db, tier_user, key_record, group_name))
+        results.sort(key=lambda r: r["created_at"], reverse=True)
+        return {"proposals": results[:50]}
 
-        if group_name.strip().lower() == "personal":
-            personal_grp = db.query(Group.id).filter(Group.personal_owner_id == user.id).first()
-            group_ids = [personal_grp[0]] if personal_grp else []
-        elif group_name.strip():
-            escaped_group = escape_like(group_name.strip()[:160])
-            named_grps = [
-                g.id for g in db.query(Group.id).filter(
-                    Group.id.in_(group_ids),
-                    Group.name.ilike(escaped_group, escape="\\"),
-                    Group.personal_owner_id.is_(None),
-                ).all()
-            ]
-            group_ids = named_grps
 
-        if not group_ids:
-            return {"proposals": []}
+def _pending_proposals_in(db, user: User, key_record, group_name: str) -> list[dict]:
+    """Pending proposals visible to ``user`` in one database tier (see tiers.py)."""
+    group_ids = get_scoped_group_ids(db, user, key_record)
+    if not group_ids:
+        return []
 
-        proposals = (
-            db.query(PromptProposal)
-            .filter(PromptProposal.group_id.in_(group_ids), PromptProposal.status == "PENDING")
-            .order_by(PromptProposal.created_at.desc())
-            .limit(50)
-            .all()
-        )
+    if group_name.strip().lower() == "personal":
+        personal_grp = db.query(Group.id).filter(Group.personal_owner_id == user.id).first()
+        group_ids = [personal_grp[0]] if personal_grp else []
+    elif group_name.strip():
+        escaped_group = escape_like(group_name.strip()[:160])
+        named_grps = [
+            g.id for g in db.query(Group.id).filter(
+                Group.id.in_(group_ids),
+                Group.name.ilike(escaped_group, escape="\\"),
+                Group.personal_owner_id.is_(None),
+            ).all()
+        ]
+        group_ids = named_grps
 
-        results = []
-        for p in proposals:
-            group = db.query(Group).filter_by(id=p.group_id).first()
-            prompt = db.query(Prompt).filter_by(id=p.prompt_id).first()
-            proposer = db.query(User).filter_by(id=p.proposer_id).first()
-            role = get_user_group_role(db, user, p.group_id)
+    if not group_ids:
+        return []
 
-            approvals = db.query(ProposalApproval).filter_by(proposal_id=p.id).all()
-            has_approved = any(a.user_id == user.id for a in approvals)
-            required = getattr(group, "required_approvals", 1) if group else 1
-            allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
-            is_proposer = (p.proposer_id == user.id)
-            self_approve_allowed = (not is_proposer) or allow_self
-            can_approve = (role in {"GROUP_MANAGER", "MEMBER"}) and (not has_approved) and self_approve_allowed
+    proposals = (
+        db.query(PromptProposal)
+        .filter(PromptProposal.group_id.in_(group_ids), PromptProposal.status == "PENDING")
+        .order_by(PromptProposal.created_at.desc())
+        .limit(50)
+        .all()
+    )
 
-            comments = db.query(ProposalComment).filter_by(proposal_id=p.id).order_by(ProposalComment.created_at.asc()).all()
-            comments_data = []
-            for c in comments:
-                cu = db.query(User).filter_by(id=c.user_id).first()
-                comments_data.append({
-                    "id": c.id,
-                    "author": cu.name if cu else "Unknown",
-                    "comment": c.comment,
-                    "created_at": c.created_at.isoformat() + "Z",
-                })
+    results = []
+    for p in proposals:
+        group = db.query(Group).filter_by(id=p.group_id).first()
+        prompt = db.query(Prompt).filter_by(id=p.prompt_id).first()
+        proposer = db.query(User).filter_by(id=p.proposer_id).first()
+        role = get_user_group_role(db, user, p.group_id)
 
-            active_ver = None
-            if prompt and prompt.current_version_id:
-                active_ver = db.query(PromptVersion).filter_by(id=prompt.current_version_id).first()
+        approvals = db.query(ProposalApproval).filter_by(proposal_id=p.id).all()
+        has_approved = any(a.user_id == user.id for a in approvals)
+        required = getattr(group, "required_approvals", 1) if group else 1
+        allow_self = bool(getattr(group, "allow_self_approval", False)) if group else False
+        is_proposer = (p.proposer_id == user.id)
+        self_approve_allowed = (not is_proposer) or allow_self
+        can_approve = (role in {"GROUP_MANAGER", "MEMBER"}) and (not has_approved) and self_approve_allowed
 
-            results.append({
-                "proposal_id": p.id,
-                "prompt_id": p.prompt_id,
-                "prompt_title": prompt.title if prompt else p.title,
-                "proposed_title": p.title,
-                "group_id": p.group_id,
-                "group_name": group_display_name(group) if group else "Unknown",
-                "proposer_name": proposer.name if proposer else "Unknown",
-                "change_note": p.change_note,
-                "proposed_content": p.content,
-                "current_content": active_ver.content if active_ver else None,
-                "is_new_prompt": (prompt.current_version_id is None) if prompt else True,
-                "approvals_count": len(approvals),
-                "required_approvals": required,
-                "allow_self_approval": allow_self,
-                "can_approve": can_approve,
-                "has_approved": has_approved,
-                "comments": comments_data,
-                "created_at": p.created_at.isoformat() + "Z",
+        comments = db.query(ProposalComment).filter_by(proposal_id=p.id).order_by(ProposalComment.created_at.asc()).all()
+        comments_data = []
+        for c in comments:
+            cu = db.query(User).filter_by(id=c.user_id).first()
+            comments_data.append({
+                "id": c.id,
+                "author": cu.name if cu else "Unknown",
+                "comment": c.comment,
+                "created_at": c.created_at.isoformat() + "Z",
             })
 
-        return {"proposals": results}
+        active_ver = None
+        if prompt and prompt.current_version_id:
+            active_ver = db.query(PromptVersion).filter_by(id=prompt.current_version_id).first()
+
+        results.append({
+            "proposal_id": p.id,
+            "prompt_id": p.prompt_id,
+            "prompt_title": prompt.title if prompt else p.title,
+            "proposed_title": p.title,
+            "group_id": p.group_id,
+            "group_name": group_display_name(group) if group else "Unknown",
+            "proposer_name": proposer.name if proposer else "Unknown",
+            "change_note": p.change_note,
+            "proposed_content": p.content,
+            "current_content": active_ver.content if active_ver else None,
+            "is_new_prompt": (prompt.current_version_id is None) if prompt else True,
+            "approvals_count": len(approvals),
+            "required_approvals": required,
+            "allow_self_approval": allow_self,
+            "can_approve": can_approve,
+            "has_approved": has_approved,
+            "comments": comments_data,
+            "created_at": p.created_at.isoformat() + "Z",
+        })
+
+    return results
 
 
 @mcp.tool()
@@ -563,8 +619,9 @@ def review_proposal(proposal_id: str, action: str = "APPROVE", comment: str = ""
         raise ValueError("Action must be either 'APPROVE' or 'REJECT'.")
 
     effective_key = resolve_effective_api_key(api_key)
-    with _get_mcp_session(effective_key) as db:
+    with _get_mcp_session(effective_key) as db, ExitStack() as stack:
         user, key_record = _auth_key(db, effective_key)
+        db, user = stack.enter_context(tiers.db_for(db, user, PromptProposal, proposal_id.strip()[:64]))
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot approve or reject proposals.")
 
@@ -627,8 +684,9 @@ def comment_on_proposal(proposal_id: str, comment: str, api_key: str = "") -> di
     safe_comment = comment.strip()[:2000]
 
     effective_key = resolve_effective_api_key(api_key)
-    with _get_mcp_session(effective_key) as db:
+    with _get_mcp_session(effective_key) as db, ExitStack() as stack:
         user, key_record = _auth_key(db, effective_key)
+        db, user = stack.enter_context(tiers.db_for(db, user, PromptProposal, proposal_id.strip()[:64]))
         if key_record is not None and getattr(key_record, "access_level", "READ_WRITE") == "READ_ONLY":
             raise ValueError("This API key is Read-Only and cannot comment on proposals.")
 

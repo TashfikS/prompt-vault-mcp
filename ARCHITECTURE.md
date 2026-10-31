@@ -147,6 +147,17 @@ sequenceDiagram
 - **Routing cache.** It is in process memory (`database._token_plan_cache`) and is safe because Render runs a single instance. Run a second instance and it must move to Redis.
 - **Errors are not swallowed.** A database error during routing is logged and the lookup moves on to the next database.
 
+### Cross-tier teams (`tiers.py`)
+
+A team group lives in its owner's tier, but its members can be on any plan. When someone joins a team stored in the other tier:
+
+- **The other tier gets a name tag.** A stub `users` row with the same id (`is_peer_stub`, no password, no sessions, never an admin), so the team's memberships, versions, proposals and approvals keep valid foreign keys. The person's own account, Personal space and API keys never move.
+- **The real account is flagged.** `has_peer_memberships` is set from whether any memberships remain (`refresh_peer_flag`). Only flagged users ever open the other tier, so Community users with no paid team never touch Neon.
+- **Requests about one thing go where it lives.** `deps.routed_db` / `routed_user` (REST) and `tiers.db_for` (MCP) pick the database holding the `prompt_id`, `proposal_id`, `share_id` or `group_id`, and run the request there as the stub. Routes that take a group in the body use `tiers.db_for_group`.
+- **Lists merge both tiers.** Prompts, search, groups and proposals call `tiers.merged`, which adds the other tier only for flagged users.
+- **Copies cross tiers, moves don't.** Duplicating into a space in the other tier copies the active version (`services.prompts.duplicate_into_other_tier`); moving is refused, since history would have to be copied between databases.
+- **Sign-in, password reset, SSO, OAuth and billing lookups skip stubs**, and `sync_stub` keeps a stub's name and plan in step with the real account.
+
 ### Tier migration (`database.migrate_user_tier`)
 
 Triggered by Polar webhooks (`polar_billing.py`) and the admin plan endpoint when a user crosses the community ↔ paid boundary:

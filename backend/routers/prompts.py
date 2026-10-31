@@ -26,7 +26,8 @@ from security import (MAX_BATCH_PROMPTS_PER_FILE, MAX_UPLOAD_FILES,
                       MAX_UPLOAD_FILE_BYTES, get_client_ip, rate_limiter, record_audit_log, sanitize_filename, validate_text_upload_content)
 
 import services.prompts as prompt_service
-from deps import (current_user, _active_key, _require_write_permission)
+from deps import (current_user, routed_db, routed_user, _active_key, _require_write_permission)
+import tiers
 from domain import (_version_read, _check_prompt_quota, _check_version_quota, _create_prompt, _accessible_prompt)
 
 from services.limits import PlanLimitError, require_feature
@@ -43,46 +44,24 @@ def list_prompts(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
-    accessible_ids = get_scoped_group_ids(db, user, _active_key(user))
-    if not accessible_ids:
-        return []
-
-    ver_count_subq = (
-        db.query(
-            PromptVersion.prompt_id.label("p_id"),
-            func.count(PromptVersion.id).label("v_count"),
-        )
-        .group_by(PromptVersion.prompt_id)
-        .subquery()
-    )
-
-    query = (
-        db.query(Prompt, Group, PromptVersion, func.coalesce(ver_count_subq.c.v_count, 1))
-        .join(Group, Prompt.group_id == Group.id)
-        .join(
-            PromptVersion,
-            (PromptVersion.id == Prompt.current_version_id)
-            | (
-                Prompt.current_version_id.is_(None)
-                & (PromptVersion.prompt_id == Prompt.id)
-                & (PromptVersion.version_number == Prompt.current_version_number)
-            ),
-        )
-        .outerjoin(ver_count_subq, ver_count_subq.c.p_id == Prompt.id)
-        .filter(Prompt.group_id.in_(accessible_ids), Prompt.is_archived.is_(False))
-    )
-    if group_id:
-        query = query.filter(Prompt.group_id == group_id)
     if search.strip():
-        return hybrid_search_prompts(
-            db=db,
-            query_text=search.strip(),
-            accessible_group_ids=accessible_ids,
-            group_id_filter=group_id,
-            limit=500,
-        )
+        def _search(tier_db: Session, tier_user: User) -> list[dict]:
+            ids = get_scoped_group_ids(tier_db, tier_user, _active_key(tier_user))
+            if not ids:
+                return []
+            return hybrid_search_prompts(db=tier_db, query_text=search.strip(), accessible_group_ids=ids,
+                                         group_id_filter=group_id, limit=500)
 
-    rows = query.order_by(Prompt.updated_at.desc()).limit(500).all()
+        hits = tiers.merged(db, user, _search)
+        if len(hits) > 1 and "score" in hits[0]:
+            hits.sort(key=lambda h: h.get("score", 0), reverse=True)
+        return hits[:500]
+
+    rows = tiers.merged(db, user, lambda tier_db, tier_user: _prompt_rows(tier_db, tier_user, group_id))
+    rows.sort(key=lambda r: r[0].updated_at, reverse=True)
+    rows = rows[:500]
+    if not rows and not get_scoped_group_ids(db, user, _active_key(user)):
+        return []
 
     # Compute fast ETag from active version UUIDs + updated_at timestamps
     etag_seed = "|".join(f"{p.id}:{v.id}:{int(p.updated_at.timestamp())}:{vc}" for p, _, v, vc in rows)
@@ -113,9 +92,49 @@ def list_prompts(
     return result
 
 
+def _prompt_rows(db: Session, user: User, group_id: str | None) -> list:
+    """(prompt, group, active version, version count) rows visible to ``user`` in one database."""
+    accessible_ids = get_scoped_group_ids(db, user, _active_key(user))
+    if not accessible_ids:
+        return []
+
+    ver_count_subq = (
+        db.query(
+            PromptVersion.prompt_id.label("p_id"),
+            func.count(PromptVersion.id).label("v_count"),
+        )
+        .group_by(PromptVersion.prompt_id)
+        .subquery()
+    )
+
+    query = (
+        db.query(Prompt, Group, PromptVersion, func.coalesce(ver_count_subq.c.v_count, 1))
+        .join(Group, Prompt.group_id == Group.id)
+        .join(
+            PromptVersion,
+            (PromptVersion.id == Prompt.current_version_id)
+            | (
+                Prompt.current_version_id.is_(None)
+                & (PromptVersion.prompt_id == Prompt.id)
+                & (PromptVersion.version_number == Prompt.current_version_number)
+            ),
+        )
+        .outerjoin(ver_count_subq, ver_count_subq.c.p_id == Prompt.id)
+        .filter(Prompt.group_id.in_(accessible_ids), Prompt.is_archived.is_(False))
+    )
+    if group_id:
+        query = query.filter(Prompt.group_id == group_id)
+    return query.order_by(Prompt.updated_at.desc()).limit(500).all()
+
+
 @router.post("/api/prompts", status_code=201)
 def create_prompt(payload: PromptCreateRequest, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
     _require_write_permission(user)
+    with tiers.db_for_group(db, user, payload.group_id) as (db, user):
+        return _create_prompt_in(db, user, payload)
+
+
+def _create_prompt_in(db: Session, user: User, payload: PromptCreateRequest) -> dict:
     if not can_access_group_with_key(db, user, payload.group_id, _active_key(user)):
         raise HTTPException(status_code=403, detail="You (or this scoped API key) cannot create prompts in this group.")
     role = get_user_group_role(db, user, payload.group_id)
@@ -152,6 +171,12 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                        change_note: str = Form("Uploaded from file"), files: list[UploadFile] = File(...),
                        db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
     _require_write_permission(user)
+    with tiers.db_for_group(db, user, group_id) as (db, user):
+        return await _upload_files_in(db, user, group_id, prompt_id, change_note, files)
+
+
+async def _upload_files_in(db: Session, user: User, group_id: str, prompt_id: str | None, change_note: str,
+                           files: list[UploadFile]) -> dict:
     rate_limiter.check(f"upload_user:{user.id}", limit=15, window_seconds=60,
                        detail="Too many file upload requests. Please wait a minute and try again.")
     if len(files) > MAX_UPLOAD_FILES:
@@ -293,7 +318,7 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
 
 
 @router.put("/api/prompts/{prompt_id}")
-def update_prompt(prompt_id: str, payload: PromptUpdateRequest, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def update_prompt(prompt_id: str, payload: PromptUpdateRequest, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> dict:
     _require_write_permission(user)
     prompt = _accessible_prompt(db, user, prompt_id)
     role = get_user_group_role(db, user, prompt.group_id)
@@ -363,7 +388,7 @@ def update_prompt(prompt_id: str, payload: PromptUpdateRequest, db: Session = De
 
 
 @router.post("/api/prompts/{prompt_id}/rollback/{version_number}")
-def rollback_prompt(prompt_id: str, version_number: int, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def rollback_prompt(prompt_id: str, version_number: int, request: Request, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> dict:
     _require_write_permission(user)
     prompt = _accessible_prompt(db, user, prompt_id)
     role = get_user_group_role(db, user, prompt.group_id)
@@ -389,11 +414,15 @@ def duplicate_or_move_prompt_route(
     prompt_id: str,
     payload: PromptDuplicateRequest,
     request: Request,
-    db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    db: Session = Depends(routed_db),
+    user: User = Depends(routed_user),
+    home_db: Session = Depends(get_db),
+    home_user: User = Depends(current_user),
 ) -> dict:
     _require_write_permission(user)
     prompt = _accessible_prompt(db, user, prompt_id)
+    if db.query(Group.id).filter_by(id=payload.target_group_id).first() is None:
+        return _duplicate_across_tiers(prompt, payload, request, db, user, home_db, home_user)
 
     # Check caller's role in the source group
     source_role = get_user_group_role(db, user, prompt.group_id)
@@ -450,13 +479,47 @@ def duplicate_or_move_prompt_route(
     }
 
 
+def _duplicate_across_tiers(prompt: Prompt, payload: PromptDuplicateRequest, request: Request, db: Session, user: User,
+                            home_db: Session, home_user: User) -> dict:
+    """Copy a prompt into a space stored in the other database tier (see tiers.py)."""
+    source_role = get_user_group_role(db, user, prompt.group_id)
+    if source_role not in {"GROUP_MANAGER", "MEMBER"}:
+        raise HTTPException(status_code=403, detail="Guests have view-only access and cannot duplicate or move prompts. Only Members and Owners can duplicate or move prompts.")
+    def _copy_into(target_db: Session, target_user: User) -> dict:
+        target_group = target_db.query(Group).filter_by(id=payload.target_group_id).first()
+        if target_group is None or not can_access_group_with_key(target_db, target_user, target_group.id, _active_key(target_user)):
+            raise HTTPException(status_code=403, detail="You do not have access to the target group.")
+        if get_user_group_role(target_db, target_user, target_group.id) not in {"GROUP_MANAGER", "MEMBER"}:
+            raise HTTPException(status_code=403, detail="Guests have view-only access and cannot add prompts to the target group. You must be a Member or Owner of the target group.")
+        if payload.mode == "move":
+            raise HTTPException(status_code=400, detail="This space is in a different workspace, so the prompt can't be moved there. Duplicate it instead.")
+        try:
+            result = prompt_service.duplicate_into_other_tier(db, prompt, target_db, target_user, target_group, payload.title or "")
+        except prompt_service.PromptError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        new_prompt = result.prompt
+        tgt_name = group_display_name(target_group)
+        record_audit_log(target_db, "PROMPT_DUPLICATED", user_id=target_user.id, ip_address=get_client_ip(request), target_type="prompt",
+                         target_id=new_prompt.id, details=f"Duplicated from {prompt.id} ({prompt.title}) to {target_group.id}")
+        return {"id": new_prompt.id, "title": new_prompt.title, "group_id": new_prompt.group_id, "group_name": tgt_name,
+                "current_version_number": 1, "mode": "copy", "proposal_created": result.proposal is not None,
+                "message": f"Prompt successfully duplicated to {tgt_name}."}
+
+    if db is not home_db:  # source is a team prompt in the peer tier; target must be in the user's home tier
+        return _copy_into(home_db, home_user)
+    with tiers.open_peer(home_db, home_user) as peer:
+        if peer is None:
+            raise HTTPException(status_code=403, detail="You do not have access to the target group.")
+        return _copy_into(*peer)
+
+
 @router.get("/api/prompts/{prompt_id}/versions")
 def prompt_versions(
     prompt_id: str,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    db: Session = Depends(routed_db),
+    user: User = Depends(routed_user),
 ):
     prompt = _accessible_prompt(db, user, prompt_id)
     rows = (

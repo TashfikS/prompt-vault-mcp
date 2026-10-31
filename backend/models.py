@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -47,6 +47,11 @@ class User(Base):
     # MCP tool-call metering for the current calendar month (UTC, "YYYY-MM").
     mcp_usage_month: Mapped[str | None] = mapped_column(String(7), nullable=True)
     mcp_usage_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Cross-tier teams (see tiers.py). A stub is a name-tag copy of a user whose real account lives in the
+    # other database; it only exists so team rows here (memberships, versions, proposals) can point at them.
+    is_peer_stub: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    # Set on the real account when the user belongs to a team stored in the other database.
+    has_peer_memberships: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     memberships: Mapped[list["GroupMembership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 

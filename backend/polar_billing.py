@@ -227,9 +227,9 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
     user: User | None = None
 
     if target_user_id:
-        user = db.query(User).filter_by(id=target_user_id).first()
+        user = db.query(User).filter_by(id=target_user_id, is_peer_stub=False).first()
     if not user and customer_email:
-        user = db.query(User).filter_by(email=customer_email).first()
+        user = db.query(User).filter_by(email=customer_email, is_peer_stub=False).first()
 
     if not user:
         logger.info("Polar webhook event '%s' ignored: user not found (id=%s, email=%s)", event_type, target_user_id, customer_email)
@@ -282,6 +282,8 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
                 user.plan = desired_plan
                 db.commit()
                 db.refresh(user)
+                from tiers import sync_stub
+                sync_stub(db, user)  # keep the name tag in the other tier on the same plan
 
             # Record audit log
             try:

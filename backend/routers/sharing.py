@@ -21,7 +21,8 @@ from schemas import (CreateDiffShareRequest,
                      FeedbackCreateRequest)
 from security import (get_client_ip, rate_limiter, record_audit_log)
 
-from deps import (SESSION_COOKIE_NAME, current_user, _require_web_session, _require_write_permission)
+import tiers
+from deps import (routed_db, routed_user, SESSION_COOKIE_NAME, current_user, _require_web_session, _require_write_permission)
 from domain import (_version_read, _accessible_prompt)
 
 from services.limits import PlanLimitError, require_feature
@@ -36,6 +37,11 @@ def create_diff_share(payload: CreateDiffShareRequest, request: Request, db: Ses
         require_feature(user, "share_links", "Shareable diff links")
     except PlanLimitError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    with tiers.db_for(db, user, Prompt, payload.prompt_id) as (db, user):
+        return _create_diff_share_in(db, user, payload, request)
+
+
+def _create_diff_share_in(db: Session, user: User, payload: CreateDiffShareRequest, request: Request) -> dict:
     prompt = _accessible_prompt(db, user, payload.prompt_id)
     role = get_user_group_role(db, user, prompt.group_id)
     if role == "GUEST":
@@ -66,7 +72,7 @@ def create_diff_share(payload: CreateDiffShareRequest, request: Request, db: Ses
 
 
 @router.delete("/api/diff-shares/{share_id}")
-def revoke_diff_share(share_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def revoke_diff_share(share_id: str, request: Request, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> dict:
     _require_web_session(user)
     record = db.query(SharedDiffLink).filter_by(id=share_id).first()
     if record is None:

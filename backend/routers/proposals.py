@@ -13,7 +13,8 @@ from models import (Group, Prompt, PromptProposal, PromptVersion, ProposalCommen
 import services.proposals as proposal_service
 from schemas import (ProposalCommentCreate, ProposalCreateRequest, ProposalReviewAction)
 
-from deps import (current_user, _active_key, _require_write_permission)
+from deps import (current_user, routed_db, routed_user, _active_key, _require_write_permission)
+import tiers
 from domain import (_accessible_prompt, _proposal_read)
 
 router = APIRouter()
@@ -26,10 +27,20 @@ def list_all_proposals(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> list[dict]:
+    results = tiers.merged(db, user, lambda tier_db, tier_user: _proposal_rows(tier_db, tier_user, group_id, status))
+    if group_id and not results:
+        visible = tiers.merged(db, user, lambda tier_db, tier_user: get_scoped_group_ids(tier_db, tier_user, _active_key(tier_user)))
+        if group_id not in visible:
+            raise HTTPException(status_code=403, detail="You do not have access to this group.")
+    results.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    return results
+
+
+def _proposal_rows(db: Session, user: User, group_id: str | None, status: str | None) -> list[dict]:
     group_ids = get_scoped_group_ids(db, user, _active_key(user))
     if group_id:
         if group_id not in group_ids:
-            raise HTTPException(status_code=403, detail="You do not have access to this group.")
+            return []
         target_group_ids = [group_id]
     else:
         target_group_ids = group_ids
@@ -63,7 +74,7 @@ def list_all_proposals(
 
 
 @router.get("/api/prompts/{prompt_id}/proposals")
-def list_proposals(prompt_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+def list_proposals(prompt_id: str, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> list[dict]:
     prompt = _accessible_prompt(db, user, prompt_id)
     role = get_user_group_role(db, user, prompt.group_id)
     proposals = db.query(PromptProposal).filter_by(prompt_id=prompt.id).order_by(PromptProposal.created_at.desc()).all()
@@ -71,7 +82,7 @@ def list_proposals(prompt_id: str, db: Session = Depends(get_db), user: User = D
 
 
 @router.post("/api/prompts/{prompt_id}/proposals", status_code=201)
-def create_proposal(prompt_id: str, payload: ProposalCreateRequest, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def create_proposal(prompt_id: str, payload: ProposalCreateRequest, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> dict:
     _require_write_permission(user)
     prompt = _accessible_prompt(db, user, prompt_id)
     role = get_user_group_role(db, user, prompt.group_id)
@@ -94,7 +105,7 @@ def create_proposal(prompt_id: str, payload: ProposalCreateRequest, db: Session 
 
 
 @router.post("/api/proposals/{proposal_id}/approve")
-def approve_proposal(proposal_id: str, payload: ProposalReviewAction | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def approve_proposal(proposal_id: str, payload: ProposalReviewAction | None = None, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> dict:
     _require_write_permission(user)
     proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
     if not proposal:
@@ -124,7 +135,7 @@ def approve_proposal(proposal_id: str, payload: ProposalReviewAction | None = No
 
 
 @router.post("/api/proposals/{proposal_id}/reject")
-def reject_proposal(proposal_id: str, payload: ProposalReviewAction | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def reject_proposal(proposal_id: str, payload: ProposalReviewAction | None = None, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> dict:
     _require_write_permission(user)
     proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
     if not proposal:
@@ -140,7 +151,7 @@ def reject_proposal(proposal_id: str, payload: ProposalReviewAction | None = Non
 
 
 @router.post("/api/proposals/{proposal_id}/comments", status_code=201)
-def add_proposal_comment(proposal_id: str, payload: ProposalCommentCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+def add_proposal_comment(proposal_id: str, payload: ProposalCommentCreate, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> dict:
     _require_write_permission(user)
     proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
     if not proposal:
@@ -169,7 +180,7 @@ def add_proposal_comment(proposal_id: str, payload: ProposalCommentCreate, db: S
 
 
 @router.get("/api/proposals/{proposal_id}/comments")
-def get_proposal_comments(proposal_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict]:
+def get_proposal_comments(proposal_id: str, db: Session = Depends(routed_db), user: User = Depends(routed_user)) -> list[dict]:
     proposal = db.query(PromptProposal).filter_by(id=proposal_id).first()
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found.")

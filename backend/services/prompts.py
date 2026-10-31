@@ -135,6 +135,23 @@ def active_version(db: Session, prompt: Prompt) -> PromptVersion | None:
     return version
 
 
+def duplicate_into_other_tier(src_db: Session, prompt: Prompt, target_db: Session, target_user: User,
+                              target_group: Group, new_title: str = "") -> CreateResult:
+    """Copy ``prompt``'s active version into a space stored in the other database tier (see tiers.py).
+
+    Moving is not supported across tiers (history would have to be copied between databases).
+    Creates directly where ``target_user`` may write, otherwise opens a review proposal (commits).
+    """
+    source = active_version(src_db, prompt)
+    if not source:
+        raise PromptError("Source prompt has no content to duplicate.")
+    source_group = src_db.query(Group).filter_by(id=prompt.group_id).first()
+    src_name = group_display_name(source_group) if source_group else "Source space"
+    title = new_title.strip()[:240] or prompt.title[:240]
+    return create_or_propose(target_db, target_user, target_group.id, title, source.content, prompt.description,
+                             f"Duplicated from {src_name} (v{prompt.current_version_number})", source.source_filename)
+
+
 def duplicate(db: Session, user: User, prompt: Prompt, target_group: Group, new_title: str = "") -> Prompt:
     """Copy the prompt's active version into ``target_group`` as a new prompt (commits)."""
     source = active_version(db, prompt)
