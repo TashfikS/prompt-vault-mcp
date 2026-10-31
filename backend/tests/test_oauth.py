@@ -327,3 +327,11 @@ async def test_oauth_requires_pkce(client: AsyncClient, test_users_and_groups):
     )
     assert resp.status_code == 400
     assert "location" not in resp.headers
+
+
+@pytest.mark.asyncio
+async def test_anonymous_mcp_request_gets_oauth_challenge(client: AsyncClient):
+    """MCP clients discover OAuth from a 401 with RFC 9728 resource metadata."""
+    resp = await client.post("/mcp/", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert resp.status_code == 401
+    assert 'resource_metadata="http://testserver/.well-known/oauth-protected-resource"' in resp.headers["www-authenticate"]

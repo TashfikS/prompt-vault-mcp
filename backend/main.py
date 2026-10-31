@@ -69,7 +69,7 @@ from security import (AUTO_MIGRATE_DB, IS_PRODUCTION, MAX_BATCH_PROMPTS_PER_FILE
                       validate_text_upload_content)
 from fastmcp.server.http import create_sse_app
 from seed import seed_initial_data
-from mcp_server import mcp, register_session_key
+from mcp_server import has_session_key, mcp, register_session_key
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 SESSION_COOKIE_NAME = "ph_session"
@@ -163,6 +163,17 @@ async def mcp_session_key_capture_middleware(request: Request, call_next):
         match = re.search(r"/(?:s|k|key)/([^/?#]+)", request.url.path)
         if match:
             api_key = match.group(1).strip()
+
+    # RFC 9728 challenge: anonymous MCP requests get 401 + resource metadata so clients (Claude, ChatGPT)
+    # discover the OAuth sign-in instead of treating the server as open.
+    is_mcp_path = request.url.path.startswith(("/mcp", "/sse"))
+    if is_mcp_path and request.method != "OPTIONS" and not api_key and not has_session_key(session_id):
+        metadata_url = f"{_get_public_base_url(request)}/.well-known/oauth-protected-resource"
+        return JSONResponse(
+            {"error": "invalid_token", "error_description": "Sign in to PromptHold to use this connector."},
+            status_code=401,
+            headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata_url}"'},
+        )
 
     response = await call_next(request)
 

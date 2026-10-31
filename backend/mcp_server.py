@@ -105,6 +105,10 @@ def register_session_key(session_id: str, api_key: str):
         _session_api_keys[session_id] = api_key.strip()
 
 
+def has_session_key(session_id: str | None) -> bool:
+    return bool(session_id) and session_id in _session_api_keys
+
+
 def resolve_effective_api_key(explicit_key: str = "") -> str:
     """Resolve API key from explicit argument, HTTP Authorization/X-API-Key header, query param, or session map."""
     key = (explicit_key or "").strip()
