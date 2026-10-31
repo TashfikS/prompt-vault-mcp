@@ -1,323 +1,339 @@
-# PromptHold: Full System Architecture & Blueprint
+# PromptHold: System Architecture
 
-This document provides a comprehensive, at-a-glance architectural blueprint of the entire **PromptHold RBAC & Version Control** platform. It details the client interaction models, edge routing, compute containers, distributed caching, database relations, and automated failover mechanics.
+How PromptHold is put together: the hosted services, how a request reaches the right database, how the backend code is layered, the data model, and the operating rules that keep everything on free tiers.
+
+For rules an agent or contributor must follow when changing behaviour, see [`AGENTS.md`](AGENTS.md). For deploy steps, see [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) and [`MAKING_CHANGES_LIVE.md`](MAKING_CHANGES_LIVE.md).
 
 ---
 
-## 1. High-Level System Architecture Diagram
+## 1. System overview
 
 ```mermaid
 flowchart TD
-    subgraph Clients["1. Clients & Consumers"]
-        WebUser["Human Web User<br/>(Desktop / Mobile Browser)"]
-        ChatUser["AI Chat User<br/>(In-Chat MCP Drawer: Claude, Cursor, LibreChat)"]
-        AiAgent["Autonomous AI Agent<br/>(FastMCP Client / API Key)"]
+    subgraph Clients
+        Web["Web user<br/>(browser)"]
+        Chat["AI chat client<br/>(Claude, Cursor… via MCP)"]
     end
 
-    subgraph EdgeCDN["2. Cloudflare Global Edge Network"]
-        CFPages["Cloudflare Pages CDN<br/>(https://prompthold.pages.dev)<br/>• React 18 SPA (Vite)<br/>• Tailwind CSS Custom UI<br/>• Word & Sentence Diff Engine"]
-        
-        CFWorker["Cloudflare Worker: Edge Gateway & Load Balancer<br/>(https://prompt-vault-gateway.tashfiks.workers.dev)<br/>• Request router & CORS handler<br/>• 2.8s upstream timeout (AbortSignal)<br/>• Instant edge failover logic<br/>• 14-min keep-alive cron job<br/>• Edge SQL executor (@neondatabase/serverless)"]
+    subgraph Cloudflare["Cloudflare (free)"]
+        Pages["Pages: React SPA<br/>prompthold.pages.dev · dev.prompthold.pages.dev"]
+        Worker["Worker gateway<br/>prompt-vault-gateway.tashfiks.workers.dev<br/>• thin proxy, 90s upstream timeout<br/>• cron every 14 min → GET /api/health"]
     end
 
-    subgraph AuthLayer["3. Identity & Authentication"]
-        FirebaseAuth["Firebase / Google Identity Services<br/>• Google OAuth 2.0 / SSO<br/>• JWT ID Token verification"]
-        SessionAuth["Session & API Key Engine<br/>• PBKDF2-SHA256 password hashing<br/>• Bearer session tokens (14-day expiry)<br/>• Scoped MCP API Keys (Admin / Group / Personal)"]
+    subgraph Render["Render web service (free, Docker)"]
+        API["FastAPI app (main.py)<br/>REST /api · OAuth · MCP /mcp & /sse · SPA"]
     end
 
-    subgraph ComputeLayer["4. Compute & Container Layer (Render)"]
-        RenderService["Render Web Service (Docker Container)<br/>(https://prompthold-backend.onrender.com)<br/>• Python 3.12 / FastAPI (REST API)<br/>• FastMCP SSE Server (/mcp)<br/>• Granular RBAC authorization engine<br/>• Variable scanner: {{variable}}<br/>• Sequential versioning engine (v1, v2, v3...)<br/>• GitHub Issues feedback reporter"]
+    subgraph Data["Data services (free tiers)"]
+        Supa[("Supabase Postgres<br/>community plan users")]
+        Neon[("Neon Postgres<br/>pro / team / enterprise")]
+        Redis[("Upstash Redis<br/>prompt version cache")]
     end
 
-    subgraph CacheLayer["5. Distributed Multi-Pod Cache (Upstash)"]
-        UpstashRedis["Upstash Serverless Redis<br/>(adapting-reindeer-239122.upstash.io)<br/>• Prompt version cache (pv:ver_uuid:{uuid})<br/>• Active version pointer (pv:prompt_active:{id})<br/>• Multi-pod invalidation bus<br/>• TCP (Port 6379) + HTTPS REST API"]
+    subgraph External
+        Firebase["Firebase Auth<br/>(Google SSO)"]
+        Gemini["Gemini embeddings<br/>(semantic search)"]
+        Polar["Polar.sh<br/>(billing webhooks)"]
+        GH["GitHub Issues<br/>(feedback)"]
     end
 
-    subgraph StorageLayer["6. Relational Persistence (Neon)"]
-        NeonDB["Neon Serverless PostgreSQL (AWS US-East-2)<br/>(ep-shy-smoke-pooler.us-east-2.aws.neon.tech)<br/>• PgBouncer pooled connection pool<br/>• Users, Groups & GroupMemberships (RBAC)<br/>• Prompts & Immutable PromptVersions<br/>• PromptProposals & ProposalApprovals<br/>• API Keys, Audit Logs & Feedback"]
-    end
-
-    %% Client traffic
-    WebUser -->|HTTPS| CFPages
-    CFPages -->|API Requests| CFWorker
-    ChatUser -->|Loads App Drawer| CFPages
-    AiAgent -->|MCP Protocol /api-keys| CFWorker
-    
-    %% Auth flows
-    WebUser -.->|Google SSO ID Token| FirebaseAuth
-    FirebaseAuth -.->|Token Verification| CFWorker
-    FirebaseAuth -.->|Token Verification| RenderService
-
-    %% Gateway Routing
-    CFWorker -->|Route A: Primary Upstream Proxy| RenderService
-    CFWorker -->|Route B: Failover Edge Query if Render is asleep| NeonDB
-
-    %% Backend Compute Connections
-    RenderService -->|1. Check / Set Version Cache| UpstashRedis
-    RenderService -->|2. Relational Read / Write| NeonDB
-    RenderService -.->|Cache Invalidation| UpstashRedis
+    Web --> Pages
+    Pages -->|/api, /oauth, /mcp| Worker
+    Chat -->|MCP over HTTP + OAuth 2.1| Worker
+    Worker --> API
+    API -->|community tokens| Supa
+    API -->|paid tokens| Neon
+    API --> Redis
+    API --> Firebase
+    API --> Gemini
+    Polar -->|webhook| API
+    API --> GH
 ```
+
+Key facts:
+
+- **One deployable.** The Render container serves the REST API, the OAuth 2.1 authorization server, the FastMCP server and (when built) the SPA. The same React bundle also runs as the in-chat MCP drawer with `?mcp_mode=1` (`ui://prompt-hold/drawer`).
+- **The Worker is only a proxy.** It forwards backend routes, sets `X-Forwarded-Host` so OAuth metadata advertises the public origin, passes the real client IP behind a shared `GATEWAY_SECRET`, and returns a 503 "starting up" if Render does not answer within 90s. It holds no database credentials and does no failover.
+- **Two databases by plan.** Free users live in Supabase and paid users in Neon. Neon's free tier is metered by compute time, so community traffic never touches it and Neon can scale to zero. See section 3.
+- **One backend for both environments.** `dev.prompthold.pages.dev` and `prompthold.pages.dev` talk to the same Worker and the same Render service and databases. Pushing to `dev` redeploys that shared backend (pipeline job 6), so treat `dev` pushes as production backend deploys.
 
 ---
 
-## 2. Request Routing & Failover Sequence
+## 2. Backend code layout
 
-The Cloudflare Worker implements intelligent load-balancing and instant edge failover to prevent users from experiencing cold-start stalls.
+```mermaid
+flowchart LR
+    subgraph Entry["Entry points"]
+        Main["main.py<br/>app, lifespan, middleware,<br/>health, mounts"]
+        Routers["routers/*<br/>auth · oauth · account · groups<br/>prompts · proposals · sharing"]
+        MCP["mcp_server.py<br/>MCP tools"]
+    end
+    subgraph Shared["Shared layers"]
+        Deps["deps.py<br/>current_user, cookies,<br/>permission guards"]
+        Domain["domain.py<br/>read-model helpers,<br/>HTTP quota wrappers"]
+        Services["services/<br/>prompts.py · proposals.py"]
+        Plans["plans.py<br/>plan catalogue & limits"]
+        Perms["permissions.py<br/>RBAC"]
+    end
+    subgraph Infra["Infrastructure"]
+        DB["database.py<br/>engines, tier routing,<br/>tier migration"]
+        Auth["auth.py<br/>hashing, sessions, API keys"]
+        Search["search.py<br/>hybrid search, pgvector"]
+        Cache["cache.py<br/>Redis"]
+        Sec["security.py<br/>headers, rate limit, audit"]
+        Mig["migrations.py + alembic/"]
+    end
+
+    Main --> Routers
+    Routers --> Deps
+    Routers --> Domain
+    Routers --> Services
+    MCP --> Services
+    Services --> Plans
+    Services --> Perms
+    Services --> Search
+    Services --> Cache
+    Domain --> Services
+    Deps --> Auth
+    Routers --> DB
+    MCP --> DB
+```
+
+| Layer | Owns | Must not |
+|---|---|---|
+| `routers/*`, `mcp_server.py` | Authentication, group-role checks, audit logging, request/response shapes, mapping errors (`HTTPException` vs `ValueError`) | Re-implement business rules that exist in `services/` |
+| `services/prompts.py` | Plan quota, create-or-propose, duplicate, move | Import FastAPI or raise HTTP errors (raises `PromptError` with a `status_code`) |
+| `services/proposals.py` | Pending-only rule, self-approval rule, one vote per reviewer, merge into a new version | Same as above (`ProposalError`) |
+| `permissions.py` | Who may see or write a group | — |
+| `plans.py` | `PLAN_TIERS`, `PLAN_LIMITS_MAP`, `plan_info_for(user)` | Import anything web-related (services depend on it) |
+
+REST and MCP are thin adapters over the same services, so a prompt created from chat follows exactly the same quota and review rules as one created in the web UI.
+
+---
+
+## 3. Request routing across the two databases
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as User / MCP Client
-    participant GW as Cloudflare Worker (Edge Gateway)
-    participant Render as Render Backend (Docker Container)
-    participant Redis as Upstash Redis Cache
-    participant DB as Neon PostgreSQL (Pooled)
+    actor C as Client
+    participant W as Worker
+    participant A as FastAPI get_db()
+    participant R as resolve_token_plan()
+    participant S as Supabase
+    participant N as Neon
 
-    %% Scenario A: Healthy Primary
-    Note over Client,DB: Scenario A: Normal Fast-Path Request
-    Client->>GW: GET /api/prompts (Bearer Token)
-    GW->>Render: Forward request (with 2.8s AbortSignal timeout)
-    Render->>Redis: Check active version cache (pv:prompt_active:{id})
-    alt Cache Hit
-        Redis-->>Render: Return cached prompt version JSON
-    else Cache Miss
-        Render->>DB: Query SQL: Prompts & Active Versions
-        DB-->>Render: Return prompt rows
-        Render->>Redis: Store snapshot in Redis (TTL: 7 days)
+    C->>W: GET /api/prompts (Bearer phc_… or php_…)
+    W->>A: forward
+    A->>R: token
+    alt cached (token → plan)
+        R-->>A: plan
+    else prefix says community (phc_ / pv_live_c_)
+        R->>S: session / API key lookup
+        S-->>R: found → plan
+    else prefix says paid (php_ / pv_live_p_)
+        R->>N: session / API key lookup
+        N-->>R: found → plan
+    else not found in the hinted DB (user changed tier, or legacy token)
+        R->>S: lookup
+        R->>N: lookup
+        Note over R: unknown tokens are negatively cached for 60s
     end
-    Render-->>GW: HTTP 200 OK (x-served-by: render-upstream)
-    GW-->>Client: HTTP 200 OK + Prompt Data
-
-    %% Scenario B: Cold Start / Failover
-    Note over Client,DB: Scenario B: Render is Sleeping or Times Out (>2.8s)
-    Client->>GW: GET /api/prompts (Bearer Token)
-    GW->>Render: Forward request (Waiting up to 2.8s...)
-    Note over Render: Render container spinning up from zero...
-    GW->>GW: 2.8s timeout reached! Abort upstream request.
-    GW->>DB: Direct Edge SQL via @neondatabase/serverless (<40ms)
-    DB-->>GW: Return prompt records
-    GW-->>Client: HTTP 200 OK (x-served-by: edge-failover-db)
-
-    %% Scenario C: 14-min Keep-Alive
-    Note over GW,Render: Scenario C: 14-Minute Keep-Alive Cron
-    loop Every 14 Minutes
-        GW->>Render: GET /api/health
-        Render-->>GW: HTTP 200 {"status":"ok"} (Container Stays Awake)
-    end
+    A->>A: session for plan's engine
+    A-->>C: response
 ```
+
+- **Tier hints in tokens.** New session tokens start with `phc_` or `php_`, and new API keys with `pv_live_c_` or `pv_live_p_`. The hint is only a first guess. Legacy tokens with no prefix still work: they check Supabase first, then Neon.
+- **Routing cache.** It is in process memory (`database._token_plan_cache`) and is safe because Render runs a single instance. Run a second instance and it must move to Redis.
+- **Errors are not swallowed.** A database error during routing is logged and the lookup moves on to the next database.
+
+### Tier migration (`database.migrate_user_tier`)
+
+Triggered by Polar webhooks (`polar_billing.py`) and the admin plan endpoint when a user crosses the community ↔ paid boundary:
+
+1. **Select** the user's Personal space plus any team group they created where they are the **only** member. Shared team groups stay in the source tier.
+2. **Upsert** the user, groups, memberships, prompts, versions, search chunks, diff links, proposals, approvals, comments, API keys and sessions into the destination, matching rows by primary key. Re-running is safe.
+3. **Re-point routing.** Clear the user's cached tokens and point them at the new tier.
+4. **Delete** the source copy, children first. If the user still belongs to shared groups in the source tier, a stub user row is kept so foreign keys stay valid.
+
+Any failure raises, so the webhook returns 500 and Polar retries. Because the copy is an upsert, the retry finishes the job. **Any new table that holds user data must be added to this function.**
 
 ---
 
-## 3. Relational Data Model (Entity-Relationship)
-
-Every database table is strictly isolated by group boundaries and personal ownership.
+## 4. Data model
 
 ```mermaid
 erDiagram
-    User ||--o{ GroupMembership : "belongs to"
-    User ||--o{ Group : "creates / owns"
-    User ||--o{ Prompt : "creates"
-    User ||--o{ PromptVersion : "authors"
-    User ||--o{ PromptProposal : "submits"
-    User ||--o{ ProposalApproval : "votes to approve"
-    User ||--o{ ApiKey : "owns"
-    User ||--o{ AuthSession : "holds"
-    User ||--o{ FeedbackSubmission : "reports"
-    User ||--o{ AuditLog : "triggers"
-
-    Group ||--o{ GroupMembership : "contains"
-    Group ||--o{ Prompt : "contains"
-    Group ||--o{ PromptProposal : "contains review requests"
-
-    Prompt ||--o{ PromptVersion : "has immutable history"
-    Prompt ||--o{ PromptProposal : "has pending edits"
-    Prompt ||--o{ SharedDiffLink : "generates shareable diffs"
-
-    PromptProposal ||--o{ ProposalApproval : "receives votes"
+    User ||--o{ GroupMembership : "member of"
+    User ||--o{ AuthSession : holds
+    User ||--o{ ApiKey : owns
+    Group ||--o{ GroupMembership : contains
+    Group ||--o{ Prompt : contains
+    Prompt ||--o{ PromptVersion : "immutable history"
+    Prompt ||--o{ PromptChunk : "search index (active version)"
+    Prompt ||--o{ PromptProposal : "review requests"
+    Prompt ||--o{ SharedDiffLink : "shareable diffs"
+    PromptProposal ||--o{ ProposalApproval : votes
+    PromptProposal ||--o{ ProposalComment : discussion
 
     User {
-        string id PK "UUID"
-        string name "User full name"
-        string email UK "Indexed unique email"
-        string password_hash "PBKDF2-SHA256 salted hash"
-        boolean is_workspace_admin "Global admin privilege"
-        boolean onboarding_completed "First-run tour status"
-        datetime created_at "UTC timestamp"
+        string id PK
+        string email UK
+        string password_hash "PBKDF2-SHA256"
+        bool is_workspace_admin
+        string plan "community|pro|team|enterprise"
+        string polar_customer_id
     }
-
     Group {
-        string id PK "UUID"
-        string name "Group name (e.g. Marketing, Sales)"
-        string description "Team purpose"
-        string created_by FK "User reference"
-        boolean is_personal "True for private personal space"
-        string personal_owner_id FK "User reference for personal space"
-        int required_approvals "Proposal threshold (default 1)"
-        datetime created_at "UTC timestamp"
+        string id PK
+        string name UK
+        string personal_owner_id FK "set for Personal spaces"
+        int required_approvals
+        bool allow_self_approval
     }
-
     GroupMembership {
-        string id PK "UUID"
-        string user_id FK "User reference"
-        string group_id FK "Group reference"
-        string role "GROUP_MANAGER, MEMBER, or GUEST"
-        datetime added_at "UTC timestamp"
+        string user_id FK
+        string group_id FK
+        string role "GROUP_MANAGER|MEMBER|GUEST"
     }
-
     Prompt {
-        string id PK "UUID"
-        string group_id FK "Group reference"
-        string title "Prompt title"
-        string description "Usage context"
-        int current_version_number "Pointer to active version"
-        string created_by FK "User reference"
-        boolean is_archived "Soft delete state"
-        datetime updated_at "UTC timestamp"
+        string id PK
+        string group_id FK
+        int current_version_number
+        string current_version_id "active version pointer"
+        bool is_archived "true while a new prompt awaits review"
     }
-
     PromptVersion {
-        string id PK "UUID"
-        string prompt_id FK "Prompt reference"
-        int version_number "Sequential incremental (1, 2, 3...)"
-        string content "Raw prompt text with {{variables}}"
-        string variables_json "JSON array of detected tokens"
-        string change_note "Plain-English explanation"
-        string source_filename "Uploaded file name if imported"
-        string author_id FK "User reference"
-        datetime created_at "UTC timestamp"
+        string id PK
+        string prompt_id FK
+        int version_number
+        text content
+        string variables_json
     }
-
+    PromptChunk {
+        string id PK
+        string prompt_id FK
+        text embedding_json
+        vector embedding "pgvector, Postgres only"
+    }
     PromptProposal {
-        string id PK "UUID"
-        string prompt_id FK "Prompt reference"
-        string group_id FK "Group reference"
-        string proposer_id FK "User reference"
-        string title "Proposal title"
-        string content "Proposed updated prompt text"
-        string change_note "Rationale for changes"
-        string status "PENDING, APPROVED, or REJECTED"
-        datetime created_at "UTC timestamp"
+        string id PK
+        string prompt_id FK
+        string group_id FK
+        string proposer_id FK
+        string status "PENDING|APPROVED|REJECTED"
     }
-
-    ProposalApproval {
-        string id PK "UUID"
-        string proposal_id FK "PromptProposal reference"
-        string user_id FK "User reference"
-        datetime created_at "UTC timestamp"
-    }
-
-    ApiKey {
-        string id PK "UUID"
-        string user_id FK "User reference"
-        string key_hash UK "SHA-256 hash of API key"
-        string name "Key label (e.g. Claude Desktop)"
-        string scope_type "ALL_ACCESSIBLE, GROUP, or PERSONAL_ONLY"
-        string access_level "READ_ONLY or READ_WRITE"
-        string group_id FK "Specific group if scoped"
-        datetime created_at "UTC timestamp"
-    }
-
     AuthSession {
-        string id PK "UUID"
-        string token UK "SHA-256 session token hash"
-        string user_id FK "User reference"
-        datetime created_at "UTC timestamp"
-        datetime expires_at "14-day expiry timestamp"
+        string token PK "SHA-256 of raw token"
+        string user_id FK
+        datetime expires_at "14 days"
+    }
+    ApiKey {
+        string id PK
+        string key_hash UK "SHA-256"
+        string scope_type "GLOBAL|GROUP"
+        string access_level "READ_ONLY|READ_WRITE"
     }
 ```
 
+Also present: `AuditLog`, `FeedbackSubmission`, `OAuthClient` and `OAuthAuthorizationCode`.
+
+### Schema changes
+
+- **Alembic is the source of truth for new changes.** Add a revision in `backend/alembic/versions/`. `migrations.run_migrations(engine)` runs on startup and in `migrate.py`, once for each tier engine.
+- **`auth.upgrade_schema()` is frozen.** It is the pre-Alembic baseline that brings old databases up to revision `0001_baseline`. Don't extend it.
+- **Running the CLI.** Run `alembic` from `backend/` with `ALEMBIC_DATABASE_URL` set. `env.py` refuses to fall back to `DATABASE_URL`, because `.env` points at the live Neon database.
+
+### Search
+
+`search.hybrid_search_prompts` fuses two rankings with reciprocal rank fusion:
+
+- **Lexical:** fuzzy scoring over the active versions the user can access.
+- **Semantic:** cosine similarity between the query embedding and each prompt's chunks. On Postgres with pgvector this runs in SQL against a dimension-less `vector` column (both 768-d and 3072-d Gemini embeddings work). On SQLite, or without the extension, it falls back to Python.
+
+Only the active version is indexed, so `sync_prompt_embeddings` must run whenever the active version changes.
+
+### Caching
+
+Redis only (Upstash). Each active-version pointer and version snapshot is keyed by UUID. Call `invalidate_prompt_cache(prompt_id)` whenever the active version changes. Every Redis call fails open, so a Redis outage slows requests down but doesn't break them.
+
 ---
 
-## 4. Role-Based Access Control (RBAC) Permission Matrix
+## 5. Access control
 
-PromptHold enforces a two-tier permission system: Global Workspace tier and Group-Level Membership tier.
-
-| Action / Capability | Workspace Admin | Group Owner (`GROUP_MANAGER`) | Team Member (`MEMBER`) | Guest (`GUEST`) | Personal Space Owner |
+| Capability | Workspace admin | Owner (`GROUP_MANAGER`) | Member | Guest | Personal owner |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **View Group Prompts & Diffs** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes (Own only) |
-| **Test & Interpolate Variables** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Direct Edit & Publish Version** | ✅ Yes | ✅ Yes | ❌ (Creates Proposal) | ❌ No | ✅ Yes (Instant) |
-| **Submit Edit Proposal** | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No | N/A (Direct save) |
-| **Vote to Approve Proposals** | ✅ Yes | ✅ Yes | ✅ Yes (Not own) | ❌ No | N/A |
-| **Switch Active Version (Rollback)** | ✅ Yes | ✅ Yes | ❌ No | ❌ No | ✅ Yes |
-| **Batch Upload Files (.txt, .md, .csv)** | ✅ Yes | ✅ Yes | ❌ No | ❌ No | ✅ Yes |
-| **Add / Remove Members & Guests** | ✅ Yes | ✅ Yes | ❌ No | ❌ No | N/A |
-| **Configure Required Approvals** | ✅ Yes | ✅ Yes | ❌ No | ❌ No | N/A |
-| **Create Scoped MCP API Keys** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes (Read-only) | ✅ Yes |
-| **Access Other Users' Personal Space** | ❌ Strictly Isolated | ❌ Strictly Isolated | ❌ Strictly Isolated | ❌ Strictly Isolated | ✅ Full Ownership |
+| View group prompts and diffs | ✅ | ✅ | ✅ | ✅ | ✅ (own only) |
+| Publish a version directly | ✅ | ✅ | ➖ creates proposal | ❌ | ✅ |
+| Vote on proposals | ✅ | ✅ | ✅ (own only if self-approval on) | ❌ | — |
+| Switch active version | ✅ | ✅ | ❌ | ❌ | ✅ |
+| Manage members, required approvals | ✅ | ✅ | ❌ | ❌ | — |
+| Duplicate / move prompts | ✅ | ✅ | ✅ | ❌ | ✅ |
+| See another user's Personal space | ❌ | ❌ | ❌ | ❌ | — |
+
+API keys narrow this further: `GROUP` scope limits a key to one group, and `READ_ONLY` blocks writes. Every prompt or group query goes through `permissions.py`, and REST and MCP enforce the same checks.
 
 ---
 
-## 5. Dual-Mode Frontend Operating Architecture
+## 6. Free-tier operating rules
 
-The React application ([`frontend/src/App.tsx`](file:///media/tinux/Media%20&%20Files/Code/Projects/prompt-vault-mcp/frontend/src/App.tsx)) automatically detects its environment and renders in one of three modes:
-
-```mermaid
-flowchart TD
-    Start["User visits application URL"] --> CheckParam{"Inspect URL Query Parameters"}
-
-    CheckParam -->|"?share_diff=<share_id>"| SharedMode["Mode 1: Shared Diff View<br/>• Zero-config side-by-side or inline view<br/>• Pre-locked base & target versions<br/>• Read-only visual comparison for team members"]
-
-    CheckParam -->|"?mcp_mode=1"| McpDrawer["Mode 2: Embedded MCP App Drawer<br/>• Rendered inside Claude Desktop / Cursor / LibreChat<br/>• Compact drawer layout (@modelcontextprotocol/ext-apps)<br/>• Select prompt, fill {{variables}}, and insert directly into AI chat"]
-
-    CheckParam -->|"Standard Web Access"| AuthCheck{"Check Session Token in localStorage"}
-
-    AuthCheck -->|"Unauthenticated"| LoginPage["Sign In & Registration<br/>• Email/Password auth<br/>• Firebase / Google SSO<br/>• 1-Click Interactive Demo Accounts"]
-    
-    AuthCheck -->|"Authenticated"| FullWorkspace["Mode 3: Standalone Web Workspace<br/>• Group & Personal space switcher<br/>• Prompt Editor with live variable tester<br/>• Sequential version timeline with rollback<br/>• Granular Word & Sentence visual diff viewer<br/>• Team Review Requests & proposal voting inbox<br/>• Scoped MCP API Key management dashboard<br/>• Drag-and-drop batch file uploader"]
-```
+| Concern | What the code does | Why |
+|---|---|---|
+| Neon compute hours | `/api/health` pings **only Supabase** by default (`?deep=1` also checks Neon). Community requests never open a Neon session. Startup only backfills missing Personal spaces. | Render's health checker and the Worker cron call `/api/health` constantly; pinging Neon there kept it awake around the clock. |
+| Supabase auto-pause | The Worker cron hits `/api/health` every 14 min. `.github/workflows/keep-alive.yml` is a backup that runs every 3 days. | Free Supabase projects pause after about a week with no activity. |
+| Render cold starts | The Worker cron keeps the instance warm, and the Worker waits up to 90s before returning 503. | The free instance sleeps after 15 min idle. |
+| Connection limits | Pooled URLs (Neon `-pooler` host, Supabase `pooler.supabase.com:6543`) with `prepare_threshold=None`. A startup warning fires if a URL isn't pooled. | Free tiers cap direct connections. |
+| Embedding quota | Embeddings are computed only when a version becomes active, and search falls back to lexical. | Gemini free-tier rate limits. |
 
 ---
 
-## 6. Project Directory Map
+## 7. Frontend modes
+
+`frontend/src/App.tsx` picks a mode from the URL:
+
+- **Shared diff view:** `?share_diff=<id>` shows a read-only side-by-side or inline diff.
+- **MCP drawer:** `?mcp_mode=1` gives a compact view inside AI clients. Pick a prompt, fill its `{{variables}}`, and insert it into the chat.
+- **Web workspace:** everything else. It covers spaces, the editor with a live variable tester, version timeline and rollback, the review inbox, groups and members, API keys, and uploads.
+
+`frontend/src/types.ts` mirrors `backend/schemas.py`, and `api.ts` holds the client and token storage. The UI guardrail build step rejects native `<select>`, `<datalist>` and `alert`/`confirm`/`prompt`.
+
+---
+
+## 8. Repository map
 
 ```text
 prompt-vault-mcp/
-├── ARCHITECTURE.md                  # This complete architecture blueprint
-├── DEPLOYMENT_GUIDE.md              # Zero-cost cloud deployment guide
-├── MAKING_CHANGES_LIVE.md           # Operational release & update guide
-├── AGENTS.md                        # Authoritative system rules for AI agents
-├── README.md                        # Project summary & getting started
-├── Dockerfile                       # Multi-platform production container definition
-├── render.yaml                      # Infrastructure-as-code blueprint for Render
-├── Makefile                         # Local and container automation targets
-├── run_tests.sh                     # 5-stage automated pre-flight test runner
-│
-├── backend/                         # Compute & Backend Service (Python/FastAPI)
-│   ├── main.py                      # REST API endpoints, routing & CORS
-│   ├── models.py                    # SQLAlchemy database ORM models
-│   ├── schemas.py                   # Pydantic v2 input/output data schemas
-│   ├── permissions.py               # RBAC rules, variable parser & scoping
-│   ├── auth.py                      # PBKDF2 password hashing & token verification
-│   ├── cache.py                     # Upstash Redis caching & GitHub feedback integration
-│   ├── mcp_server.py                # FastMCP server & MCP tools definition
-│   ├── seed.py                      # Database schema initial migration & demo data
-│   └── tests/                       # Automated backend pytest test suites
-│
-├── cloudflare-worker/               # Global Edge Gateway & Load Balancer
-│   ├── worker.js                    # Reverse proxy, 2.8s timeout, failover SQL & 14m cron
-│   ├── wrangler.toml                # Cloudflare Worker configuration & variables
-│   └── package.json                 # Worker runtime dependencies (@neondatabase/serverless)
-│
-└── frontend/                        # Frontend User Interface (React 18 + Vite + Tailwind)
-    ├── index.html                   # HTML entry point shell
-    ├── vite.config.ts               # Vite bundler configuration & proxies
-    └── src/
-        ├── App.tsx                  # Main application router & mode selector
-        ├── api.ts                   # Type-safe API client & session manager
-        ├── types.ts                 # TypeScript interfaces matching backend models
-        └── components/              # Modular UI components
-            ├── PromptDashboard.tsx          # Main prompt library & space filters
-            ├── PromptEditorAndHistory.tsx   # Prompt editor, variable tester & timeline
-            ├── VisualDiffViewer.tsx         # Granular word/sentence diff viewer
-            ├── ReviewRequestsDashboard.tsx  # Proposal review & approval voting inbox
-            ├── AccessGroupManager.tsx       # Team groups & member management
-            ├── McpInChatDrawer.tsx          # In-chat MCP App drawer
-            ├── SharedDiffPage.tsx           # Standalone shareable diff view
-            ├── LoginPage.tsx                # Sign In & Demo accounts
-            └── ui/                          # Custom Tailwind modals & popovers
-                ├── ErrorBoundary.tsx        # React component crash protection
-                ├── RoleBadge.tsx            # Interactive RBAC role pill
-                ├── Brand.tsx                # Logos & highlighted prompt tokens
-                └── ...                      # Custom dropdowns & confirmation modals
+├── backend/
+│   ├── main.py            # App assembly: lifespan, middleware, /api/health, MCP + SPA mounts
+│   ├── routers/           # REST routes by domain (auth, oauth, account, groups, prompts, proposals, sharing)
+│   ├── services/          # Business rules shared by REST and MCP (prompts.py, proposals.py)
+│   ├── deps.py            # current_user / maybe_user, session cookies, permission guards
+│   ├── domain.py          # Read-model helpers, HTTP wrappers around service quotas
+│   ├── plans.py           # Plan catalogue and limits
+│   ├── mcp_server.py      # FastMCP tools (thin adapters over services/)
+│   ├── database.py        # Engines, tier routing, migrate_user_tier
+│   ├── auth.py            # Password hashing, sessions, API keys, legacy upgrade_schema()
+│   ├── migrations.py      # Alembic runner; alembic/ holds revisions
+│   ├── permissions.py     # RBAC helpers
+│   ├── search.py          # Hybrid search, pgvector
+│   ├── cache.py           # Redis cache, GitHub feedback issues
+│   ├── oauth.py           # OAuth 2.1 server for MCP clients
+│   ├── polar_billing.py   # Checkout, portal, webhooks → tier migration
+│   ├── security.py        # Security headers/CSP, rate limiter, uploads, audit log
+│   ├── models.py / schemas.py / seed.py / migrate.py
+│   └── tests/
+├── frontend/              # React 18 + Vite + Tailwind SPA (also the MCP drawer)
+├── cloudflare-worker/     # Gateway proxy + 14-min keep-alive cron
+├── .github/workflows/     # pipeline.yml (CI/CD), browser-e2e.yml, keep-alive.yml
+├── Dockerfile · render.yaml · docker-compose.yml · Makefile · run_tests.sh
+└── AGENTS.md · ARCHITECTURE.md · DEPLOYMENT_GUIDE.md · MAKING_CHANGES_LIVE.md · README.md
 ```
+
+---
+
+## 9. Known limits and next steps
+
+- **Single instance assumed.** The token-routing cache and the MCP session-key map (`mcp_server._session_api_keys`) live in process memory. Before scaling Render beyond one instance, move both to Redis.
+- **Shared dev/prod backend.** There is no staging backend or database, so a bad `dev` push affects production users. When budget allows, add a second Render service and Neon branch for `dev`.
+- **Webhook retries after migration.** The Polar webhook resolves the user through the community database. If a retry arrives after the user has already moved to Neon, it may not find them. Watch the logs after real upgrades.
+- **Lexical search scans in Python.** It still loads every accessible active version. Move it to `pg_trgm` (already enabled on Postgres) if libraries grow to thousands of prompts.

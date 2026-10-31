@@ -61,8 +61,9 @@ Users can belong to multiple groups with distinct roles per group:
 ### Pillar 5: Multi-Tier Database Architecture (Supabase vs Neon)
 - **Free / Community Tier (`plan = "community"`):** Stored in **Supabase PostgreSQL** (`SUPABASE_DATABASE_URL`). If Supabase credentials are not yet configured in `.env`, the system safely falls back to local SQLite (`prompthold_community.db`) with clear diagnostics so development and testing continue smoothly.
 - **Paid Tiers (`plan in ("pro", "team", "enterprise")`):** Stored in **Neon Serverless PostgreSQL** (`NEON_DATABASE_URL` / `DATABASE_URL`).
-- **Dynamic Request Routing:** FastAPI dependencies and FastMCP tools automatically inspect the user's token / API key and dynamically route queries to the appropriate database engine with zero latency overhead via an in-memory routing cache.
-- **Cross-Tier Data Migration:** When a user upgrades from Free/Community to Pro/Team/Enterprise (or downgrades), `migrate_user_tier` atomically transfers their account, personal workspace, prompts, versions, API keys, and sessions between Supabase and Neon.
+- **Dynamic Request Routing:** `database.get_db` (REST) and `_get_mcp_session` (MCP) resolve the bearer token to a plan with `resolve_token_plan` and open a session on that tier's engine. New tokens carry a tier hint (`phc_`/`php_` sessions, `pv_live_c_`/`pv_live_p_` API keys), so only the hinted database is queried. Legacy tokens probe Supabase first, then Neon. Unknown tokens are negatively cached for 60s, and routing DB errors are logged, never swallowed.
+- **Neon compute budget:** community traffic must never open a Neon session. `/api/health` pings only Supabase unless called with `?deep=1`. Don't add startup, health or background work that queries Neon.
+- **Cross-Tier Data Migration:** `migrate_user_tier` upserts the user, their Personal space and solo team groups, and all dependent rows (prompts, versions, chunks, diff links, proposals, approvals, comments, API keys, sessions) into the destination. It then re-points the routing cache and deletes the source copy. It is safe to re-run and raises on failure so Polar retries the webhook. Shared team groups stay in the source tier. **Any new table holding user data must be added to it.**
 
 ---
 
@@ -73,15 +74,28 @@ prompt-vault-mcp/
 ├── AGENTS.md                   # This architecture & engineering guide
 ├── backend/
 │   ├── requirements.txt        # Backend Python dependencies
-│   ├── database.py             # SQLAlchemy engine & session dependency
+│   ├── main.py                 # App assembly: lifespan, middleware, /api/health, MCP + SPA mounts
+│   ├── routers/                # REST routes by domain: auth_routes, oauth_routes, account,
+│   │                           #   groups, prompts, proposals, sharing
+│   ├── services/               # Business rules shared by REST and MCP
+│   │   ├── prompts.py          #   quota, create-or-propose, duplicate, move
+│   │   └── proposals.py        #   approve / reject / merge
+│   ├── deps.py                 # current_user, maybe_user, session cookies, permission guards
+│   ├── domain.py               # Read-model helpers + HTTP wrappers around service quotas
+│   ├── plans.py                # PLAN_TIERS / PLAN_LIMITS_MAP (no web imports)
+│   ├── database.py             # Engines, tier routing, migrate_user_tier
+│   ├── migrations.py           # Alembic runner (revisions in alembic/versions/)
 │   ├── models.py               # ORM database models (SQLite/PostgreSQL)
 │   ├── schemas.py              # Pydantic v2 validation models
-│   ├── auth.py                 # Password hashing & session token management
+│   ├── auth.py                 # Password hashing, sessions, API keys, legacy upgrade_schema()
 │   ├── permissions.py          # RBAC authorization helpers & variable parser
-│   ├── search.py               # Hybrid Search engine (Fuzzy + Gemini semantic embeddings)
-│   ├── seed.py                 # Initial demo seed data
-│   ├── mcp_server.py           # FastMCP server & MCP tools
-│   └── main.py                 # FastAPI application, REST routes & static mounts
+│   ├── search.py               # Hybrid search (fuzzy + Gemini embeddings, pgvector in SQL)
+│   ├── oauth.py                # OAuth 2.1 authorization server for MCP clients
+│   ├── polar_billing.py        # Polar checkout/portal/webhooks → tier migration
+│   ├── security.py             # Headers/CSP, rate limiting, uploads, audit log
+│   ├── cache.py                # Redis cache, GitHub feedback issues
+│   ├── seed.py / migrate.py    # Demo data / standalone migration runner
+│   └── mcp_server.py           # FastMCP tools (thin adapters over services/)
 └── frontend/
     ├── package.json            # Node dependencies
     ├── vite.config.ts          # Vite configuration
@@ -236,7 +250,10 @@ prompt-vault-mcp/
 
 ---
 
-### 4.3 REST API Endpoints (`backend/main.py`)
+### 4.3 REST API Endpoints (`backend/routers/`)
+
+Routes are grouped by file: `auth_routes.py` (register/login/logout/SSO), `oauth_routes.py` (OAuth 2.1 + discovery), `account.py` (me, users, plans, billing, webhooks, API keys), `groups.py`, `prompts.py` (prompts, uploads, versions, duplicate/move), `proposals.py`, `sharing.py` (diff shares, feedback, audit logs). `/api/health` stays in `main.py`.
+
 
 | Method | Endpoint | Description | Auth Required |
 |---|---|---|---|
@@ -273,6 +290,9 @@ prompt-vault-mcp/
 
 ### 4.4 FastMCP Server (`backend/mcp_server.py`)
 
+Tools authenticate and check roles, then call the same `services/` functions as the REST routes. Errors surface as `ValueError` with the same messages as REST.
+
+
 Mounted at `/mcp` using SSE/Streamable HTTP:
 - **UI Resource `ui://prompt-hold/drawer` (and `ui://prompt-vault/drawer` alias):** HTML shell embedding the React frontend with `?mcp_mode=1`.
 - **Tool `list_my_accessible_prompts(api_key, search_query, group_name)`:** Strictly filters prompts by the caller's RBAC memberships.
@@ -303,7 +323,7 @@ To avoid OS-level GTK/browser widget styling conflicts (such as black `<select>`
 When modifying or extending this repository, AI agents and engineers must adhere to the following rules:
 
 1. **Zero Placeholders:** Never submit `// TODO`, `# implement later`, or stubbed empty methods. All code must be complete, testable, and functional.
-2. **Schema & Migration Safety:** When adding columns to existing database tables, maintain backward compatibility and ensure SQLite handles default values or in-place migrations cleanly.
+2. **Schema & Migration Safety:** Add schema changes as Alembic revisions in `backend/alembic/versions/` (they run for both tier engines on startup). Do not extend `auth.upgrade_schema()`, which is the frozen pre-Alembic baseline. Keep changes backward compatible, and add new user-data tables to `migrate_user_tier`. Run the `alembic` CLI only with an explicit `ALEMBIC_DATABASE_URL`.
 3. **RBAC Boundary Enforcement:** Every prompt and group query must be guarded by `can_user_view_group` or `get_user_group_ids`. Never expose prompts across group boundaries or leak Personal space contents.
 4. **Preserve Demo Accounts:** Keep the standard demo accounts seeded on startup (all passwords: `demo1234`):
 
@@ -326,6 +346,8 @@ When modifying or extending this repository, AI agents and engineers must adhere
 **Total:** 13 configured users (2 Admins, 2 Owners, 4 Members, 5 Guests). Every user also possesses an isolated, auto-provisioned private `Personal` space.
 5. **No Native Browser Dialogs:** Never use `alert()`, `confirm()`, `prompt()`, `<select>`, or `<datalist>` in the frontend. Use custom Tailwind modals and popovers.
 6. **Type Safety:** Maintain strict TypeScript interfaces in `frontend/src/types.ts` mirroring backend Pydantic schemas. Verify changes with `npx tsc -b --noEmit`.
+7. **One Source of Business Rules:** Prompt create/duplicate/move and proposal approve/reject/merge live in `backend/services/`. REST routes and MCP tools only authenticate, check roles, log audits and shape responses. Never copy rules into an adapter.
+8. **Free-Tier Budget:** Never query Neon from health checks, startup or background jobs, and keep `/api/health` shallow by default. Tests must never touch the databases in `.env`: use in-memory SQLite, or an explicit throwaway URL such as `PGVECTOR_TEST_DATABASE_URL`.
 
 ---
 
@@ -348,7 +370,8 @@ npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
 ### Verification Checklist
-- [ ] Backend starts cleanly on port 8000 and auto-creates/seeds the SQLite database.
+- [ ] Backend starts cleanly on port 8000, creates tables, applies Alembic migrations and seeds the SQLite database.
+- [ ] `GET /api/health` reports `paid.status: "not_checked"` (Neon untouched) and the community tier connected.
 - [ ] User registration creates a new user and an isolated `Personal` space.
 - [ ] Existing demo accounts can log in with password `demo1234`.
 - [ ] Group Owner can invite a new member or guest by email address.

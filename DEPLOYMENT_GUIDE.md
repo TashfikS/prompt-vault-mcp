@@ -2,11 +2,12 @@
 
 This guide provides end-to-end instructions for deploying the **PromptHold RBAC & Version Control** platform using a **100% Free / Zero-Dollar Tier ($0/month)** across:
 
-* **Neon Database** (Serverless PostgreSQL with connection pooling)
+* **Supabase** (PostgreSQL for free/community-plan users)
+* **Neon Database** (Serverless PostgreSQL for paid-plan users, scales to zero)
 * **Upstash** (Serverless Redis multi-pod cache)
 * **Firebase / Google Cloud** (Google OAuth & SSO authentication)
 * **Render** (Docker Web Service & FastMCP container)
-* **Cloudflare Worker** (Edge Gateway, Load Balancer & Instant Failover)
+* **Cloudflare Worker** (thin gateway proxy + 14-minute keep-alive cron)
 * **Cloudflare Pages** (Vite React Single Page Application CDN)
 
 ---
@@ -17,22 +18,23 @@ This guide provides end-to-end instructions for deploying the **PromptHold RBAC 
 User Browser / AI Chat Client
               │
               ▼
-    Cloudflare Pages CDN (React Frontend SPA: https://prompthold.pages.dev)
+Cloudflare Pages (React SPA: prompthold.pages.dev, dev.prompthold.pages.dev)
+              │  /api, /oauth, /mcp, /sse, /.well-known, /share
+              ▼
+Cloudflare Worker (prompt-vault-gateway.tashfiks.workers.dev)
+  • forwards to Render, 90s timeout → 503 "starting up"
+  • cron */14 → GET /api/health (keeps Render warm, touches Supabase only)
               │
-              ▼ API Requests
-    Cloudflare Worker (Edge Gateway & Load Balancer: https://prompt-vault-gateway.tashfiks.workers.dev)
-              │
-      ┌───────┴───────────────────────────────────────────┐
-      │ Primary Route (<2.8s)                             │ Instant Failover (>2.8s or asleep)
-      ▼                                                   ▼
-Render Web Service (Docker Container)           Cloudflare Worker Edge SQL
-  ├── Upstash Serverless Redis (Cache)                     │
-  └── Neon PostgreSQL (Primary DB)                        ▼
-                                                 Neon PostgreSQL (Direct Edge Query)
+              ▼
+Render Web Service (Docker: FastAPI + FastMCP)
+  ├── Supabase Postgres  ← community users
+  ├── Neon Postgres      ← pro / team / enterprise users (never touched by health checks)
+  └── Upstash Redis      ← prompt version cache
 
-[Optional User Auth Flow]
-  Browser ──► Firebase / Google SSO ──► Cloudflare Worker / Render ──► User Account Provisioned
+Firebase (Google SSO) · Gemini (embeddings) · Polar (billing webhooks) · GitHub Issues (feedback)
 ```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for routing and tier-migration details.
 
 ---
 
@@ -47,11 +49,17 @@ Neon provides a serverless PostgreSQL database with branching and connection poo
    ```text
    postgresql://<username>:<password>@ep-<project-id>-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require
    ```
-5. Run the initial database migration and seed locally against Neon:
-   ```bash
-   DATABASE_URL="postgresql://<username>:<password>@ep-<project-id>-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require" python3 -m backend.seed
-   ```
-   *This provisions the `users`, `groups`, `group_memberships`, `prompts`, `prompt_versions`, `prompt_proposals`, `proposal_approvals`, `api_keys`, `feedback_submissions`, and audit tables, plus demo accounts.*
+5. You don't need to run anything by hand: on startup the backend creates the tables, applies the legacy `upgrade_schema()` baseline, then runs Alembic migrations on **both** databases. To do it ahead of a deploy, run `cd backend && python migrate.py` with `NEON_DATABASE_URL` and `SUPABASE_DATABASE_URL` set.
+6. The `pgvector` and `pg_trgm` extensions are enabled automatically when available (both are free on Neon and Supabase). Without them, search falls back to Python scoring.
+
+---
+
+## Step 1b: Set Up Supabase PostgreSQL (community tier)
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Under **Project Settings → Database → Connection string**, copy the **Transaction pooler** URL (host `aws-0-<region>.pooler.supabase.com`, port `6543`).
+3. Use it as `SUPABASE_DATABASE_URL` on Render. If it is unset, community users share the Neon database (single-database mode). Locally, they fall back to `prompthold_community.db`.
+4. Free Supabase projects pause after about a week without activity. The Worker cron (every 14 min) and `.github/workflows/keep-alive.yml` (every 3 days, override the URL with the `KEEPALIVE_URL` repository variable) both prevent this.
 
 ---
 
@@ -107,13 +115,19 @@ Render hosts the Docker container running FastAPI, FastMCP server, and backgroun
    * **Branch:** `dev`
    * **Runtime:** `Docker`
    * **Instance Type:** `Free`
-   * **Health Check Path:** `/api/health`
+   * **Health Check Path:** `/api/health` (shallow: pings Supabase only; use `/api/health?deep=1` manually to check Neon too)
 5. Under **Environment Variables**, add:
    | Key | Value | Description |
    |---|---|---|
    | `PROMPT_HOLD_ENV` | `production` | Enables production security checks |
    | `SEED_DEMO_DATA` | `true` | Auto-creates demo accounts if DB is empty |
-   | `DATABASE_URL` | `<neon-pooled-url>` | Neon PostgreSQL pooled URL |
+   | `NEON_DATABASE_URL` (or `DATABASE_URL`) | `<neon-pooled-url>` | Paid-tier database (pooled `-pooler` host) |
+   | `SUPABASE_DATABASE_URL` | `<supabase-pooler-url>` | Community-tier database (port 6543) |
+   | `GATEWAY_SECRET` | `<random string>` | Shared with the Worker so the real client IP is trusted |
+   | `TRUST_PROXY_HEADERS` | `true` | Honour `X-Forwarded-*` from the gateway |
+   | `GEMINI_API_KEY` | `<key>` | Optional: semantic search embeddings |
+   | `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_PRO_PRODUCT_ID`, `POLAR_TEAM_PRODUCT_ID`, `POLAR_ENVIRONMENT` | | Optional: billing |
+   | `GITHUB_ISSUE_REPO`, `GITHUB_ISSUE_TOKEN` | | Optional: feedback → GitHub Issues |
    | `REDIS_URL` | `<upstash-redis-url>` | Upstash TCP Redis URL (`rediss://...:6379`) |
    | `FIREBASE_WEB_API_KEY` | `<firebase-api-key>` | Firebase Web API Key for SSO verification |
    | `ALLOWED_ORIGINS` | `https://prompthold.pages.dev,https://prompt-vault-gateway.tashfiks.workers.dev` | Allowed CORS origins |
@@ -123,45 +137,14 @@ Render hosts the Docker container running FastAPI, FastMCP server, and backgroun
 
 ---
 
-## Step 5: Deploy Cloudflare Worker (Edge Gateway & Load Balancer)
+## Step 5: Deploy Cloudflare Worker (Gateway)
 
-The Cloudflare Worker routes traffic to Render, handles failover to Neon if Render is sleeping, and runs a cron job to keep Render awake.
+The Worker is a thin proxy. It forwards backend routes to Render with `X-Forwarded-Host`/`-Proto`, passes the client IP behind `GATEWAY_SECRET`, waits up to 90s for a cold start, and runs a cron every 14 minutes that calls `/api/health` to keep Render warm. It holds **no database credentials**. If an older deployment has a `DATABASE_URL` secret, remove it with `npx wrangler secret delete DATABASE_URL`.
 
-1. Install Cloudflare Wrangler CLI (if not already installed):
-   ```bash
-   npm install -g wrangler
-   wrangler login
-   ```
-2. Navigate to `cloudflare-worker/`:
-   ```bash
-   cd cloudflare-worker
-   ```
-3. Verify [`wrangler.toml`](file:///media/tinux/Media%20&%20Files/Code/Projects/prompt-vault-mcp/cloudflare-worker/wrangler.toml):
-   ```toml
-   name = "prompt-vault-gateway"
-   main = "worker.js"
-   compatibility_date = "2024-11-01"
-   compatibility_flags = ["nodejs_compat"]
-   workers_dev = true
-
-   [vars]
-   RENDER_ORIGIN = "https://prompthold-backend.onrender.com"
-   BACKEND_POD_1 = "https://prompthold-backend.onrender.com"
-
-   [triggers]
-   crons = ["*/14 * * * *"]
-   ```
-4. Set the secret `DATABASE_URL` in Cloudflare Worker:
-   ```bash
-   npx wrangler secret put DATABASE_URL
-   # When prompted, paste your Neon pooled connection string:
-   # postgresql://<user>:<password>@ep-...neon.tech/neondb?sslmode=require
-   ```
-5. Deploy the Worker:
-   ```bash
-   npx wrangler deploy
-   ```
-6. Your Worker is now live at `https://prompt-vault-gateway.<subdomain>.workers.dev`.
+1. `cd cloudflare-worker && npx wrangler login`
+2. Check `wrangler.toml`: `RENDER_ORIGIN = "https://prompthold-backend.onrender.com"` and `crons = ["*/14 * * * *"]`.
+3. Set the shared secret (same value as on Render): `npx wrangler secret put GATEWAY_SECRET`
+4. Deploy: `npx wrangler deploy`. CI does this only for `release` and `v*` tags.
 
 ---
 
@@ -193,7 +176,7 @@ Cloudflare Pages delivers the React SPA globally across Cloudflare's CDN.
 Test each layer from your terminal:
 
 ```bash
-# 1. Test Cloudflare Worker Edge Gateway Health
+# 1. Test Cloudflare Worker gateway health (expect tiers.paid.status = "not_checked")
 curl -i https://prompt-vault-gateway.tashfiks.workers.dev/api/health
 
 # 2. Test Render Backend Health directly

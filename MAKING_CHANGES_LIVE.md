@@ -85,7 +85,7 @@ npx wrangler pages deploy dist --project-name prompthold --branch main
 ---
 
 ### B. Updating the Edge Gateway (Cloudflare Worker)
-Use this whenever you edit `cloudflare-worker/worker.js` or `cloudflare-worker/wrangler.toml` (routing, auth endpoints, failover logic):
+Use this whenever you edit `cloudflare-worker/worker.js` or `cloudflare-worker/wrangler.toml` (proxied path prefixes, timeout, keep-alive cron):
 
 ```bash
 cd cloudflare-worker
@@ -98,7 +98,11 @@ npx wrangler deploy
 ---
 
 ### C. Updating the Backend Container (Render)
-Use this whenever you edit files in `backend/` (`models.py`, `main.py`, `auth.py`, `cache.py`, `mcp_server.py`) or `Dockerfile`:
+Use this whenever you edit anything in `backend/` (routers, services, models, migrations, `mcp_server.py`…) or the `Dockerfile`.
+
+> **Note:** the CI pipeline redeploys the single Render backend on pushes to `dev` **as well as** `release` and tags. `dev.prompthold.pages.dev` and production share that backend and its databases, so a `dev` push is a production backend deploy.
+
+> **Schema changes:** add an Alembic revision (`backend/alembic/versions/`). It is applied automatically to both the Supabase and Neon databases when the new container starts.
 
 **Option 1: Git Push (Automatic Webhook)**
 ```bash
@@ -141,7 +145,7 @@ Use these commands to monitor your live applications in real time:
 cd cloudflare-worker
 npx wrangler tail
 ```
-*Shows live request headers, upstream routing, failover events, and execution times.*
+*Shows live request headers, upstream routing, 503 cold-start responses, and execution times.*
 
 ### 2. Stream Live Render Backend Logs
 ```bash
