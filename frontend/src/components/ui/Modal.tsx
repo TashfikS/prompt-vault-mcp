@@ -59,7 +59,7 @@ export default function Modal({
   const Panel = as
   return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex animate-fade-in overflow-y-auto bg-black/50 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-60 flex animate-fade-in overflow-y-auto bg-black/50 p-4 backdrop-blur-xs"
       onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose() }}
     >
       <Panel
@@ -68,7 +68,7 @@ export default function Modal({
         aria-modal="true"
         tabIndex={-1}
         onSubmit={onSubmit}
-        className={`m-auto w-full ${width} animate-pop-in rounded-2xl bg-white shadow-pop outline-none ring-1 ring-slate-900/5 dark:bg-zinc-900 dark:ring-zinc-800 dark:border dark:border-zinc-800`}
+        className={`m-auto w-full ${width} animate-pop-in rounded-2xl bg-white shadow-pop outline-hidden ring-1 ring-slate-900/5 dark:bg-zinc-900 dark:ring-zinc-800 dark:border dark:border-zinc-800`}
       >
         <div className="flex items-start gap-3.5 px-6 pt-6">
           {icon && (

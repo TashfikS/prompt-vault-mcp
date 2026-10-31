@@ -322,7 +322,7 @@ prompt-vault-mcp/
 │   ├── security.py        # Security headers/CSP, rate limiter, uploads, audit log
 │   ├── models.py / schemas.py / seed.py / migrate.py
 │   └── tests/
-├── frontend/              # React 18 + Vite + Tailwind SPA (also the MCP drawer)
+├── frontend/              # React 19 + Vite 8 + Tailwind 4 SPA (also the MCP drawer)
 ├── cloudflare-worker/     # Gateway proxy + 14-min keep-alive cron
 ├── .github/workflows/     # pipeline.yml (CI/CD), browser-e2e.yml, keep-alive.yml
 ├── Dockerfile · render.yaml · docker-compose.yml · Makefile · run_tests.sh

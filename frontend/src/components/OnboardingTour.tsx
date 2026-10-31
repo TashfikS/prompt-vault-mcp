@@ -37,7 +37,7 @@ function buildSteps(user: User): Step[] {
       title: 'Create a prompt',
       body: (
         <>
-          Write it once, reuse it everywhere. Add fill-in fields like <code className="rounded bg-brand-50 px-1 font-mono text-[12px] text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">{'{{customer_name}}'}</code> and PromptHold turns them into a simple form.
+          Write it once, reuse it everywhere. Add fill-in fields like <code className="rounded-sm bg-brand-50 px-1 font-mono text-[12px] text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">{'{{customer_name}}'}</code> and PromptHold turns them into a simple form.
         </>
       ),
     },
@@ -132,7 +132,7 @@ export default function OnboardingTour({ user, onFinish }: { user: User; onFinis
   )
 
   return createPortal(
-    <div className="fixed inset-0 z-[90]" aria-live="polite">
+    <div className="fixed inset-0 z-90" aria-live="polite">
       {rect ? (
         <div
           aria-hidden
@@ -140,7 +140,7 @@ export default function OnboardingTour({ user, onFinish }: { user: User; onFinis
           style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: '0 0 0 9999px rgb(0 0 0 / 0.65)' }}
         />
       ) : (
-        <div aria-hidden className="fixed inset-0 animate-fade-in bg-black/60 backdrop-blur-[2px]" />
+        <div aria-hidden className="fixed inset-0 animate-fade-in bg-black/60 backdrop-blur-xs" />
       )}
 
       <div

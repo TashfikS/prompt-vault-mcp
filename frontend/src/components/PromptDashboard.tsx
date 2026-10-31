@@ -143,7 +143,7 @@ export default function PromptDashboard({
             <button
               type="button"
               onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
               aria-label="Clear search"
             >
               <X size={15} />
@@ -216,9 +216,9 @@ export default function PromptDashboard({
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {[1, 2, 3].map(n => (
             <div key={n} className="card h-64 animate-pulse p-5">
-              <div className="h-5 w-28 rounded bg-slate-100 dark:bg-zinc-800" />
-              <div className="mt-4 h-5 w-3/4 rounded bg-slate-100 dark:bg-zinc-800" />
-              <div className="mt-2 h-4 w-1/2 rounded bg-slate-100 dark:bg-zinc-800" />
+              <div className="h-5 w-28 rounded-sm bg-slate-100 dark:bg-zinc-800" />
+              <div className="mt-4 h-5 w-3/4 rounded-sm bg-slate-100 dark:bg-zinc-800" />
+              <div className="mt-2 h-4 w-1/2 rounded-sm bg-slate-100 dark:bg-zinc-800" />
               <div className="mt-4 h-24 rounded-lg bg-slate-50 dark:bg-zinc-800/60" />
             </div>
           ))}
@@ -267,13 +267,13 @@ export default function PromptDashboard({
                     <button
                       type="button"
                       onClick={e => void quickCopy(e, prompt)}
-                      className="absolute top-2 right-2 inline-flex items-center justify-center rounded-md border border-slate-200/80 bg-white/90 p-1.5 text-slate-400 shadow-xs backdrop-blur-xs transition hover:border-slate-300 hover:bg-white hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-850 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      className="absolute top-2 right-2 inline-flex items-center justify-center rounded-md border border-slate-200/80 bg-white/90 p-1.5 text-slate-400 shadow-xs backdrop-blur-xs transition hover:border-slate-300 hover:bg-white hover:text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-850 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                       aria-label={`Copy ${prompt.title}`}
                       title={isCopied ? 'Copied to clipboard' : 'Copy raw prompt'}
                     >
                       {isCopied ? <Check size={13} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={13} />}
                     </button>
-                    <p className="line-clamp-3 whitespace-pre-wrap break-anywhere break-words [overflow-wrap:anywhere] [word-break:break-word] pr-8">
+                    <p className="line-clamp-3 whitespace-pre-wrap break-anywhere wrap-break-word wrap-anywhere [word-break:break-word] pr-8">
                       <PromptText text={prompt.content || ''} />
                     </p>
                   </div>

@@ -35,7 +35,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={notify}>
       {children}
       {createPortal(
-        <div aria-live="polite" className="pointer-events-none fixed bottom-5 right-5 z-[80] flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-2">
+        <div aria-live="polite" className="pointer-events-none fixed bottom-5 right-5 z-80 flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-2">
           {items.map(t => {
             const { icon: Icon, color } = toneStyle[t.tone]
             return (
@@ -45,7 +45,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">{t.title}</p>
                   {t.description && <p className="mt-0.5 text-[13px] text-slate-500 dark:text-zinc-400">{t.description}</p>}
                 </div>
-                <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss notification" className="rounded p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300">
+                <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss notification" className="rounded-sm p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300">
                   <X size={15} />
                 </button>
               </div>

@@ -1,7 +1,7 @@
 # ==============================================================================
 # Stage 1: Build the React + Tailwind Frontend
 # ==============================================================================
-FROM node:20-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
@@ -13,23 +13,23 @@ RUN npm run build
 # ==============================================================================
 # Stage 2: Production Python FastAPI + FastMCP Server
 # ==============================================================================
-FROM python:3.12-slim
+FROM python:3.15-alpine
 
 # Create non-root user (UID 1000 is standard for Hugging Face Spaces & Render)
-RUN useradd -m -u 1000 appuser
+RUN adduser -D -u 1000 appuser
 
 WORKDIR /app
 
-# Install system dependencies for psycopg (PostgreSQL driver)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Runtime libs for psycopg (PostgreSQL driver) + curl
+RUN apk add --no-cache libpq yaml curl
 
 # Install Python dependencies
 COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r backend/requirements.txt
+# Build deps are only for sdists without a cp315 musllinux wheel (e.g. PyYAML); removed in the same layer.
+RUN apk add --no-cache --virtual .build-deps build-base yaml-dev && \
+    pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r backend/requirements.txt && \
+    apk del .build-deps
 
 # Copy backend source code and built frontend static bundle
 COPY --chown=appuser:appuser backend/ ./backend/

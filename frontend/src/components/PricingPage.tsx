@@ -216,7 +216,7 @@ export default function PricingPage({
               type="button"
               onClick={handleGoHome}
               aria-label="PromptHold home"
-              className="group -m-1 rounded-lg p-1 text-left transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
+              className="group -m-1 rounded-lg p-1 text-left transition hover:opacity-80 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
             >
               <Logo />
             </button>
@@ -355,11 +355,11 @@ export default function PricingPage({
                       </span>
                     )}
                   </div>
-                  <p className="mt-1.5 min-h-[3.75rem] text-xs leading-5 text-slate-500 dark:text-zinc-400">
+                  <p className="mt-1.5 min-h-15 text-xs leading-5 text-slate-500 dark:text-zinc-400">
                     {tier.tagline}
                   </p>
 
-                  <div className="mt-4 min-h-[5.5rem] border-t border-slate-200/70 pt-4 dark:border-zinc-800">
+                  <div className="mt-4 min-h-22 border-t border-slate-200/70 pt-4 dark:border-zinc-800">
                     {tier.id === 'enterprise' ? (
                       <div className="flex items-baseline gap-1">
                         <span className="text-3xl font-extrabold text-slate-900 dark:text-zinc-100">Custom</span>
@@ -517,7 +517,7 @@ export default function PricingPage({
                 <span>How do review requests work in Team groups?</span>
               </h3>
               <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-                Group Owners can configure <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] font-mono dark:bg-zinc-800">required_approvals</code> (e.g. 1 or 2). When team members edit prompts, an edit proposal is submitted. Once enough peers or owners vote to approve, the proposal automatically merges into the next sequential version (vN+1).
+                Group Owners can configure <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-[11px] font-mono dark:bg-zinc-800">required_approvals</code> (e.g. 1 or 2). When team members edit prompts, an edit proposal is submitted. Once enough peers or owners vote to approve, the proposal automatically merges into the next sequential version (vN+1).
               </p>
             </div>
           </div>

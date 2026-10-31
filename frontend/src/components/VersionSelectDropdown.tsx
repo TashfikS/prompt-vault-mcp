@@ -51,7 +51,7 @@ export default function VersionSelectDropdown({
               <span className="truncate text-xs font-semibold text-slate-900 dark:text-zinc-100">
                 {selected?.change_note || `Version ${selected?.version_number}`}
               </span>
-              <span className="shrink-0 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+              <span className="shrink-0 rounded-sm bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
                 v{selected?.version_number}
               </span>
             </div>
@@ -90,7 +90,7 @@ export default function VersionSelectDropdown({
                       <span className="truncate font-semibold text-slate-900 dark:text-zinc-100">
                         {v.change_note}
                       </span>
-                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+                      <span className="shrink-0 rounded-sm bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
                         v{v.version_number}
                       </span>
                     </div>

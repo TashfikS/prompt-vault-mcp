@@ -135,7 +135,7 @@ export default function McpInChatDrawer() {
             <textarea value={editedContent} onChange={e => setEditedContent(e.target.value)} rows={7} aria-label="Prompt text" className="field mt-4 font-mono text-xs leading-5" />
             <div className="mt-3">
               <span className="block text-xs font-semibold text-slate-500 dark:text-zinc-400">Filled preview</span>
-              <div className="mt-1 whitespace-pre-wrap break-anywhere break-words [overflow-wrap:anywhere] [word-break:break-word] rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-800 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-200">
+              <div className="mt-1 whitespace-pre-wrap break-anywhere wrap-break-word wrap-anywhere [word-break:break-word] rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-800 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-200">
                 <PromptText text={editedContent} values={values} />
               </div>
             </div>

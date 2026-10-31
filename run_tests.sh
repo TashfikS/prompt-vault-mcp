@@ -16,7 +16,7 @@ if [ -x "$ROOT_DIR/.venv/bin/pytest" ] && "$ROOT_DIR/.venv/bin/python" --version
     PYTEST_CMD=("$ROOT_DIR/.venv/bin/pytest")
 else
     PYTHON_BIN="python3"
-    export PYTHONPATH="$ROOT_DIR/.venv/lib/python3.12/site-packages:$ROOT_DIR/backend:${PYTHONPATH:-}"
+    export PYTHONPATH="$ROOT_DIR/.venv/lib/python3.15/site-packages:$ROOT_DIR/backend:${PYTHONPATH:-}"
     PYTEST_CMD=("python3" "-m" "pytest")
 fi
 "$PYTHON_BIN" -m py_compile backend/*.py backend/services/*.py backend/routers/*.py backend/tests/*.py

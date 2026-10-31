@@ -204,7 +204,7 @@ export default function PromptEditorAndHistory({
 
   return (
     <div
-      className="fixed inset-0 z-40 overflow-y-auto bg-black/60 p-3 backdrop-blur-[2px] sm:p-6"
+      className="fixed inset-0 z-40 overflow-y-auto bg-black/60 p-3 backdrop-blur-xs sm:p-6"
       onMouseDown={e => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -349,7 +349,7 @@ export default function PromptEditorAndHistory({
                         )}
                       </div>
                       {!isGuest && <span className="text-xs text-slate-500 dark:text-zinc-400">
-                        Use <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-brand-700 ring-1 ring-slate-200 dark:bg-zinc-800 dark:text-brand-300 dark:ring-zinc-700">{'{{field_name}}'}</code> for dynamic fields
+                        Use <code className="rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-brand-700 ring-1 ring-slate-200 dark:bg-zinc-800 dark:text-brand-300 dark:ring-zinc-700">{'{{field_name}}'}</code> for dynamic fields
                       </span>}
                     </div>
                     <textarea
@@ -442,7 +442,7 @@ export default function PromptEditorAndHistory({
                                   {key.replace(/[_-]/g, ' ')}
                                 </label>
                                 <div className="flex shrink-0 items-center gap-1">
-                                  <span className="rounded bg-slate-200/70 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+                                  <span className="rounded-sm bg-slate-200/70 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
                                     {`{{${key}}}`}
                                   </span>
                                   {val && (
@@ -450,7 +450,7 @@ export default function PromptEditorAndHistory({
                                       type="button"
                                       onClick={() => setValues(prev => ({ ...prev, [key]: '' }))}
                                       aria-label={`Clear ${key}`}
-                                      className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 transition"
+                                      className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 transition"
                                     >
                                       <X size={12} />
                                     </button>
@@ -485,7 +485,7 @@ export default function PromptEditorAndHistory({
                           {compiled.length.toLocaleString()} chars
                         </span>
                       </div>
-                      <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-anywhere break-words [overflow-wrap:anywhere] [word-break:break-word] rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 font-mono text-xs leading-5 text-slate-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 custom-scrollbar">
+                      <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-anywhere wrap-break-word wrap-anywhere [word-break:break-word] rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 font-mono text-xs leading-5 text-slate-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 custom-scrollbar">
                         <PromptText text={content} values={values} />
                       </div>
                     </div>
@@ -583,7 +583,7 @@ export default function PromptEditorAndHistory({
                       </div>
 
                       <div className="mt-3 pl-5">
-                        <p className="line-clamp-3 whitespace-pre-wrap break-anywhere break-words [overflow-wrap:anywhere] [word-break:break-word] rounded-lg border border-slate-200/80 bg-white p-3 font-mono text-xs leading-5 text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+                        <p className="line-clamp-3 whitespace-pre-wrap break-anywhere wrap-break-word wrap-anywhere [word-break:break-word] rounded-lg border border-slate-200/80 bg-white p-3 font-mono text-xs leading-5 text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
                           <PromptText text={version.content} />
                         </p>
                       </div>
@@ -741,7 +741,7 @@ export default function PromptEditorAndHistory({
                           <span className="text-[11px] font-medium text-slate-400 dark:text-zinc-500">
                             Proposed content
                           </span>
-                          <p className="mt-1 line-clamp-4 whitespace-pre-wrap break-anywhere break-words [overflow-wrap:anywhere] [word-break:break-word] rounded-lg border border-slate-200/80 bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+                          <p className="mt-1 line-clamp-4 whitespace-pre-wrap break-anywhere wrap-break-word wrap-anywhere [word-break:break-word] rounded-lg border border-slate-200/80 bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
                             <PromptText text={proposal.content} />
                           </p>
                         </div>
@@ -803,7 +803,7 @@ export default function PromptEditorAndHistory({
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs dark:border-zinc-800 dark:bg-zinc-950">
             <div className="flex items-center justify-between font-medium text-slate-700 dark:text-zinc-300">
               <span className="font-semibold text-slate-900 dark:text-zinc-100">{versionToRestore.change_note}</span>
-              <span className="rounded bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700">
+              <span className="rounded-sm bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700">
                 v{versionToRestore.version_number}
               </span>
             </div>

@@ -115,7 +115,7 @@ export default function AccessGroupManager({
   activeUser: User
   onChanged: () => void
   onOpenRoles?: () => void
-  createInputRef?: RefObject<HTMLInputElement>
+  createInputRef?: RefObject<HTMLInputElement | null>
 }) {
   const notify = useToast()
   const [name, setName] = useState('')
@@ -295,7 +295,7 @@ export default function AccessGroupManager({
                 {!isPersonal && canManage && (
                   <div className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-950/40">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-[12rem] flex-1">
+                      <div className="min-w-48 flex-1">
                         <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-zinc-200">
                           <CheckCheck size={14} className="text-brand-600 dark:text-brand-400" />
                           Required approvals for proposals
@@ -362,7 +362,7 @@ export default function AccessGroupManager({
                             nextVal ? `Proposer self-approval enabled for ${group.name}.` : `Proposer self-approval disabled for ${group.name}.`
                           )
                         }}
-                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 ${
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 ${
                           group.allow_self_approval ? 'bg-brand-600' : 'bg-slate-200 dark:bg-zinc-700'
                         }`}
                       >
@@ -397,7 +397,7 @@ export default function AccessGroupManager({
                         onChange={e => setMemberSearch({ ...memberSearch, [group.id]: e.target.value })}
                         placeholder="Search members…"
                         aria-label={`Search members in ${group.name}`}
-                        className="h-7 w-40 rounded-lg border border-slate-200 bg-white pl-7 pr-6 text-xs text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500"
+                        className="h-7 w-40 rounded-lg border border-slate-200 bg-white pl-7 pr-6 text-xs text-slate-800 placeholder:text-slate-400 outline-hidden transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500"
                       />
                       {memberSearch[group.id] && (
                         <button

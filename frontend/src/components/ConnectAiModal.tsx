@@ -1,3 +1,4 @@
+import type React from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import {
   Check,
@@ -94,7 +95,7 @@ interface ProviderTab {
   name: string
   subtitle: string
   authBadge: string
-  Icon: (props: { className?: string }) => JSX.Element
+  Icon: (props: { className?: string }) => React.JSX.Element
   iconColor: string
   activeRing: string
   activeBg: string
@@ -473,7 +474,7 @@ for p in prompts:
               </div>
 
               <div className="flex items-center gap-2 self-start sm:self-auto">
-                <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 ring-1 ring-emerald-600/20">
+                <span className="inline-flex items-center gap-1 rounded-sm bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 ring-1 ring-emerald-600/20">
                   <Check size={11} /> Ready to use
                 </span>
               </div>
@@ -667,7 +668,7 @@ for p in prompts:
                         >
                           {isReadOnly ? 'Read-only' : 'Read & Write'}
                         </span>
-                        <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
+                        <code className="rounded-sm bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
                           {item.key_prefix}
                         </code>
                       </div>
@@ -679,7 +680,7 @@ for p in prompts:
                               type="button"
                               disabled={isBusy}
                               onClick={() => void handleRevoke(item.id)}
-                              className="rounded bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-rose-700"
+                              className="rounded-sm bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-rose-700"
                             >
                               {isBusy ? 'Revoking…' : 'Confirm'}
                             </button>
@@ -739,7 +740,7 @@ for p in prompts:
                   role="tab"
                   aria-selected={active}
                   onClick={() => setProvider(item.id)}
-                  className={`flex flex-col gap-1.5 rounded-xl border p-3 text-left transition focus:outline-none focus-visible:ring-2 cursor-pointer ${
+                  className={`flex flex-col gap-1.5 rounded-xl border p-3 text-left transition focus:outline-hidden focus-visible:ring-2 cursor-pointer ${
                     isLast ? 'col-span-2 sm:col-span-1' : ''
                   } ${
                     active
@@ -756,7 +757,7 @@ for p in prompts:
                   <div className="min-w-0">
                     <div className="font-semibold text-xs text-slate-900 dark:text-zinc-100">{item.name}</div>
                     <div className="text-[10px] text-slate-500 dark:text-zinc-400 truncate">{item.subtitle}</div>
-                    <div className="mt-1 inline-flex items-center rounded bg-slate-100/90 px-1.5 py-0.5 text-[9px] font-medium text-slate-600 dark:bg-zinc-800/90 dark:text-zinc-300 truncate">
+                    <div className="mt-1 inline-flex items-center rounded-sm bg-slate-100/90 px-1.5 py-0.5 text-[9px] font-medium text-slate-600 dark:bg-zinc-800/90 dark:text-zinc-300 truncate">
                       {item.authBadge}
                     </div>
                   </div>
@@ -767,7 +768,7 @@ for p in prompts:
 
           {/* ==================== PROVIDER 1: CLAUDE ==================== */}
           {provider === 'claude' && (
-            <div className="space-y-4 rounded-xl border border-amber-200/90 bg-gradient-to-b from-amber-50/50 to-white p-4.5 dark:border-amber-900/40 dark:from-amber-950/20 dark:to-zinc-900">
+            <div className="space-y-4 rounded-xl border border-amber-200/90 bg-linear-to-b from-amber-50/50 to-white p-4.5 dark:border-amber-900/40 dark:from-amber-950/20 dark:to-zinc-900">
               {/* Header with Title and Unmistakable Active Segmented Selector */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-amber-100 pb-3.5 dark:border-amber-900/30">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -983,7 +984,7 @@ for p in prompts:
 
           {/* ==================== PROVIDER 2: CHATGPT ==================== */}
           {provider === 'chatgpt' && (
-            <div className="space-y-4 rounded-xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/50 to-white p-4.5 dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-zinc-900">
+            <div className="space-y-4 rounded-xl border border-emerald-200/90 bg-linear-to-b from-emerald-50/50 to-white p-4.5 dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-zinc-900">
               {/* Header with Title and Unmistakable Active Segmented Selector */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-emerald-100 pb-3.5 dark:border-emerald-900/30">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -1056,7 +1057,7 @@ for p in prompts:
 
           {/* ==================== PROVIDER 3: GEMINI ==================== */}
           {provider === 'gemini' && (
-            <div className="space-y-4 rounded-xl border border-indigo-200/90 bg-gradient-to-b from-indigo-50/50 to-white p-4.5 dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-zinc-900">
+            <div className="space-y-4 rounded-xl border border-indigo-200/90 bg-linear-to-b from-indigo-50/50 to-white p-4.5 dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-zinc-900">
               {/* Header with Title and Unmistakable Active Segmented Selector */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-indigo-100 pb-3.5 dark:border-indigo-900/30">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -1177,7 +1178,7 @@ for p in prompts:
 
           {/* ==================== PROVIDER 4: CURSOR & IDES ==================== */}
           {provider === 'cursor' && (
-            <div className="space-y-4 rounded-xl border border-cyan-200/90 bg-gradient-to-b from-cyan-50/50 to-white p-4.5 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-zinc-900">
+            <div className="space-y-4 rounded-xl border border-cyan-200/90 bg-linear-to-b from-cyan-50/50 to-white p-4.5 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-zinc-900">
               {/* Header with Title and Unmistakable Active Segmented Selector */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-cyan-100 pb-3.5 dark:border-cyan-900/30">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -1316,7 +1317,7 @@ for p in prompts:
 
           {/* ==================== PROVIDER 5: API & SCRIPTS ==================== */}
           {provider === 'api' && (
-            <div className="space-y-4 rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-50/50 to-white p-4.5 dark:border-zinc-800 dark:from-zinc-950/20 dark:to-zinc-900">
+            <div className="space-y-4 rounded-xl border border-slate-200/90 bg-linear-to-b from-slate-50/50 to-white p-4.5 dark:border-zinc-800 dark:from-zinc-950/20 dark:to-zinc-900">
               {/* Header with Title and Unmistakable Active Segmented Selector */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-200 pb-3.5 dark:border-zinc-800">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -1377,7 +1378,7 @@ for p in prompts:
 
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
                   <p>
-                    <strong>API Filtering:</strong> Query specific spaces using <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?group_id=&lt;id&gt;</code> or search with <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?search=&lt;query&gt;</code>.
+                    <strong>API Filtering:</strong> Query specific spaces using <code className="rounded-sm bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?group_id=&lt;id&gt;</code> or search with <code className="rounded-sm bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">?search=&lt;query&gt;</code>.
                   </p>
                 </div>
               </div>

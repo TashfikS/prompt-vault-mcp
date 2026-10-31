@@ -189,7 +189,7 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
         {/* Dedicated Price & Plan Section */}
         <div
           data-tour="price-and-plan"
-          className="group/plan my-1.5 rounded-xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/80 to-brand-50/25 p-2.5 shadow-2xs transition-all hover:border-brand-300 hover:shadow-xs dark:border-zinc-800 dark:from-zinc-900/90 dark:via-zinc-900/60 dark:to-brand-950/20 dark:hover:border-zinc-700"
+          className="group/plan my-1.5 rounded-xl border border-slate-200/90 bg-linear-to-br from-white via-slate-50/80 to-brand-50/25 p-2.5 shadow-2xs transition-all hover:border-brand-300 hover:shadow-xs dark:border-zinc-800 dark:from-zinc-900/90 dark:via-zinc-900/60 dark:to-brand-950/20 dark:hover:border-zinc-700"
         >
           <div className="flex items-center justify-between gap-1.5">
             <div className="flex min-w-0 items-center gap-2">
@@ -354,12 +354,12 @@ export default function Navbar(props: Props) {
         <SidebarContent {...props} />
       </aside>
 
-      <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:hidden dark:border-zinc-800 dark:bg-zinc-950/95">
+      <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur-sm lg:hidden dark:border-zinc-800 dark:bg-zinc-950/95">
         <button
           type="button"
           onClick={() => { props.onNavigate('prompts'); props.onSelectSpace(null) }}
           aria-label="PromptHold home"
-          className="rounded-lg text-left transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
+          className="rounded-lg text-left transition hover:opacity-80 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
         >
           <Logo />
         </button>

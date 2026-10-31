@@ -53,7 +53,7 @@ export function PromptText({ text, values }: { text: string; values?: Record<str
         const key = part.replace(/\{\{|\}\}/g, '').trim()
         const filled = values?.[key]
         return filled ? (
-          <mark key={i} className="rounded bg-brand-100/70 px-0.5 text-brand-900 dark:bg-brand-950/80 dark:text-brand-200">{filled}</mark>
+          <mark key={i} className="rounded-sm bg-brand-100/70 px-0.5 text-brand-900 dark:bg-brand-950/80 dark:text-brand-200">{filled}</mark>
         ) : (
           <span key={i} className="whitespace-nowrap rounded-md bg-brand-50 px-1 py-px font-medium text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-950/60 dark:text-brand-300 dark:ring-brand-500/30">
             {part}

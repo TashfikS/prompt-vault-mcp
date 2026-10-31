@@ -245,17 +245,17 @@ export default function VisualDiffViewer({
       {/* Diff display */}
       {viewMode === 'inline' ? (
         <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/70">
-          <p className="break-anywhere whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200">
+          <p className="break-anywhere whitespace-pre-wrap wrap-break-word wrap-anywhere [word-break:break-word] font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200">
             {changes.map((part, i) =>
               part.added ? (
                 <span
                   key={i}
-                  className="rounded bg-emerald-100 px-1 font-medium text-emerald-900 underline decoration-emerald-500 dark:bg-emerald-950/80 dark:text-emerald-200 dark:decoration-emerald-400"
+                  className="rounded-sm bg-emerald-100 px-1 font-medium text-emerald-900 underline decoration-emerald-500 dark:bg-emerald-950/80 dark:text-emerald-200 dark:decoration-emerald-400"
                 >
                   {part.value}
                 </span>
               ) : part.removed ? (
-                <span key={i} className="rounded bg-rose-100 px-1 text-rose-900 opacity-80 line-through dark:bg-rose-950/80 dark:text-rose-200">
+                <span key={i} className="rounded-sm bg-rose-100 px-1 text-rose-900 opacity-80 line-through dark:bg-rose-950/80 dark:text-rose-200">
                   {part.value}
                 </span>
               ) : (
@@ -270,10 +270,10 @@ export default function VisualDiffViewer({
             <h4 className="mb-2.5 text-xs font-semibold text-rose-800 dark:text-rose-300">
               Version {baseNumber} · Base
             </h4>
-            <p className="break-anywhere whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200">
+            <p className="break-anywhere whitespace-pre-wrap wrap-break-word wrap-anywhere [word-break:break-word] font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200">
               {changes.map((part, i) =>
                 part.added ? null : part.removed ? (
-                  <span key={i} className="rounded bg-rose-100 px-1 text-rose-900 line-through dark:bg-rose-950/80 dark:text-rose-200">
+                  <span key={i} className="rounded-sm bg-rose-100 px-1 text-rose-900 line-through dark:bg-rose-950/80 dark:text-rose-200">
                     {part.value}
                   </span>
                 ) : (
@@ -286,10 +286,10 @@ export default function VisualDiffViewer({
             <h4 className="mb-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
               Version {targetNumber} · Target
             </h4>
-            <p className="break-anywhere whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200">
+            <p className="break-anywhere whitespace-pre-wrap wrap-break-word wrap-anywhere [word-break:break-word] font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200">
               {changes.map((part, i) =>
                 part.removed ? null : part.added ? (
-                  <span key={i} className="rounded bg-emerald-100 px-1 font-medium text-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200">
+                  <span key={i} className="rounded-sm bg-emerald-100 px-1 font-medium text-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200">
                     {part.value}
                   </span>
                 ) : (

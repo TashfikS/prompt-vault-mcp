@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: prompthold-postgres
     environment:
       POSTGRES_USER: prompthold
@@ -39,7 +39,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ph_postgres_data:/var/lib/postgresql/data
+      - ph_postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U prompthold -d prompthold"]
       interval: 10s
@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: prompthold-redis
     ports:
       - "6379:6379"

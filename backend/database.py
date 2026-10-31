@@ -18,7 +18,7 @@ from typing import Any
 from dotenv import find_dotenv, load_dotenv
 from fastapi import Request
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 logger = logging.getLogger("prompthold.database")
@@ -189,7 +189,11 @@ def get_db_bind_url(db: Session) -> str:
 def is_test_session(db: Session) -> bool:
     """Return True if session is running inside test fixture (in-memory SQLite)."""
     url = get_db_bind_url(db)
-    return url.startswith("sqlite:///:memory:") or url == ""
+    if url == "":
+        return True
+    # SQLAlchemy 2.1 renders the database as "%3Amemory%3A", so compare the parsed URL.
+    parsed = make_url(url)
+    return parsed.get_backend_name() == "sqlite" and parsed.database == ":memory:"
 
 
 # -----------------------------------------------------------------------------

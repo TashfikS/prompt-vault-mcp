@@ -341,7 +341,7 @@ export default function ReviewRequestsDashboard({
           <button
             type="button"
             onClick={() => setSearch('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
             aria-label="Clear search"
           >
             <X size={15} />
@@ -502,7 +502,7 @@ export default function ReviewRequestsDashboard({
                           </span>
                         )}
                         {isProposer && req.can_approve && (
-                          <span className="rounded bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+                          <span className="rounded-sm bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
                             Self-approval allowed by owner
                           </span>
                         )}
@@ -584,13 +584,13 @@ export default function ReviewRequestsDashboard({
                         </span>
                       </div>
 
-                      <div className="max-h-[380px] overflow-y-auto p-4 font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200 custom-scrollbar whitespace-pre-wrap break-words">
+                      <div className="max-h-[380px] overflow-y-auto p-4 font-mono text-xs leading-6 text-slate-800 dark:text-zinc-200 custom-scrollbar whitespace-pre-wrap wrap-break-word">
                         {diffParts.map((part, index) => {
                           if (part.added) {
                             return (
                               <mark
                                 key={index}
-                                className="rounded bg-emerald-100/90 px-0.5 text-emerald-950 font-medium no-underline dark:bg-emerald-950/70 dark:text-emerald-200"
+                                className="rounded-sm bg-emerald-100/90 px-0.5 text-emerald-950 font-medium no-underline dark:bg-emerald-950/70 dark:text-emerald-200"
                               >
                                 {part.value}
                               </mark>
@@ -600,7 +600,7 @@ export default function ReviewRequestsDashboard({
                             return (
                               <del
                                 key={index}
-                                className="rounded bg-rose-100/90 px-0.5 text-rose-950 line-through dark:bg-rose-950/70 dark:text-rose-200"
+                                className="rounded-sm bg-rose-100/90 px-0.5 text-rose-950 line-through dark:bg-rose-950/70 dark:text-rose-200"
                               >
                                 {part.value}
                               </del>
@@ -657,7 +657,7 @@ export default function ReviewRequestsDashboard({
                             }
                           }}
                           placeholder="Write feedback, question, or approval note…"
-                          className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                          className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-hidden focus:ring-1 focus:ring-brand-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
                         />
                         <button
                           type="button"

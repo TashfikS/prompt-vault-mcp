@@ -34,7 +34,7 @@ export default function LeaderSelectDropdown({
         className="field flex h-10 items-center py-0 justify-between gap-2.5 text-left"
       >
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-sm bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
             <UserCheck size={12} />
           </span>
           <span className="truncate text-xs font-medium text-slate-800 dark:text-zinc-200">

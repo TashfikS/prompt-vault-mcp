@@ -108,7 +108,7 @@ export default function Tooltip({
             onMouseEnter={show}
             onMouseLeave={hide}
             style={{ top: pos.top, left: pos.left }}
-            className={`fixed z-[70] ${width} animate-pop-in rounded-xl border border-slate-200 bg-white p-3.5 text-left text-[13px] leading-5 text-slate-600 shadow-pop dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300`}
+            className={`fixed z-70 ${width} animate-pop-in rounded-xl border border-slate-200 bg-white p-3.5 text-left text-[13px] leading-5 text-slate-600 shadow-pop dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300`}
           >
             {content}
           </div>,

@@ -384,26 +384,26 @@ export default function FileUploadModal({
               </p>
               <p>
                 <strong className="text-slate-800 dark:text-zinc-200">.csv:</strong> Must have{' '}
-                <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
+                <code className="rounded-sm bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
                   title
                 </code>{' '}
                 and{' '}
-                <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
+                <code className="rounded-sm bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
                   content
                 </code>{' '}
                 column headers (optional:{' '}
-                <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
+                <code className="rounded-sm bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
                   description
                 </code>
                 ). Maximum 200 rows per file.
               </p>
               <p>
                 <strong className="text-slate-800 dark:text-zinc-200">.json:</strong> An array of{' '}
-                <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
+                <code className="rounded-sm bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
                   {`{"title": "...", "content": "..."}`}
                 </code>{' '}
                 objects, or a root object with a{' '}
-                <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
+                <code className="rounded-sm bg-slate-200/70 px-1 py-0.5 font-mono text-[10px] text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
                   &quot;prompts&quot;
                 </code>{' '}
                 array. Maximum 200 prompts.
@@ -500,12 +500,12 @@ export default function FileUploadModal({
                     {/* File Size & Status Badge */}
                     <div className="flex items-center gap-2 shrink-0">
                       {isTooLarge ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-900/60 dark:text-rose-200">
+                        <span className="inline-flex items-center gap-1 rounded-sm bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-900/60 dark:text-rose-200">
                           <AlertCircle size={12} />
                           {formatBytes(f.size)} (Exceeds 1 MB)
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
+                        <span className="inline-flex items-center gap-1 rounded-sm bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
                           <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400" />
                           {formatBytes(f.size)}
                         </span>
@@ -515,7 +515,7 @@ export default function FileUploadModal({
                         type="button"
                         aria-label={`Remove ${f.name}`}
                         onClick={() => removeFile(f)}
-                        className="rounded p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
+                        className="rounded-sm p-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
                       >
                         <X size={14} />
                       </button>

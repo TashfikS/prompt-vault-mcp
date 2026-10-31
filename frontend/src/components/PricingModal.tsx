@@ -285,7 +285,7 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
                     {tier.tagline}
                   </p>
 
-                  <div className="mt-3 min-h-[4.25rem] border-t border-slate-200/70 pt-3 dark:border-zinc-800">
+                  <div className="mt-3 min-h-17 border-t border-slate-200/70 pt-3 dark:border-zinc-800">
                     {tier.id === 'enterprise' ? (
                       <div className="flex items-baseline gap-1">
                         <span className="text-2xl font-bold text-slate-900 dark:text-zinc-100">Custom</span>
