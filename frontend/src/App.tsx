@@ -326,6 +326,13 @@ export default function App() {
               initialMode={authMode}
               selectedPlan={selectedSignupPlan}
               onAuthenticated={() => {
+                if (window.history.replaceState) {
+                  const url = new URL(window.location.href)
+                  url.searchParams.delete('auth')
+                  url.searchParams.delete('login')
+                  url.searchParams.delete('plan')
+                  window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+                }
                 setAuthState('checking')
                 void loadSession()
               }}
