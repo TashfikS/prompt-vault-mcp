@@ -211,6 +211,16 @@ def share_fallback(share_id: str):
     return FileResponse(FRONTEND_DIST / "index.html")
 
 
+@app.get("/terms")
+@app.get("/privacy")
+def legal_fallback():
+    """Serve the SPA for the Terms of Service and Privacy Policy pages linked from sign-up."""
+    if not (FRONTEND_DIST / "index.html").exists():
+        raise HTTPException(status_code=404, detail="Build the frontend to view this page.")
+    from fastapi.responses import FileResponse
+    return FileResponse(FRONTEND_DIST / "index.html")
+
+
 app.include_router(auth_routes.router)
 app.include_router(oauth_routes.router)
 app.include_router(account.router)

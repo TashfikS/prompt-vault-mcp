@@ -16,6 +16,7 @@ from security import (get_client_ip, record_audit_log)
 
 from deps import (current_user, _active_key, _require_web_session)
 from domain import (_check_group_quota)
+from services.limits import PlanLimitError, check_member_seat
 
 router = APIRouter()
 
@@ -100,6 +101,10 @@ def add_member(group_id: str, payload: AssignMemberRequest, request: Request, db
         target = db.query(User).filter(User.email == (payload.email or "").strip().lower()).first()
     if not target:
         raise HTTPException(status_code=404, detail="No PromptHold account uses that email yet. Ask them to sign up first, then add them.")
+    try:
+        check_member_seat(db, user, group, target, payload.role)
+    except PlanLimitError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     membership = db.query(GroupMembership).filter_by(user_id=target.id, group_id=group_id).first()
     if membership:
         if membership.role == "GROUP_MANAGER" and not user.is_workspace_admin:

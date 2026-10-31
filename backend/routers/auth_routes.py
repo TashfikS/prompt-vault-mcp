@@ -19,11 +19,16 @@ from auth import (DUMMY_PASSWORD_HASH, delete_all_user_sessions, delete_session,
                   verify_firebase_id_token, verify_password)
 from permissions import (ensure_personal_group)
 from models import (User)
-from schemas import (FirebaseAuthRequest, LoginRequest,
-                     RegisterRequest)
+from schemas import (FirebaseAuthRequest, ForgotPasswordRequest, LoginRequest,
+                     RegisterRequest, ResetPasswordRequest, TokenRequest)
 from security import (IS_PRODUCTION, get_client_ip, rate_limiter, record_audit_log)
+from plans import TERMS_VERSION
+from services.account_tokens import (find_user_by_reset_token, find_user_by_verify_token, issue_reset_token,
+                                     issue_verify_token, mark_email_verified)
+from services.email import link_base_url, send_password_reset_email, send_verification_email
 
-from deps import (SESSION_COOKIE_NAME, _bearer_token, _clear_session_cookie, current_user, _require_web_session, _auth_response)
+from deps import (SESSION_COOKIE_NAME, _bearer_token, _clear_session_cookie, current_user, _get_public_base_url,
+                  _require_web_session, _auth_response)
 
 router = APIRouter()
 
@@ -68,12 +73,19 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
             is_admin = email == initial_admin_email
         else:
             is_admin = target_db.query(User).count() == 0
+        now = datetime.utcnow()
         user = User(name=payload.name.strip(), email=email, is_workspace_admin=is_admin,
-                    password_hash=hash_password(payload.password), plan=plan)
+                    password_hash=hash_password(payload.password), plan=plan,
+                    terms_accepted_at=now, terms_version=TERMS_VERSION,
+                    marketing_opt_in=payload.marketing_opt_in,
+                    marketing_opt_in_at=now if payload.marketing_opt_in else None)
+        raw_verify = issue_verify_token(user)
         target_db.add(user)
         target_db.commit()
         ensure_personal_group(target_db, user)
-        record_audit_log(target_db, "AUTH_REGISTER", user_id=user.id, ip_address=client_ip, details=f"Registered {email}")
+        record_audit_log(target_db, "AUTH_REGISTER", user_id=user.id, ip_address=client_ip,
+                         details=f"Registered {email} (terms {TERMS_VERSION}, marketing={payload.marketing_opt_in})")
+        _send_verification(request, user, raw_verify)
         return _auth_response(target_db, user, response)
     finally:
         if close_target:
@@ -228,16 +240,145 @@ def firebase_sso_login(payload: FirebaseAuthRequest, request: Request, response:
         if user is None:
             initial_admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
             is_admin = (email == initial_admin_email) if initial_admin_email else False
-            user = User(name=verified["name"][:160], email=email, is_workspace_admin=is_admin, password_hash=None, plan="community")
+            # Terms are accepted on the SSO button's consent notice; Google/GitHub already proved the email.
+            now = datetime.utcnow()
+            user = User(name=verified["name"][:160], email=email, is_workspace_admin=is_admin, password_hash=None, plan="community",
+                        email_verified_at=now, terms_accepted_at=now, terms_version=TERMS_VERSION)
             target_db.add(user)
             target_db.commit()
             ensure_personal_group(target_db, user)
             record_audit_log(target_db, "AUTH_FIREBASE_SSO_REGISTER", user_id=user.id, ip_address=client_ip, details=f"SSO register {email}")
         else:
+            if user.email_verified_at is None:
+                # The provider proved this person owns the email. A password set by whoever registered the
+                # address without verifying it must stop working, or a squatter keeps access.
+                user.password_hash = None
+                mark_email_verified(user)
+                target_db.commit()
+                delete_all_user_sessions(target_db, user.id)
+                record_audit_log(target_db, "AUTH_EMAIL_CLAIMED_SSO", user_id=user.id, ip_address=client_ip,
+                                 details=f"Unverified account {email} claimed via SSO; password and sessions cleared")
             record_audit_log(target_db, "AUTH_FIREBASE_SSO", user_id=user.id, ip_address=client_ip, details=f"SSO login {email}")
         return _auth_response(target_db, user, response)
     finally:
         if close_target:
+            target_db.close()
+
+
+def _send_verification(request: Request, user: User, raw_token: str) -> None:
+    try:
+        base = link_base_url(_get_public_base_url(request))
+    except RuntimeError:
+        return
+    send_verification_email(user.email, user.name, f"{base}/?verify_token={raw_token}")
+
+
+def _find_user_any_tier(db: Session, lookup) -> tuple[User | None, Session, bool]:
+    """Run ``lookup(session)`` against the request DB in tests, otherwise Supabase then Neon.
+
+    Returns (user, session, should_close). The caller closes the session when asked to.
+    """
+    if is_test_session(db):
+        return lookup(db), db, False
+    for factory in (SessionSupabase, SessionNeon):
+        try:
+            session = factory()
+        except Exception:
+            continue
+        try:
+            found = lookup(session)
+        except Exception:
+            session.close()
+            continue
+        if found is not None:
+            return found, session, True
+        session.close()
+    return None, db, False
+
+
+@router.post("/api/auth/verify-email")
+def verify_email(payload: TokenRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    client_ip = get_client_ip(request)
+    rate_limiter.check(f"verify_ip:{client_ip}", limit=20, window_seconds=60,
+                       detail="Too many attempts. Please wait a minute.")
+    user, target_db, close = _find_user_any_tier(db, lambda s: find_user_by_verify_token(s, payload.token.strip()))
+    try:
+        if user is None:
+            raise HTTPException(status_code=400, detail="This confirmation link is invalid or has expired. Request a new one from your account.")
+        mark_email_verified(user)
+        target_db.commit()
+        record_audit_log(target_db, "AUTH_EMAIL_VERIFIED", user_id=user.id, ip_address=client_ip, details=f"Verified {user.email}")
+        return {"verified": True, "email": user.email}
+    finally:
+        if close:
+            target_db.close()
+
+
+@router.post("/api/auth/resend-verification")
+def resend_verification(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    _require_web_session(user)
+    if user.email_verified_at is not None:
+        return {"sent": False, "already_verified": True}
+    rate_limiter.check(f"resend_verify:{user.id}", limit=3, window_seconds=600,
+                       detail="We've sent a few confirmation emails already. Check your inbox and spam, or try again in 10 minutes.")
+    raw = issue_verify_token(user)
+    db.commit()
+    _send_verification(request, user, raw)
+    return {"sent": True}
+
+
+@router.post("/api/auth/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    """Always answers the same way so the endpoint can't be used to discover which emails have accounts."""
+    client_ip = get_client_ip(request)
+    rate_limiter.check(f"forgot_ip:{client_ip}", limit=5, window_seconds=600,
+                       detail="Too many reset requests. Please wait 10 minutes and try again.")
+    email = payload.email.strip().lower()
+    generic = {"sent": True, "message": "If an account uses that email, we've sent a link to reset the password."}
+    try:
+        base = link_base_url(_get_public_base_url(request))
+    except RuntimeError:
+        return generic
+    user, target_db, close = _find_user_any_tier(db, lambda s: s.query(User).filter(User.email == email).first())
+    try:
+        if user is None:
+            return generic
+        rate_limiter.check(f"forgot_email:{email}", limit=3, window_seconds=3600, detail=generic["message"])
+        raw = issue_reset_token(user)
+        target_db.commit()
+        send_password_reset_email(user.email, user.name, f"{base}/?reset_token={raw}")
+        record_audit_log(target_db, "AUTH_PASSWORD_RESET_REQUESTED", user_id=user.id, ip_address=client_ip, details=f"Reset requested for {email}")
+        return generic
+    except HTTPException:
+        return generic
+    finally:
+        if close:
+            target_db.close()
+
+
+@router.post("/api/auth/reset-password")
+def reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    client_ip = get_client_ip(request)
+    rate_limiter.check(f"reset_ip:{client_ip}", limit=10, window_seconds=600,
+                       detail="Too many attempts. Please wait a few minutes.")
+    user, target_db, close = _find_user_any_tier(db, lambda s: find_user_by_reset_token(s, payload.token.strip()))
+    try:
+        if user is None:
+            raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
+        user.password_hash = hash_password(payload.new_password)
+        user.reset_token_hash = None
+        user.reset_token_expires_at = None
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        # Following the emailed link proves ownership of the address.
+        mark_email_verified(user)
+        target_db.commit()
+        delete_all_user_sessions(target_db, user.id)
+        record_audit_log(target_db, "AUTH_PASSWORD_RESET", user_id=user.id, ip_address=client_ip,
+                         details=f"Password reset for {user.email}; all sessions signed out")
+        return {"reset": True}
+    finally:
+        if close:
             target_db.close()
 
 

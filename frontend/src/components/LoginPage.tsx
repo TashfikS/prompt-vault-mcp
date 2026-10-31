@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { signInWithPopup } from 'firebase/auth'
 import { ArrowLeft, ArrowRight, Braces, CreditCard, GitBranch, LogIn, PlugZap, ShieldCheck, UserPlus } from 'lucide-react'
-import { firebaseLogin, login, register, setSessionToken } from '../api'
+import { firebaseLogin, forgotPassword, getPricing, login, register, setSessionToken } from '../api'
 import { auth, googleProvider, isFirebaseConfigured } from '../firebase'
-import type { PricingPlanId } from '../types'
+import type { PricingPlanId, PricingTier } from '../types'
+import { describePrice } from '../lib/pricing'
 
 function GoogleIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
@@ -33,7 +34,7 @@ import RoleBadge from './ui/RoleBadge'
 import type { AccessKind } from './ui/RoleBadge'
 import { ThemeToggleButton } from '../theme'
 
-type Mode = 'login' | 'register'
+type Mode = 'login' | 'register' | 'forgot'
 
 const DEMO_ACCOUNTS: { name: string; email: string; role: AccessKind; context: string }[] = [
   { name: 'Alice Morgan', email: 'alice@example.com', role: 'ADMIN', context: 'Workspace Admin' },
@@ -42,12 +43,52 @@ const DEMO_ACCOUNTS: { name: string; email: string; role: AccessKind; context: s
   { name: 'Ian Malcolm', email: 'ian@example.com', role: 'GUEST', context: 'Marketing Guest' },
 ]
 
-const PLAN_PREVIEWS: { id: PricingPlanId; name: string; price: string; quota: string; badge?: string }[] = [
-  { id: 'community', name: 'Community', price: '$0', quota: '20 prompts' },
-  { id: 'pro', name: 'Pro', price: '$5/mo', quota: '100 prompts' },
-  { id: 'team', name: 'Team', price: '$10/mo', quota: '500 prompts', badge: 'Popular' },
-  { id: 'enterprise', name: 'Enterprise', price: 'Custom', quota: 'VPC / SSO' },
-]
+
+function MiniPlanCards({ tiers, onPick }: { tiers: PricingTier[]; onPick?: (id: PricingPlanId) => void }) {
+  if (!tiers.length) return null
+  const cols = tiers.length >= 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'
+  return (
+    <div className={`mt-4 pt-2.5 grid grid-cols-2 gap-2 ${cols}`}>
+      {tiers.map(tier => {
+        const price = describePrice(tier, 'monthly')
+        const highlight = Boolean(tier.badge)
+        const unit = tier.price_monthly ? (tier.per_seat ? '/editor/mo' : '/mo') : ''
+        const detail = tier.free_guests_per_editor && tier.per_seat && tier.price_monthly
+          ? `+${tier.free_guests_per_editor} free guests`
+          : tier.price_monthly === null
+          ? 'Custom quotas'
+          : `${tier.max_prompts.toLocaleString()} prompts`
+        const body = (
+          <>
+            {tier.badge && (
+              <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
+                {tier.badge}
+              </span>
+            )}
+            <span className={`block text-[11px] font-bold ${highlight ? 'text-brand-900 dark:text-brand-200' : 'text-slate-800 dark:text-zinc-200'}`}>{tier.name}</span>
+            <span className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
+              <span className="text-base font-extrabold text-slate-950 dark:text-zinc-50">{price.amount}</span>
+              {unit && <span className="text-[10px] font-normal text-slate-500">{unit}</span>}
+            </span>
+            <span className={`mt-1 block text-[10px] leading-tight ${highlight ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'}`}>{detail}</span>
+          </>
+        )
+        const cls = `relative flex flex-col items-center justify-between rounded-xl border p-2.5 text-center transition ${
+          highlight
+            ? 'border-brand-300 bg-brand-50/40 dark:border-brand-700/60 dark:bg-brand-950/30'
+            : 'border-slate-200/80 bg-slate-50/70 dark:border-zinc-800 dark:bg-zinc-950/60'
+        }`
+        return onPick ? (
+          <button key={tier.id} type="button" onClick={() => onPick(tier.id)} className={`${cls} hover:border-brand-400 cursor-pointer`}>
+            {body}
+          </button>
+        ) : (
+          <div key={tier.id} className={cls}>{body}</div>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function LoginPage({
   onAuthenticated,
@@ -57,11 +98,15 @@ export default function LoginPage({
 }: {
   onAuthenticated: () => void
   onOpenPricing?: () => void
-  initialMode?: Mode
+  initialMode?: 'login' | 'register'
   selectedPlan?: PricingPlanId
 }) {
   const [mode, setMode] = useState<Mode>(initialMode)
   const [planChoice, setPlanChoice] = useState<PricingPlanId>(selectedPlan)
+  const [tiers, setTiers] = useState<PricingTier[]>([])
+  const [acceptTerms, setAcceptTerms] = useState(false)
+  const [marketingOptIn, setMarketingOptIn] = useState(false)
+  const [notice, setNotice] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -73,9 +118,24 @@ export default function LoginPage({
     setPlanChoice(selectedPlan)
   }, [selectedPlan])
 
+  useEffect(() => {
+    let mounted = true
+    getPricing()
+      .then(res => {
+        if (mounted) setTiers(res.tiers)
+      })
+      .catch(() => undefined)
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const chosenTier = tiers.find(t => t.id === planChoice)
+
   function switchMode(next: Mode) {
     setMode(next)
     setError('')
+    setNotice('')
     setPassword('')
     setConfirm('')
   }
@@ -83,17 +143,27 @@ export default function LoginPage({
   async function submit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    setNotice('')
     if (mode === 'register' && password !== confirm) {
       setError('Passwords do not match.')
       return
     }
+    if (mode === 'register' && !acceptTerms) {
+      setError('Please accept the Terms of Service and Privacy Policy to create an account.')
+      return
+    }
     setBusy(true)
     try {
+      if (mode === 'forgot') {
+        const res = await forgotPassword(email)
+        setNotice(res.message)
+        return
+      }
       if (mode === 'login') {
         const res = await login(email, password)
         setSessionToken(res.token)
       } else {
-        const res = await register(name, email, password, planChoice)
+        const res = await register(name, email, password, acceptTerms, marketingOptIn)
         setSessionToken(res.token)
       }
       onAuthenticated()
@@ -204,77 +274,8 @@ export default function LoginPage({
               Start free forever in your private Personal space, or upgrade to collaborate with team review gates. Only active editors pay; read-only reviewers are always free.
             </p>
 
-            {/* 4 Mini Plan Cards */}
-            <div className="mt-4 pt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 p-2.5 text-center transition hover:border-slate-300 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700">
-                <div>
-                  <span className="block text-[11px] font-bold text-slate-800 dark:text-zinc-200">Community</span>
-                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
-                    <span className="text-base font-extrabold text-slate-950 dark:text-zinc-50">$0</span>
-                  </div>
-                </div>
-                <div className="mt-1 flex min-h-[28px] items-center justify-center">
-                  <span className="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">20 prompts · FastMCP</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 p-2.5 text-center transition hover:border-slate-300 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700">
-                <div>
-                  <span className="block text-[11px] font-bold text-slate-800 dark:text-zinc-200">Pro</span>
-                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
-                    <span className="text-base font-extrabold text-slate-950 dark:text-zinc-50">$5</span>
-                    <span className="text-[10px] font-normal text-slate-500">/mo</span>
-                  </div>
-                </div>
-                <div className="mt-1 flex min-h-[28px] items-center justify-center">
-                  <span className="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">100 prompts · BYOS</span>
-                </div>
-              </div>
-
-              <div className="relative flex flex-col justify-between rounded-xl border border-brand-300 bg-brand-50/40 p-2.5 text-center shadow-2xs dark:border-brand-700/60 dark:bg-brand-950/30">
-                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
-                  Popular
-                </span>
-                <div>
-                  <span className="block text-[11px] font-bold text-brand-900 dark:text-brand-200">Team</span>
-                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
-                    <span className="text-base font-extrabold text-brand-950 dark:text-brand-100">$10</span>
-                    <span className="text-[10px] font-normal text-brand-700/80 dark:text-brand-300/80">/ed/mo</span>
-                  </div>
-                </div>
-                <div className="mt-1 flex min-h-[28px] items-center justify-center">
-                  <span className="text-[10px] leading-tight font-semibold text-emerald-700 dark:text-emerald-400">+2 Free Guests</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 p-2.5 text-center transition hover:border-slate-300 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700">
-                <div>
-                  <span className="block text-[11px] font-bold text-slate-800 dark:text-zinc-200">Enterprise</span>
-                  <div className="mt-1 flex h-6 items-baseline justify-center gap-0.5">
-                    <span className="text-base font-extrabold text-slate-950 dark:text-zinc-50">Custom</span>
-                  </div>
-                </div>
-                <div className="mt-1 flex min-h-[28px] items-center justify-center">
-                  <span className="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">VPC · SAML SSO</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-2.5 text-xs dark:border-zinc-800">
-              <span className="text-[11px] text-slate-500 dark:text-zinc-400">
-                Need more seats or custom quotas?
-              </span>
-              {onOpenPricing && (
-                <button
-                  type="button"
-                  onClick={onOpenPricing}
-                  className="inline-flex items-center gap-1 font-semibold text-brand-700 hover:underline dark:text-brand-400 cursor-pointer"
-                >
-                  <span>Compare plan details &amp; quotas</span>
-                  <ArrowRight size={11} />
-                </button>
-              )}
-            </div>
+            {/* Mini plan cards (prices come from GET /api/pricing) */}
+            <MiniPlanCards tiers={tiers} />
           </section>
         </div>
 
@@ -343,70 +344,39 @@ export default function LoginPage({
 
             <div className="flex items-center justify-between gap-2">
               <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-zinc-50">
-                {mode === 'login' ? 'Sign in to PromptHold' : 'Create your account'}
+                {mode === 'login' ? 'Sign in to PromptHold' : mode === 'forgot' ? 'Reset your password' : 'Create your account'}
               </h1>
             </div>
             <p className="mt-1.5 text-sm leading-6 text-slate-500 dark:text-zinc-400">
               {mode === 'login'
                 ? 'Enter your workspace credentials to access your personal and team spaces.'
+                : mode === 'forgot'
+                ? 'Enter the email you signed up with and we’ll send you a link to choose a new password.'
                 : 'You’ll get a private Personal space right away, and can create or join team groups.'}
             </p>
 
-            {/* Interactive Plan Selector in Register Mode */}
+            {/* Everyone starts free; paid plans are bought after sign-up */}
             {mode === 'register' && (
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                    Choose your plan:
-                  </span>
-                  {onOpenPricing && (
-                    <button
-                      type="button"
-                      onClick={onOpenPricing}
-                      className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400 cursor-pointer"
-                    >
-                      Compare all tiers
-                    </button>
-                  )}
-                </div>
-                <div className="pt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {PLAN_PREVIEWS.map(opt => {
-                    const active = planChoice === opt.id
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setPlanChoice(opt.id)}
-                        className={`relative rounded-xl border p-2.5 text-center transition cursor-pointer ${
-                          active
-                            ? 'border-brand-600 bg-brand-50/60 ring-2 ring-brand-500/20 dark:border-brand-500 dark:bg-brand-950/40'
-                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-700'
-                        }`}
-                      >
-                        {opt.badge && (
-                          <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
-                            {opt.badge}
-                          </span>
-                        )}
-                        <span className={`block text-xs font-bold ${active ? 'text-brand-950 dark:text-brand-100' : 'text-slate-900 dark:text-zinc-100'}`}>
-                          {opt.name}
-                        </span>
-                        <div className="my-0.5 flex h-5 items-baseline justify-center">
-                          <span className="text-xs font-extrabold text-slate-900 dark:text-zinc-100">
-                            {opt.price}
-                          </span>
-                        </div>
-                        <span className="block text-[10px] text-slate-500 dark:text-zinc-400 truncate">
-                          {opt.quota}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
+                {planChoice !== 'community' && chosenTier ? (
+                  <>
+                    You picked <strong className="text-slate-900 dark:text-zinc-100">{chosenTier.name}</strong>
+                    {chosenTier.price_monthly ? ` (${describePrice(chosenTier, 'monthly').amount}${describePrice(chosenTier, 'monthly').unit})` : ''}.
+                    {' '}Your account starts on the free Community plan; confirm your email, then upgrade from Plans &amp; Pricing.
+                  </>
+                ) : (
+                  <>Every account starts on the free Community plan. No credit card needed.</>
+                )}
+                {onOpenPricing && (
+                  <button type="button" onClick={onOpenPricing} className="ml-1 font-medium text-brand-700 hover:underline dark:text-brand-400 cursor-pointer">
+                    Compare plans
+                  </button>
+                )}
               </div>
             )}
 
             {/* Social Authentication: Google */}
+            {mode !== 'forgot' && (
             <div className="mt-5">
               <button
                 type="button"
@@ -425,7 +395,15 @@ export default function LoginPage({
                 </span>
                 <span className="h-px flex-1 bg-slate-200 dark:bg-zinc-800" />
               </div>
+              {mode === 'register' && (
+                <p className="-mt-2 mb-1 text-center text-[11px] text-slate-500 dark:text-zinc-400">
+                  By signing up with Google you agree to the{' '}
+                  <a href="/terms" target="_blank" rel="noreferrer" className="underline">Terms of Service</a> and{' '}
+                  <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a>.
+                </p>
+              )}
             </div>
+            )}
 
             <form onSubmit={e => void submit(e)} className="mt-3 space-y-4">
               {mode === 'register' && (
@@ -438,8 +416,16 @@ export default function LoginPage({
                 <label className="field-label" htmlFor="auth-email">Work email</label>
                 <input id="auth-email" required type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" className="field" />
               </div>
+              {mode !== 'forgot' && (
               <div>
-                <label className="field-label" htmlFor="auth-password">Password</label>
+                <div className="flex items-baseline justify-between">
+                  <label className="field-label" htmlFor="auth-password">Password</label>
+                  {mode === 'login' && (
+                    <button type="button" onClick={() => switchMode('forgot')} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400 cursor-pointer">
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
                 <input
                   id="auth-password"
                   required
@@ -457,11 +443,47 @@ export default function LoginPage({
                   </p>
                 )}
               </div>
+              )}
               {mode === 'register' && (
                 <div>
                   <label className="field-label" htmlFor="auth-confirm">Confirm password</label>
                   <input id="auth-confirm" required type="password" minLength={8} autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat password" className="field" />
                 </div>
+              )}
+
+              {mode === 'register' && (
+                <div className="space-y-2.5 text-xs text-slate-600 dark:text-zinc-400">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      required
+                      checked={acceptTerms}
+                      onChange={e => setAcceptTerms(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-brand-600"
+                    />
+                    <span>
+                      I agree to the{' '}
+                      <a href="/terms" target="_blank" rel="noreferrer" className="font-medium text-brand-700 underline dark:text-brand-400">Terms of Service</a>
+                      {' '}and{' '}
+                      <a href="/privacy" target="_blank" rel="noreferrer" className="font-medium text-brand-700 underline dark:text-brand-400">Privacy Policy</a>.
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={marketingOptIn}
+                      onChange={e => setMarketingOptIn(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-brand-600"
+                    />
+                    <span>Send me occasional product updates and tips. (Optional, unsubscribe anytime.)</span>
+                  </label>
+                </div>
+              )}
+
+              {notice && (
+                <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  {notice}
+                </p>
               )}
 
               {error && (
@@ -471,13 +493,13 @@ export default function LoginPage({
               )}
 
               <button disabled={busy} className="btn-primary mt-2 h-10 w-full cursor-pointer">
-                {mode === 'login' ? <LogIn size={16} /> : <UserPlus size={16} />}
-                {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : `Create ${planChoice.toUpperCase()} account`}
+                {mode === 'register' ? <UserPlus size={16} /> : <LogIn size={16} />}
+                {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : mode === 'forgot' ? 'Send reset link' : 'Create free account'}
               </button>
             </form>
 
             <p className="mt-5 text-center text-sm text-slate-500 dark:text-zinc-400">
-              {mode === 'login' ? 'New to PromptHold? ' : 'Already have an account? '}
+              {mode === 'login' ? 'New to PromptHold? ' : mode === 'forgot' ? 'Remembered it? ' : 'Already have an account? '}
               <button
                 type="button"
                 onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
@@ -511,56 +533,14 @@ export default function LoginPage({
               No credit card needed to get started on Community.
             </p>
 
-            <div className="mt-3.5 pt-2.5 grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setPlanChoice('community')
+            <div className="mt-3.5">
+              <MiniPlanCards
+                tiers={tiers.filter(t => t.id !== 'enterprise')}
+                onPick={id => {
+                  setPlanChoice(id)
                   switchMode('register')
                 }}
-                className="flex flex-col items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 text-center transition hover:border-brand-400 hover:bg-white dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 cursor-pointer"
-              >
-                <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">Community</span>
-                <div className="my-1 flex h-5 items-baseline justify-center gap-0.5">
-                  <span className="text-sm font-extrabold text-slate-900 dark:text-zinc-100">$0</span>
-                </div>
-                <span className="text-[10px] text-slate-500 dark:text-zinc-400">20 prompts</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPlanChoice('pro')
-                  switchMode('register')
-                }}
-                className="flex flex-col items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 text-center transition hover:border-brand-400 hover:bg-white dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 cursor-pointer"
-              >
-                <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">Pro</span>
-                <div className="my-1 flex h-5 items-baseline justify-center gap-0.5">
-                  <span className="text-sm font-extrabold text-slate-900 dark:text-zinc-100">$5</span>
-                  <span className="text-[10px] font-normal text-slate-500">/mo</span>
-                </div>
-                <span className="text-[10px] text-slate-500 dark:text-zinc-400">100 prompts</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPlanChoice('team')
-                  switchMode('register')
-                }}
-                className="relative flex flex-col items-center justify-between rounded-xl border border-brand-300 bg-brand-50/30 p-2.5 text-center transition hover:border-brand-500 hover:bg-brand-50/60 dark:border-brand-700/60 dark:bg-brand-950/30 dark:hover:border-brand-600 cursor-pointer"
-              >
-                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white shadow-2xs">
-                  Popular
-                </span>
-                <span className="text-xs font-bold text-brand-900 dark:text-brand-200">Team</span>
-                <div className="my-1 flex h-5 items-baseline justify-center gap-0.5">
-                  <span className="text-sm font-extrabold text-brand-950 dark:text-brand-100">$10</span>
-                  <span className="text-[10px] font-normal text-brand-700/80 dark:text-brand-300/80">/ed</span>
-                </div>
-                <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-400">+2 Free Guests</span>
-              </button>
+              />
             </div>
 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-2.5 text-xs dark:border-zinc-800">

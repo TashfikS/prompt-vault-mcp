@@ -1,5 +1,7 @@
 """Pytest configuration and test fixtures for PromptHold backend."""
 
+from datetime import datetime
+
 import os
 import sys
 from pathlib import Path
@@ -89,6 +91,8 @@ def test_users_and_groups(db: Session):
     guest = User(name="Guest User", email="guest@test.com", password_hash=pw_hash, is_workspace_admin=False)
     outsider = User(name="Outsider User", email="outsider@test.com", password_hash=pw_hash, is_workspace_admin=False)
 
+    for u in [admin, owner, member, member2, guest, outsider]:
+        u.email_verified_at = datetime.utcnow()  # established accounts
     db.add_all([admin, owner, member, member2, guest, outsider])
     db.flush()
 

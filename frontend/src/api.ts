@@ -1,4 +1,4 @@
-import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, BillingConfigResponse, CheckoutSessionResponse, CreatedApiKeyResponse, CustomerPortalResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, ProposalCommentItem, PromptVersionItem, SharedDiffPayload, User } from './types'
+import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, BillingConfigResponse, BillingInterval, CheckoutSessionResponse, CreatedApiKeyResponse, CustomerPortalResponse, FeedbackCreatePayload, FeedbackSubmissionResponse, Group, PricingPlanId, PricingResponse, PromptDuplicatePayload, PromptDuplicateResponse, PromptItem, PromptProposalItem, ProposalCommentItem, PromptVersionItem, SharedDiffPayload, User } from './types'
 
 const TOKEN_KEY = 'prompt-vault-session'
 
@@ -69,7 +69,21 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export type AuthResponse = { token: string; user: User }
 export const login = (email: string, password: string) => api<AuthResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
-export const register = (name: string, email: string, password: string, plan: PricingPlanId = 'community') => api<AuthResponse>('/api/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, plan }) })
+export const register = (name: string, email: string, password: string, acceptTerms: boolean, marketingOptIn: boolean) =>
+  api<AuthResponse>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ name, email, password, accept_terms: acceptTerms, marketing_opt_in: marketingOptIn }),
+  })
+export const verifyEmail = (token: string) =>
+  api<{ verified: boolean; email: string }>('/api/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) })
+export const resendVerification = () =>
+  api<{ sent: boolean; already_verified?: boolean }>('/api/auth/resend-verification', { method: 'POST' })
+export const forgotPassword = (email: string) =>
+  api<{ sent: boolean; message: string }>('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) })
+export const resetPassword = (token: string, newPassword: string) =>
+  api<{ reset: boolean }>('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, new_password: newPassword }) })
+export const updateMarketingPreference = (optIn: boolean) =>
+  api<{ marketing_opt_in: boolean }>('/api/me/marketing', { method: 'PUT', body: JSON.stringify({ marketing_opt_in: optIn }) })
 export const firebaseLogin = (id_token: string, display_name?: string) =>
   api<AuthResponse>('/api/auth/firebase', { method: 'POST', body: JSON.stringify({ id_token, display_name }) })
 export async function logout() { try { await api('/api/auth/logout', { method: 'POST' }) } finally { clearSessionToken() } }
@@ -148,10 +162,10 @@ export const changePassword = (data: { current_password: string; new_password: s
   api<{ message: string }>('/api/me/change-password', { method: 'POST', body: JSON.stringify(data) })
 
 export const getBillingConfig = () => api<BillingConfigResponse>('/api/billing/config')
-export const createBillingCheckout = (plan: PricingPlanId, successUrl?: string) =>
+export const createBillingCheckout = (plan: PricingPlanId, interval: BillingInterval = 'month', seats = 1, successUrl?: string) =>
   api<CheckoutSessionResponse>('/api/billing/checkout', {
     method: 'POST',
-    body: JSON.stringify({ plan, success_url: successUrl }),
+    body: JSON.stringify({ plan, billing_interval: interval, seats, success_url: successUrl }),
   })
 export const openBillingPortal = () =>
   api<CustomerPortalResponse>('/api/billing/portal', { method: 'POST' })

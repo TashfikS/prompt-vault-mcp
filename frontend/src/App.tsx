@@ -23,11 +23,17 @@ import { FeedbackWidget } from './components/FeedbackWidget'
 import { ToastProvider } from './components/ui/Toast'
 import { LogoMark } from './components/ui/Brand'
 import ErrorBoundary from './components/ui/ErrorBoundary'
+import AccountLinkPage from './components/AccountLinkPage'
+import LegalPage from './components/LegalPage'
+import VerifyEmailBanner from './components/VerifyEmailBanner'
 
 export default function App() {
   const params = new URLSearchParams(window.location.search)
   const shareId = params.get('share_diff') ?? window.location.pathname.match(/^\/share\/diff\/([^/]+)/)?.[1]
   const mcpMode = params.get('mcp_mode') === '1'
+  const legalPage = window.location.pathname === '/terms' ? 'terms' : window.location.pathname === '/privacy' ? 'privacy' : null
+  const verifyToken = params.get('verify_token')
+  const resetToken = params.get('reset_token')
   const isInitialPricingRoute =
     params.get('page') === 'pricing' || params.get('pricing') === '1' || window.location.pathname === '/pricing'
   const isDirectAuth =
@@ -170,8 +176,8 @@ export default function App() {
   }, [refresh, resetWorkspace])
 
   useEffect(() => {
-    if (!shareId && !mcpMode) void loadSession()
-  }, [loadSession, shareId, mcpMode])
+    if (!shareId && !mcpMode && !legalPage && !verifyToken && !resetToken) void loadSession()
+  }, [loadSession, shareId, mcpMode, legalPage, verifyToken, resetToken])
 
   useEffect(() => {
     const onExpired = () => {
@@ -214,6 +220,14 @@ export default function App() {
       <ToastProvider>
       {shareId ? (
         <SharedDiffPage shareId={shareId} />
+      ) : legalPage ? (
+        <LegalPage kind={legalPage} />
+      ) : verifyToken || resetToken ? (
+        <AccountLinkPage
+          kind={verifyToken ? 'verify' : 'reset'}
+          token={(verifyToken || resetToken) as string}
+          onDone={() => window.location.replace(resetToken ? '/?auth=login' : '/')}
+        />
       ) : mcpMode ? (
         <McpInChatDrawer />
       ) : pricingPageOpen ? (
@@ -364,6 +378,10 @@ export default function App() {
                 </button>
               </div>
             </div>
+          )}
+
+          {activeUser?.email_verified === false && (
+            <VerifyEmailBanner email={activeUser.email} />
           )}
 
           {page === 'prompts' ? (

@@ -30,6 +30,23 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # Email ownership + one-time links (only SHA-256 hashes of the raw tokens are stored).
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    verify_token_hash: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    verify_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reset_token_hash: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    reset_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Consent records.
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    terms_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    marketing_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    marketing_opt_in_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Billing details mirrored from Polar.
+    billing_interval: Mapped[str | None] = mapped_column(String(16), nullable=True)  # "month" | "year"
+    billed_seats: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # MCP tool-call metering for the current calendar month (UTC, "YYYY-MM").
+    mcp_usage_month: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    mcp_usage_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     memberships: Mapped[list["GroupMembership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 

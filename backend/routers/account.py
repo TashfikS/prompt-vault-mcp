@@ -17,7 +17,9 @@ from database import (
 from auth import (create_api_key_record, hash_password, verify_password)
 from permissions import (can_user_view_group, ensure_personal_group, group_display_name)
 from models import (ApiKey, Group, GroupMembership, Prompt, User)
-from schemas import (ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, PlanUpdateRequest, UpdateProfileRequest)
+from schemas import (ChangePasswordRequest, CheckoutSessionRequest, CreateApiKeyRequest, MarketingPreferenceRequest,
+                     PlanUpdateRequest, UpdateProfileRequest)
+from services.limits import PlanLimitError, check_api_key_quota, mcp_usage, team_seat_usage
 from polar_billing import (create_checkout_session, create_customer_portal_session, is_polar_configured,
                            process_polar_event, verify_polar_webhook_signature)
 from security import (get_client_ip, record_audit_log)
@@ -69,6 +71,10 @@ def get_me(db: Session = Depends(get_db), user: User = Depends(current_user)) ->
         "plan": plan_name,
         "api_key": latest_key.key_prefix if latest_key else None,
         "onboarding_completed": bool(user.onboarding_completed),
+        "email_verified": user.email_verified_at is not None,
+        "marketing_opt_in": bool(user.marketing_opt_in),
+        "billing_interval": user.billing_interval,
+        "billed_seats": user.billed_seats or 1,
         "last_login_at": user.last_login_at.isoformat() if getattr(user, "last_login_at", None) else None,
         "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
         "groups": [
@@ -165,7 +171,19 @@ def get_pricing_plans(db: Session = Depends(get_db), user: User | None = Depends
         usage = {
             "prompts_count": prompts_count,
             "max_prompts": plan_info["max_prompts"],
+            "mcp_calls": mcp_usage(user),
+            "mcp_monthly_calls": plan_info["mcp_monthly_calls"],
+            "api_keys": db.query(ApiKey).filter_by(user_id=user.id, is_active=True).count(),
+            "max_api_keys": plan_info["max_api_keys"],
         }
+        if plan_info.get("per_seat") and current_plan != "enterprise":
+            seats = team_seat_usage(db, user)
+            usage.update({
+                "seats": user.billed_seats or 1,
+                "editors": seats["editors"],
+                "guests": seats["guests"],
+                "max_guests": (user.billed_seats or 1) * plan_info["free_guests_per_editor"],
+            })
     return {
         "tiers": PLAN_TIERS,
         "current_plan": current_plan,
@@ -253,7 +271,27 @@ def create_billing_checkout(
 ) -> dict:
     """Generate a Polar checkout session URL to upgrade to a paid subscription."""
     _require_web_session(user)
-    return create_checkout_session(user=user, plan=payload.plan, success_url=payload.success_url)
+    if user.email_verified_at is None:
+        raise HTTPException(status_code=403, detail="Confirm your email address before upgrading. Check your inbox or resend the confirmation email from your profile.")
+    seats = payload.seats if payload.plan == "team" else 1
+    return create_checkout_session(user=user, plan=payload.plan, success_url=payload.success_url,
+                                   interval=payload.billing_interval, seats=seats)
+
+
+@router.put("/api/me/marketing")
+def update_marketing_preference(payload: MarketingPreferenceRequest, request: Request, db: Session = Depends(get_db),
+                                user: User = Depends(current_user)) -> dict:
+    """Opt in or out of product and marketing emails (consent timestamp kept for GDPR records)."""
+    _require_web_session(user)
+    from datetime import datetime
+
+    if bool(user.marketing_opt_in) != payload.marketing_opt_in:
+        user.marketing_opt_in = payload.marketing_opt_in
+        user.marketing_opt_in_at = datetime.utcnow() if payload.marketing_opt_in else None
+        db.commit()
+        record_audit_log(db, "MARKETING_CONSENT_CHANGED", user_id=user.id, ip_address=get_client_ip(request),
+                         target_type="user", target_id=user.id, details=f"marketing_opt_in={payload.marketing_opt_in}")
+    return {"marketing_opt_in": bool(user.marketing_opt_in)}
 
 
 @router.post("/api/billing/portal")
@@ -296,6 +334,10 @@ def create_api_key(payload: CreateApiKeyRequest, request: Request, db: Session =
     """Generate a new API key (Global or Group-scoped). Returns the full raw secret ONLY once."""
     _require_web_session(user)
     ensure_personal_group(db, user)
+    try:
+        check_api_key_quota(db, user)
+    except PlanLimitError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     group_id: str | None = None
     if payload.scope_type == "GROUP":
         group_id = (payload.group_id or "").strip()

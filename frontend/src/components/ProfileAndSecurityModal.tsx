@@ -3,7 +3,7 @@ import { Check, Clock, KeyRound, Lock, LogOut, Shield, ShieldCheck, User as User
 import Modal from './ui/Modal'
 import RoleBadge from './ui/RoleBadge'
 import { Avatar } from './ui/Brand'
-import { changePassword, logoutAllSessions, updateProfile } from '../api'
+import { changePassword, logoutAllSessions, updateMarketingPreference, updateProfile } from '../api'
 import type { User } from '../types'
 
 type Props = {
@@ -21,6 +21,21 @@ export default function ProfileAndSecurityModal({ activeUser, onClose, onUserUpd
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileError, setProfileError] = useState('')
+  const [marketingSaving, setMarketingSaving] = useState(false)
+
+  async function toggleMarketing(next: boolean) {
+    if (!activeUser) return
+    setMarketingSaving(true)
+    setProfileError('')
+    try {
+      const res = await updateMarketingPreference(next)
+      onUserUpdated({ ...activeUser, marketing_opt_in: res.marketing_opt_in })
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : 'Could not update your email preference.')
+    } finally {
+      setMarketingSaving(false)
+    }
+  }
 
   // Password Form State
   const [currentPassword, setCurrentPassword] = useState('')
@@ -239,6 +254,20 @@ export default function ProfileAndSecurityModal({ activeUser, onClose, onUserUpd
               <Check size={14} /> {profileSuccess}
             </div>
           )}
+
+          <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 p-3 text-xs text-slate-600 dark:border-zinc-800 dark:text-zinc-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(activeUser?.marketing_opt_in)}
+              disabled={marketingSaving}
+              onChange={e => void toggleMarketing(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-brand-600"
+            />
+            <span>
+              <span className="block font-semibold text-slate-800 dark:text-zinc-200">Product updates by email</span>
+              Occasional news and tips. Account and security emails are always sent.
+            </span>
+          </label>
 
           {profileError && (
             <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/60 dark:text-rose-300">

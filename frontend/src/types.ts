@@ -8,12 +8,17 @@ export type User = {
   plan?: PricingPlanId
   api_key?: string
   onboarding_completed?: boolean
+  email_verified?: boolean
+  marketing_opt_in?: boolean
+  billing_interval?: BillingInterval | null
+  billed_seats?: number
   last_login_at?: string | null
   created_at?: string | null
   groups?: Array<{ id: string; name: string; role: GroupRole; is_personal: boolean }>
 }
 export type UpdateProfilePayload = { name: string }
 export type ChangePasswordPayload = { current_password: string; new_password: string }
+export type BillingInterval = 'month' | 'year'
 export type PricingTier = {
   id: PricingPlanId
   name: string
@@ -22,13 +27,18 @@ export type PricingTier = {
   price_monthly: number | null
   price_annual: number | null
   price_label: string
+  per_seat: boolean
   max_prompts: number
   max_versions_per_prompt: number
   max_groups: number
+  max_api_keys: number
   free_guests_per_editor: number
   mcp_monthly_calls: number
+  share_links: boolean
+  batch_upload: boolean
   storage_type: string
   features: string[]
+  coming_soon: string[]
 }
 export type PricingResponse = {
   tiers: PricingTier[]
@@ -36,6 +46,14 @@ export type PricingResponse = {
   usage?: {
     prompts_count: number
     max_prompts: number
+    mcp_calls: number
+    mcp_monthly_calls: number
+    api_keys: number
+    max_api_keys: number
+    seats?: number
+    editors?: number
+    guests?: number
+    max_guests?: number
   } | null
 }
 export type BillingConfigResponse = {

@@ -18,12 +18,42 @@ class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str = Field(min_length=8, max_length=200)
-    plan: Literal["community", "pro", "team", "enterprise"] = "community"
+    accept_terms: bool = Field(default=False, validate_default=True)
+    marketing_opt_in: bool = False
 
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, v: str) -> str:
         return validate_password_complexity(v)
+
+    @field_validator("accept_terms")
+    @classmethod
+    def require_terms(cls, v: bool) -> bool:
+        if v is not True:
+            raise ValueError("You must accept the Terms of Service and Privacy Policy to create an account.")
+        return v
+
+
+class TokenRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password_strength(cls, v: str) -> str:
+        return validate_password_complexity(v)
+
+
+class MarketingPreferenceRequest(BaseModel):
+    marketing_opt_in: bool
 
 
 class LoginRequest(BaseModel):
@@ -191,6 +221,8 @@ class PlanUpdateRequest(BaseModel):
 
 class CheckoutSessionRequest(BaseModel):
     plan: Literal["pro", "team"]
+    billing_interval: Literal["month", "year"] = "month"
+    seats: int = Field(default=1, ge=1, le=500)
     success_url: str | None = Field(default=None, max_length=500)
 
 

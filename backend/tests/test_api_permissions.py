@@ -326,12 +326,17 @@ async def test_group_settings_patch_and_duplicate_prompt(client: AsyncClient, db
 
 
 @pytest.mark.asyncio
-async def test_shared_diff_links(client: AsyncClient, test_users_and_groups):
+async def test_shared_diff_links(client: AsyncClient, test_users_and_groups, db: Session):
     """Verify zero-config shareable diff links creation and public retrieval."""
     fixtures = test_users_and_groups
     tokens = fixtures["tokens"]
     team_prompt = fixtures["team_prompt"]
     owner_headers = {"Authorization": f"Bearer {tokens['owner']}"}
+
+    # Community plans cannot create share links (see test_plan_limits.py).
+    owner = db.query(User).filter_by(email="owner@test.com").first()
+    owner.plan = "pro"
+    db.commit()
 
     # Ensure at least 2 versions exist
     await client.put(
@@ -430,7 +435,7 @@ async def test_persistent_account_lockout(client: AsyncClient, test_users_and_gr
             "name": "Lockout Candidate",
             "email": "lockout_user@example.com",
             "password": "InitialPassword123!",
-            "plan": "community",
+            "accept_terms": True,
         },
     )
     assert reg.status_code == 201
@@ -459,7 +464,7 @@ async def test_register_cannot_self_assign_paid_plan(client: AsyncClient, test_u
     """Paid plans come only from verified billing webhooks, never from the sign-up payload."""
     reg = await client.post(
         "/api/auth/register",
-        json={"name": "Freeloader", "email": "freeloader@example.com", "password": "Password123", "plan": "enterprise"},
+        json={"name": "Freeloader", "email": "freeloader@example.com", "password": "Password123", "plan": "enterprise", "accept_terms": True},
     )
     assert reg.status_code == 201
     assert db.query(User).filter_by(email="freeloader@example.com").one().plan == "community"

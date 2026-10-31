@@ -12,6 +12,7 @@ from fastmcp.server.http import _current_http_request
 from sqlalchemy import func
 
 from auth import resolve_api_key
+from services.limits import PlanLimitError, record_mcp_call
 from cache import (
     get_cached_active_version_uuid,
     get_cached_version_by_uuid,
@@ -158,6 +159,10 @@ def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
     if resolved is None:
         rate_limiter.record_hit(bucket)
         raise ValueError("The supplied PromptHold API key is invalid or has been revoked.")
+    try:
+        record_mcp_call(db, resolved[0])
+    except PlanLimitError as exc:
+        raise ValueError(str(exc)) from exc
     return resolved
 
 

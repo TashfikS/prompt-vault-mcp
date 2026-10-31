@@ -65,7 +65,7 @@ async function registerUser(label) {
     const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: `CI ${label}`, email, password })
+      body: JSON.stringify({ name: `CI ${label}`, email, password, accept_terms: true })
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.token) return { email, password, token: data.token, id: data.user?.id };
@@ -125,6 +125,10 @@ async function run() {
         await page.type('#auth-password', testUser.password);
         await page.type('#auth-confirm', testUser.password);
         await page.evaluate(() => {
+          const terms = document.querySelector('form input[type="checkbox"][required]');
+          if (terms && !terms.checked) terms.click();
+        });
+        await page.evaluate(() => {
           const btn = document.querySelector('form button.btn-primary');
           if (btn) btn.click();
         });
@@ -144,7 +148,7 @@ async function run() {
         const rRes = await fetch(`${API_BASE}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: testUser.name, email: testUser.email, password: testUser.password, plan: 'community' })
+          body: JSON.stringify({ name: testUser.name, email: testUser.email, password: testUser.password, accept_terms: true })
         }).then(r => r.json()).catch(() => ({}));
         if (rRes.token) {
           sessionToken = rRes.token;
@@ -295,6 +299,11 @@ async function run() {
             body: JSON.stringify({ prompt_id: createdPromptId, base_version: 1, target_version: 2, diff_granularity: 'word', view_mode: 'split' })
           });
           const shareData = await shareRes.json().catch(() => ({}));
+          // CI users are on the free Community plan, where share links are a paid feature.
+          if (shareRes.status === 403) {
+            record('Share Links Gated to Paid Plans', 'Billing', 'PASS', 'Community account got HTTP 403 for a share link');
+            publicDiffOk = true;
+          }
 
           if (shareData && shareData.share_id) {
             const incognitoCtx = await browser.createBrowserContext();

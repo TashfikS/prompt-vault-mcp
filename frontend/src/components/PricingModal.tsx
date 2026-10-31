@@ -1,105 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Check, CreditCard, HardDrive, Loader2, Users } from 'lucide-react'
+import { ArrowRight, Check, Clock, CreditCard, Loader2, Users } from 'lucide-react'
 import Modal from './ui/Modal'
 import { createBillingCheckout, getPricing, openBillingPortal, updatePlan } from '../api'
-import type { PricingPlanId, PricingResponse, PricingTier, User } from '../types'
+import type { PricingPlanId, PricingResponse, User } from '../types'
+import { annualSavingsPercent, cycleToInterval, describePrice } from '../lib/pricing'
 import { useToast } from './ui/Toast'
 
-const FALLBACK_TIERS: PricingTier[] = [
-  {
-    id: 'community',
-    name: 'Community',
-    tagline: 'Individual developers exploring version-controlled prompts & MCP.',
-    price_monthly: 0,
-    price_annual: 0,
-    price_label: '$0',
-    max_prompts: 20,
-    max_versions_per_prompt: 10,
-    max_groups: 1,
-    free_guests_per_editor: 0,
-    mcp_monthly_calls: 1000,
-    storage_type: 'Free Cloud Database',
-    features: [
-      '1 User · Personal space + 1 team group',
-      'Up to 20 active prompts',
-      'Last 10 versions per prompt',
-      'Direct Save (instant v1 → v2)',
-      'FastMCP In-Chat Drawer & Personal Key',
-      'Word & sentence basic diff viewer',
-    ],
-  },
-  {
-    id: 'pro',
-    name: 'Pro',
-    tagline: 'Power prompt crafters & freelancers managing large libraries.',
-    price_monthly: 5,
-    price_annual: 4,
-    price_label: '$5/mo',
-    max_prompts: 100,
-    max_versions_per_prompt: 50,
-    max_groups: 1,
-    free_guests_per_editor: 0,
-    mcp_monthly_calls: 10000,
-    storage_type: 'Cloud DB + Bring Your Own Storage',
-    features: [
-      'Everything in Community',
-      'Up to 100 active prompts',
-      'Up to 50 versions per prompt',
-      'Word & Sentence Diff Viewer (Split & Inline)',
-      'Shareable Zero-Config Diff Links',
-      'Batch File Upload (.txt, .md, .csv, .json)',
-      'Bring Your Own Storage (Google Drive / local)',
-    ],
-  },
-  {
-    id: 'team',
-    name: 'Team',
-    badge: 'Most Popular',
-    tagline: 'Startups and product teams collaborating with approval workflows.',
-    price_monthly: 12,
-    price_annual: 10,
-    price_label: '$10/editor/mo',
-    max_prompts: 500,
-    max_versions_per_prompt: 100,
-    max_groups: 5,
-    free_guests_per_editor: 2,
-    mcp_monthly_calls: 50000,
-    storage_type: 'Team Cloud DB + Google Drive Sync',
-    features: [
-      'Everything in Pro',
-      'No seat minimums (starts at 1 editor)',
-      '2 Free Read-Only Guests per paid editor',
-      'Up to 500 prompts across 5 Team Groups',
-      'Proposal & Approval Workflow (required_approvals)',
-      'Central Review Requests Inbox & auto-merge',
-      '3 Team MCP API Keys for automated agents',
-      'Team Cloud & Google Drive Sync',
-    ],
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    tagline: 'Organizations requiring self-hosting, strict compliance & VPC scale.',
-    price_monthly: null,
-    price_annual: null,
-    price_label: 'Contact Us',
-    max_prompts: 10000,
-    max_versions_per_prompt: 1000,
-    max_groups: 100,
-    free_guests_per_editor: 10,
-    mcp_monthly_calls: 1000000,
-    storage_type: 'Self-Hosted Docker / VPC / Private PostgreSQL',
-    features: [
-      'Everything in Team',
-      'Self-Hosted Deployment (Docker / VPC / On-Prem)',
-      'Dedicated PostgreSQL or custom DB cluster',
-      'SSO / SAML 2.0 (Okta, Google Workspace, Azure AD)',
-      'Custom prompt & version quotas',
-      'Full Compliance & Audit Logs Export',
-      'Dedicated SLA & onboarding support',
-    ],
-  },
-]
 
 type Props = {
   activeUser: User | null
@@ -113,6 +19,7 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [pricing, setPricing] = useState<PricingResponse | null>(null)
   const [loadingTier, setLoadingTier] = useState<PricingPlanId | null>(null)
+  const [loadError, setLoadError] = useState(false)
   const toast = useToast()
 
   const currentPlan: PricingPlanId = (activeUser?.plan || pricing?.current_plan || 'community') as PricingPlanId
@@ -124,14 +31,15 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
         if (mounted) setPricing(res)
       })
       .catch(() => {
-        // Fallback to static data
+        if (mounted) setLoadError(true)
       })
     return () => {
       mounted = false
     }
   }, [])
 
-  const tiers = pricing?.tiers || FALLBACK_TIERS
+  const tiers = pricing?.tiers ?? []
+  const savings = annualSavingsPercent(tiers)
 
   async function handleSelectPlan(tierId: PricingPlanId) {
     if (tierId === currentPlan) return
@@ -140,11 +48,17 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
       onContactSales?.()
       return
     }
+    if (tierId === 'team' && onViewFullPage) {
+      // The full page has the editor-seat picker.
+      onClose()
+      onViewFullPage()
+      return
+    }
 
     setLoadingTier(tierId)
     try {
       if (tierId === 'pro' || tierId === 'team') {
-        const checkout = await createBillingCheckout(tierId)
+        const checkout = await createBillingCheckout(tierId, cycleToInterval(billingCycle), Math.max(1, activeUser?.billed_seats ?? 1))
         if (checkout.checkout_url) {
           window.location.href = checkout.checkout_url
           return
@@ -206,7 +120,7 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
                   : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
               }`}
             >
-              Annual billing <span className="text-emerald-600 dark:text-emerald-400 font-bold ml-1">Save 20%</span>
+              Annual billing{savings > 0 && <span className="text-emerald-600 dark:text-emerald-400 font-bold ml-1">Save up to {savings}%</span>}
             </button>
             <button
               type="button"
@@ -248,12 +162,18 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
           </div>
         )}
 
+        {!pricing && (
+          <p className="text-center text-xs text-slate-500 dark:text-zinc-400">
+            {loadError ? "We couldn't load the plans right now. Please try again shortly." : 'Loading plans…'}
+          </p>
+        )}
+
         {/* 4 Cards Grid */}
         <div className="grid grid-cols-1 gap-4 pt-2.5 sm:grid-cols-2 lg:grid-cols-4">
           {tiers.map(tier => {
             const isCurrent = currentPlan === tier.id
             const isTeam = tier.id === 'team'
-            const price = billingCycle === 'annual' ? tier.price_annual : tier.price_monthly
+            const price = describePrice(tier, billingCycle)
 
             return (
               <div
@@ -286,42 +206,14 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
                   </p>
 
                   <div className="mt-3 min-h-17 border-t border-slate-200/70 pt-3 dark:border-zinc-800">
-                    {tier.id === 'enterprise' ? (
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-bold text-slate-900 dark:text-zinc-100">Custom</span>
-                        <span className="text-xs text-slate-500 dark:text-zinc-400">/ quote</span>
-                      </div>
-                    ) : tier.id === 'community' ? (
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-bold text-slate-900 dark:text-zinc-100">$0</span>
-                        <span className="text-xs text-slate-500 dark:text-zinc-400">/ forever</span>
-                      </div>
-                    ) : tier.id === 'pro' ? (
-                      <div>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-2xl font-bold text-slate-900 dark:text-zinc-100">
-                            ${price}
-                          </span>
-                          <span className="text-xs text-slate-500 dark:text-zinc-400">/ month</span>
-                        </div>
-                        {billingCycle === 'annual' && (
-                          <span className="text-[11px] text-emerald-600 dark:text-emerald-400">Billed $48 annually</span>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-2xl font-bold text-slate-900 dark:text-zinc-100">
-                            ${price}
-                          </span>
-                          <span className="text-xs text-slate-500 dark:text-zinc-400">/ editor / mo</span>
-                        </div>
-                        {billingCycle === 'annual' ? (
-                          <span className="text-[11px] text-emerald-600 dark:text-emerald-400">Billed $120 annually</span>
-                        ) : (
-                          <span className="text-[11px] text-slate-500 dark:text-zinc-400">Billed monthly</span>
-                        )}
-                      </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{price.amount}</span>
+                      <span className="text-xs text-slate-500 dark:text-zinc-400">{price.unit}</span>
+                    </div>
+                    {price.note && (
+                      <span className={`text-[11px] ${billingCycle === 'annual' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'}`}>
+                        {price.note}
+                      </span>
                     )}
                   </div>
 
@@ -338,6 +230,12 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
                         <li key={i} className="flex items-start gap-1.5">
                           <Check size={14} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                           <span>{feat}</span>
+                        </li>
+                      ))}
+                      {tier.coming_soon.map(feat => (
+                        <li key={feat} className="flex items-start gap-1.5 text-slate-400 dark:text-zinc-500">
+                          <Clock size={14} className="mt-0.5 shrink-0" />
+                          <span>{feat} (coming soon)</span>
                         </li>
                       ))}
                     </ul>
@@ -386,22 +284,13 @@ export default function PricingModal({ activeUser, onClose, onPlanUpdated, onCon
 
         {/* Feature highlight callout */}
         <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             <div className="flex items-start gap-2">
               <Users size={16} className="mt-0.5 shrink-0 text-brand-600 dark:text-brand-400" />
               <div>
                 <p className="font-semibold text-slate-900 dark:text-zinc-100">Only Editors Pay on Team</p>
                 <p className="text-slate-500 dark:text-zinc-400">
                   Every paid editor includes 2 free guest seats for read-only reviewers, legal counsel, and clients.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <HardDrive size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              <div>
-                <p className="font-semibold text-slate-900 dark:text-zinc-100">Bring Your Own Storage (BYOS)</p>
-                <p className="text-slate-500 dark:text-zinc-400">
-                  Prompts can live directly in your company Google Drive or local folder while PromptHold manages review gates and diffs.
                 </p>
               </div>
             </div>

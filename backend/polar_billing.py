@@ -38,12 +38,30 @@ def is_polar_configured() -> bool:
     return bool(os.getenv("POLAR_ACCESS_TOKEN", "").strip())
 
 
-def get_product_id_for_plan(plan: str) -> str | None:
-    """Retrieve the configured Polar product ID for a given tier."""
-    if plan == "pro":
-        return os.getenv("POLAR_PRO_PRODUCT_ID", "").strip() or None
-    if plan == "team":
-        return os.getenv("POLAR_TEAM_PRODUCT_ID", "").strip() or None
+# Env vars holding the Polar product for each (plan, interval). Team products must use
+# seat-based pricing in Polar so the checkout charges per editor.
+_PRODUCT_ENV = {
+    ("pro", "month"): "POLAR_PRO_PRODUCT_ID",
+    ("pro", "year"): "POLAR_PRO_ANNUAL_PRODUCT_ID",
+    ("team", "month"): "POLAR_TEAM_PRODUCT_ID",
+    ("team", "year"): "POLAR_TEAM_ANNUAL_PRODUCT_ID",
+}
+
+
+def get_product_id_for_plan(plan: str, interval: str = "month") -> str | None:
+    """Retrieve the configured Polar product ID for a tier and billing interval."""
+    env = _PRODUCT_ENV.get((plan, interval))
+    return (os.getenv(env, "").strip() or None) if env else None
+
+
+def plan_for_product_id(product_id: str | None) -> tuple[str, str] | None:
+    """Map a Polar product ID back to (plan, interval)."""
+    if not product_id:
+        return None
+    for (plan, interval), env in _PRODUCT_ENV.items():
+        configured = os.getenv(env, "").strip()
+        if configured and configured == product_id:
+            return plan, interval
     return None
 
 
@@ -65,6 +83,8 @@ def create_checkout_session(
     user: User,
     plan: str,
     success_url: str | None = None,
+    interval: str = "month",
+    seats: int = 1,
 ) -> dict[str, Any]:
     """Create a Polar checkout session URL for upgrading to a paid tier.
 
@@ -75,13 +95,17 @@ def create_checkout_session(
         raise HTTPException(status_code=400, detail=f"Invalid paid plan '{plan}'. Must be one of: {', '.join(PAID_PLANS)}")
 
     client = get_polar_client()
-    product_id = get_product_id_for_plan(plan)
+    product_id = get_product_id_for_plan(plan, interval)
+    if client and not product_id:
+        raise HTTPException(status_code=503, detail=f"{'Annual' if interval == 'year' else 'Monthly'} billing for {plan.title()} is not available yet.")
     fallback_success = success_url or os.getenv("POLAR_CHECKOUT_SUCCESS_URL", "").strip() or "http://localhost:5173/?billing=success&tier=" + plan
 
     # 1. Real Polar SDK flow when credentials and product ID exist
     if client and product_id:
         try:
+            extra: dict[str, Any] = {"seats": max(1, seats)} if plan == "team" else {}
             checkout = client.checkouts.create(
+                **extra,
                 products=[product_id],
                 customer_email=user.email,
                 customer_name=user.name,
@@ -90,6 +114,7 @@ def create_checkout_session(
                 metadata={
                     "user_id": user.id,
                     "plan": plan,
+                    "interval": interval,
                     "platform": "prompthold",
                 },
             )
@@ -116,7 +141,8 @@ def create_checkout_session(
         "configured": False,
         "message": (
             "Polar credentials are not yet configured in .env. "
-            "To enable live card checkout, set POLAR_ACCESS_TOKEN and POLAR_PRO_PRODUCT_ID / POLAR_TEAM_PRODUCT_ID. "
+            "To enable live card checkout, set POLAR_ACCESS_TOKEN and the POLAR_{PRO,TEAM}_PRODUCT_ID / "
+            "POLAR_{PRO,TEAM}_ANNUAL_PRODUCT_ID product IDs. "
             "In development mode, you can test plan upgrades directly."
         ),
     }
@@ -203,17 +229,13 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
         return {"status": "ignored", "reason": "user_not_found", "event": event_type}
 
     # Determine desired plan
-    desired_plan = metadata.get("plan")
-    if not desired_plan:
-        product_id = data.get("product_id")
-        pro_id = os.getenv("POLAR_PRO_PRODUCT_ID", "").strip()
-        team_id = os.getenv("POLAR_TEAM_PRODUCT_ID", "").strip()
-        if pro_id and product_id == pro_id:
-            desired_plan = "pro"
-        elif team_id and product_id == team_id:
-            desired_plan = "team"
-        else:
-            desired_plan = "pro"  # Default paid tier
+    # The product actually paid for wins over checkout metadata.
+    mapped = plan_for_product_id(data.get("product_id"))
+    desired_plan = mapped[0] if mapped else metadata.get("plan")
+    if desired_plan not in PAID_PLANS:
+        desired_plan = "pro"  # Default paid tier
+    interval = data.get("recurring_interval") or (mapped[1] if mapped else None) or metadata.get("interval")
+    seats_raw = data.get("seats")
 
     old_plan = getattr(user, "plan", "community") or "community"
 
@@ -228,6 +250,10 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
             user.polar_customer_id = str(customer_id)
         if subscription_id and hasattr(user, "polar_subscription_id"):
             user.polar_subscription_id = str(subscription_id)
+        if interval in ("month", "year"):
+            user.billing_interval = interval
+        if isinstance(seats_raw, int) and seats_raw >= 1:
+            user.billed_seats = seats_raw
 
         is_test_env = is_test_session(db)
 
@@ -270,7 +296,8 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
             logger.info("Successfully upgraded user %s (%s) to %s via Polar event %s", user.id, user.email, desired_plan, event_type)
             return {"status": "upgraded", "user_id": user.id, "plan": desired_plan}
 
-        return {"status": "already_active", "user_id": user.id, "plan": user.plan}
+        db.commit()  # seat count / interval changes on an existing plan
+        return {"status": "already_active", "user_id": user.id, "plan": user.plan, "seats": user.billed_seats}
 
     # 2. DOWNGRADE / CANCELLATION / REVOCATION
     elif event_type in ("subscription.revoked", "subscription.canceled"):
@@ -282,9 +309,14 @@ def process_polar_event(event_dict: dict[str, Any], db: Session) -> dict[str, An
                 migrate_user_tier(user.id, old_plan, "community")
                 db.expunge(user)
                 audit_db = get_sessionmaker_for_plan("community")()
+                audit_db.query(User).filter_by(id=user.id).update(
+                    {"billed_seats": 1, "billing_interval": None}, synchronize_session=False)
+                audit_db.commit()
                 user.plan = "community"
             else:
                 user.plan = "community"
+                user.billed_seats = 1
+                user.billing_interval = None
                 db.commit()
                 db.refresh(user)
 

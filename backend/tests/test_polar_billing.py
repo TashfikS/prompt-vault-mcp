@@ -157,3 +157,48 @@ async def test_webhook_rejects_unsigned_events_in_production(client: AsyncClient
     res = await client.post("/api/webhooks/polar", json={
         "type": "order.paid", "data": {"metadata": {"user_id": member_user.id, "plan": "team"}}})
     assert res.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_webhook_maps_annual_team_product_and_seats(client: AsyncClient, db: Session, test_users_and_groups, monkeypatch):
+    """The paid product decides plan + interval, and seat changes on an active plan are stored."""
+    monkeypatch.setenv("POLAR_TEAM_ANNUAL_PRODUCT_ID", "prod_team_year")
+    member = test_users_and_groups["member"]
+    event = {"type": "subscription.active", "data": {
+        "id": "sub_1", "customer_id": "cust_1", "product_id": "prod_team_year", "recurring_interval": "year",
+        "seats": 4, "metadata": {"user_id": member.id, "plan": "pro"},  # stale metadata must not win
+    }}
+    res = await client.post("/api/webhooks/polar", json=event)
+    assert res.json()["plan"] == "team"
+    db.refresh(member)
+    assert (member.plan, member.billing_interval, member.billed_seats) == ("team", "year", 4)
+
+    event["type"] = "subscription.updated"
+    event["data"]["seats"] = 6
+    res = await client.post("/api/webhooks/polar", json=event)
+    assert res.json()["status"] == "already_active"
+    db.refresh(member)
+    assert member.billed_seats == 6
+
+
+def test_checkout_passes_interval_product_and_seats(monkeypatch, test_users_and_groups):
+    import polar_billing
+
+    calls = {}
+
+    class _Checkouts:
+        def create(self, **kw):
+            calls.update(kw)
+            return type("C", (), {"url": "https://polar.test/c", "id": "chk_1"})()
+
+    monkeypatch.setattr(polar_billing, "get_polar_client", lambda: type("P", (), {"checkouts": _Checkouts()})())
+    monkeypatch.setenv("POLAR_TEAM_ANNUAL_PRODUCT_ID", "prod_team_year")
+    monkeypatch.delenv("POLAR_PRO_ANNUAL_PRODUCT_ID", raising=False)
+    user = test_users_and_groups["owner"]
+    out = polar_billing.create_checkout_session(user, "team", interval="year", seats=3)
+    assert out["mode"] == "live" and calls["products"] == ["prod_team_year"] and calls["seats"] == 3
+
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        polar_billing.create_checkout_session(user, "pro", interval="year")
+    assert exc.value.status_code == 503

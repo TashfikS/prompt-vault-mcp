@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from database import (
@@ -24,12 +24,18 @@ from security import (get_client_ip, rate_limiter, record_audit_log)
 from deps import (SESSION_COOKIE_NAME, current_user, _require_web_session, _require_write_permission)
 from domain import (_version_read, _accessible_prompt)
 
+from services.limits import PlanLimitError, require_feature
+
 router = APIRouter()
 
 
 @router.post("/api/diff-shares", status_code=201)
 def create_diff_share(payload: CreateDiffShareRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
     _require_write_permission(user)
+    try:
+        require_feature(user, "share_links", "Shareable diff links")
+    except PlanLimitError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     prompt = _accessible_prompt(db, user, payload.prompt_id)
     role = get_user_group_role(db, user, prompt.group_id)
     if role == "GUEST":
@@ -253,3 +259,28 @@ def list_audit_logs(limit: int = 100, db: Session = Depends(get_db), user: User 
     ]
 
 
+
+
+@router.get("/api/audit-logs/export")
+def export_audit_logs(days: int = 90, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Response:
+    """Download the audit trail as CSV for compliance reviews (Workspace Admins only)."""
+    import csv
+    import io
+
+    _require_web_session(user)
+    require_workspace_admin(user)
+    since = datetime.utcnow() - timedelta(days=max(1, min(days, 3650)))
+    logs = db.query(AuditLog).filter(AuditLog.created_at >= since).order_by(AuditLog.created_at.desc()).limit(50000).all()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["created_at", "action", "user_id", "ip_address", "target_type", "target_id", "details"])
+    for e in logs:
+        # Prefix cells that a spreadsheet would treat as formulas.
+        row = [e.created_at.isoformat() + "Z", e.action, e.user_id or "", e.ip_address, e.target_type or "", e.target_id or "", e.details]
+        writer.writerow(["'" + c if isinstance(c, str) and c[:1] in ("=", "+", "-", "@") else c for c in row])
+    record_audit_log(db, "AUDIT_LOG_EXPORTED", user_id=user.id, details=f"Exported {len(logs)} entries ({days} days)")
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="prompthold-audit-{datetime.utcnow():%Y%m%d}.csv"'},
+    )

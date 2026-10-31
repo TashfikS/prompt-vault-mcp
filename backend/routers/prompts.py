@@ -29,6 +29,8 @@ import services.prompts as prompt_service
 from deps import (current_user, _active_key, _require_write_permission)
 from domain import (_version_read, _check_prompt_quota, _check_version_quota, _create_prompt, _accessible_prompt)
 
+from services.limits import PlanLimitError, require_feature
+
 router = APIRouter()
 
 
@@ -154,6 +156,11 @@ async def upload_files(request: Request, group_id: str = Form(...), prompt_id: s
                        detail="Too many file upload requests. Please wait a minute and try again.")
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(status_code=400, detail=f"You can upload at most {MAX_UPLOAD_FILES} files at once.")
+    if len(files) > 1:
+        try:
+            require_feature(user, "batch_upload", "Uploading several files at once")
+        except PlanLimitError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     safe_change_note = (change_note or "Uploaded from file").strip()[:500]
     if not can_access_group_with_key(db, user, group_id, _active_key(user)):
         raise HTTPException(status_code=403, detail="You (or this scoped API key) cannot upload prompts to this group.")
