@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
-  ExternalLink,
   Eye,
   EyeOff,
   Globe,
@@ -106,7 +105,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'claude',
     name: 'Claude',
     subtitle: 'Desktop & Web',
-    authBadge: '⚡ OAuth + 🔑 Key',
+    authBadge: '⚡ OAuth sign-in',
     Icon: ClaudeIcon,
     iconColor: 'text-amber-600 dark:text-amber-400',
     activeRing: 'border-amber-500 ring-2 ring-amber-500/20 dark:border-amber-400',
@@ -116,7 +115,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'chatgpt',
     name: 'ChatGPT',
     subtitle: 'Web, Mobile & Desktop',
-    authBadge: '⚡ OAuth + 🔑 Key',
+    authBadge: '⚡ OAuth sign-in',
     Icon: ChatGptIcon,
     iconColor: 'text-emerald-600 dark:text-emerald-400',
     activeRing: 'border-emerald-500 ring-2 ring-emerald-500/20 dark:border-emerald-400',
@@ -126,7 +125,7 @@ const PROVIDERS: ProviderTab[] = [
     id: 'gemini',
     name: 'Gemini',
     subtitle: 'Web, Mobile App & SDK',
-    authBadge: '🔑 Pre-auth URL',
+    authBadge: '⚡ OAuth sign-in',
     Icon: GeminiIcon,
     iconColor: 'text-indigo-600 dark:text-indigo-400',
     activeRing: 'border-indigo-500 ring-2 ring-indigo-500/20 dark:border-indigo-400',
@@ -170,12 +169,9 @@ export default function ConnectAiModal({
   // Sub-mode options for each provider
   const [claudeMode, setClaudeMode] = useState<'desktop' | 'web' | 'cli'>('desktop')
   const [claudeOs, setClaudeOs] = useState<'mac' | 'windows' | 'linux'>('mac')
-  const [chatgptMode, setChatgptMode] = useState<'web' | 'desktop'>('web')
   const [geminiMode, setGeminiMode] = useState<'app' | 'sdk'>('app')
   const [cursorMode, setCursorMode] = useState<'cursor' | 'vscode'>('cursor')
   const [apiMode, setApiMode] = useState<'curl' | 'python'>('curl')
-  const [claudeWebAuthType, setClaudeWebAuthType] = useState<'oauth' | 'direct'>('oauth')
-  const [chatgptAuthType, setChatgptAuthType] = useState<'oauth' | 'bearer'>('oauth')
 
   // Keys state
   const [keys, setKeys] = useState<ApiKeyItem[]>([])
@@ -205,9 +201,6 @@ export default function ConnectAiModal({
   const mcpUrl = getMcpUrl()
   const sseUrl = getSseUrl()
   const restUrl = `${baseBackend}/api`
-  const openApiUrl = `${baseBackend}/openapi.json`
-  const oauthAuthorizeUrl = `${baseBackend}/oauth/authorize`
-  const oauthTokenUrl = `${baseBackend}/oauth/token`
 
   const loadKeys = useCallback(async () => {
     setLoadingKeys(true)
@@ -362,7 +355,6 @@ export default function ConnectAiModal({
     2
   )
 
-  const displaySnippetKey = newKey && !isKeyCopied ? newKey.raw_key : (currentKey ? `${currentKey.key_prefix}••••••••••••••••••••••••••••••••` : 'pvh_••••••••••••••••••••••••••••••••')
   const copySnippetKey = activeRawKey
 
   const geminiPythonSnippet = `import requests
@@ -431,7 +423,7 @@ for p in prompts:
                 Step 1: Your Security Key
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Gives your assistants secure access to your prompts. If using <strong>1-Click OAuth</strong> (Claude.ai / ChatGPT), authorization is handled automatically on login.
+                Gives your assistants secure access to your prompts. Claude.ai, ChatGPT and Gemini connect with your PromptHold sign-in (OAuth), so they don't need an API key. Keys are only for desktop configs, IDEs and scripts.
               </p>
             </div>
 
@@ -909,53 +901,22 @@ for p in prompts:
               {/* Sub-Mode 2: Claude.ai Web */}
               {claudeMode === 'web' && (
                 <div className="space-y-3.5 pt-1">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Choose Sign-In Method:</span>
-                    <div role="tablist" aria-label="Claude web auth options" className="segmented w-full md:w-auto">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={claudeWebAuthType === 'oauth'}
-                        onClick={() => setClaudeWebAuthType('oauth')}
-                        className={`segmented-item flex-1 md:flex-none ${
-                          claudeWebAuthType === 'oauth' ? 'segmented-item-active-amber' : ''
-                        }`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeWebAuthType === 'oauth' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
-                        <span>⚡ 1-Click OAuth (Recommended)</span>
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={claudeWebAuthType === 'direct'}
-                        onClick={() => setClaudeWebAuthType('direct')}
-                        className={`segmented-item flex-1 md:flex-none ${
-                          claudeWebAuthType === 'direct' ? 'segmented-item-active-amber' : ''
-                        }`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${claudeWebAuthType === 'direct' ? 'bg-amber-500' : 'bg-transparent'}`} aria-hidden="true" />
-                        <span>🔗 Direct Key URL</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {claudeWebAuthType === 'oauth' ? (
-                    <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                  <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
                       <li className="flex gap-2.5">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">1</span>
-                        <span>In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.</span>
+                        <span>On <strong>claude.ai</strong>, open <strong>Customize</strong> → <strong>Connectors</strong> → <strong>Add</strong> → <strong>Add custom connector</strong>.</span>
                       </li>
                       <li className="flex gap-2.5">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">2</span>
                         <div className="min-w-0 flex-1 space-y-1">
-                          <span>Set Name to <code>PromptHold</code> and enter Connector URL:</span>
+                          <span>Name it <strong>PromptHold</strong> and paste the server URL:</span>
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
                             <code className="min-w-0 break-all font-mono text-[11px] text-amber-700 dark:text-amber-400">
                               {mcpUrl}
                             </code>
                             <button
                               type="button"
-                              onClick={() => void copy(mcpUrl, 'claude-oauth-url', 'Connector URL copied')}
+                              onClick={() => void copy(mcpUrl, 'claude-oauth-url', 'Server URL copied')}
                               className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                             >
                               {copiedId === 'claude-oauth-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -966,40 +927,9 @@ for p in prompts:
                       </li>
                       <li className="flex gap-2.5">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                        <span>Click <strong>Add</strong>. An authorization prompt appears — click <strong>Authorize Access</strong> to connect.</span>
+                        <span>Under <strong>Authentication</strong>, keep <strong>Sign in now</strong> and click <strong>Add</strong>. Then click <strong>Connect</strong> and sign in with your <strong>PromptHold</strong> email and password. No API key is needed.</span>
                       </li>
-                    </ol>
-                  ) : (
-                    <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
-                      <li className="flex gap-2.5">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">1</span>
-                        <span>In <strong>Claude.ai</strong>, open <strong>Settings ⚙️</strong> → <strong>Connectors</strong> → click <strong>Add Custom Connector</strong>.</span>
-                      </li>
-                      <li className="flex gap-2.5">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">2</span>
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <span>Set Name to <code>PromptHold</code> and enter your pre-authenticated URL:</span>
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
-                            <code className="min-w-0 break-all font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                              {displayAuthMcpUrl}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => void copy(copyAuthMcpUrl, 'claude-web-url', 'URL copied')}
-                              className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
-                            >
-                              {copiedId === 'claude-web-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                              <span>{copiedId === 'claude-web-url' ? 'Copied' : 'Copy URL'}</span>
-                            </button>
-                          </div>
-                        </div>
-                      </li>
-                      <li className="flex gap-2.5">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                        <span>Under <strong>Authentication</strong>, select <strong>"No sign-in"</strong>. Click <strong>Add</strong>.</span>
-                      </li>
-                    </ol>
-                  )}
+                  </ol>
                 </div>
               )}
 
@@ -1066,175 +996,40 @@ for p in prompts:
                   </div>
                 </div>
 
-                <div role="tablist" aria-label="ChatGPT setup options" className="segmented w-full md:w-auto">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={chatgptMode === 'web'}
-                    onClick={() => setChatgptMode('web')}
-                    className={`segmented-item flex-1 md:flex-none ${
-                      chatgptMode === 'web' ? 'segmented-item-active-emerald' : ''
-                    }`}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptMode === 'web' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
-                    <span>Web &amp; Mobile Tools</span>
-                    <span className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider ${
-                      chatgptMode === 'web'
-                        ? 'bg-emerald-200 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-200'
-                        : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400'
-                    }`}>
-                      Popular
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={chatgptMode === 'desktop'}
-                    onClick={() => setChatgptMode('desktop')}
-                    className={`segmented-item flex-1 md:flex-none ${
-                      chatgptMode === 'desktop' ? 'segmented-item-active-emerald' : ''
-                    }`}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptMode === 'desktop' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
-                    <span>Desktop App</span>
-                  </button>
-                </div>
               </div>
 
-              {chatgptMode === 'web' && (
-                <div className="space-y-3.5 pt-1">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Choose Sign-In Method:</span>
-                    <div role="tablist" aria-label="ChatGPT auth method" className="segmented w-full md:w-auto">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={chatgptAuthType === 'oauth'}
-                        onClick={() => setChatgptAuthType('oauth')}
-                        className={`segmented-item flex-1 md:flex-none ${
-                          chatgptAuthType === 'oauth' ? 'segmented-item-active-emerald' : ''
-                        }`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptAuthType === 'oauth' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
-                        <span>⚡ 1-Click OAuth</span>
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={chatgptAuthType === 'bearer'}
-                        onClick={() => setChatgptAuthType('bearer')}
-                        className={`segmented-item flex-1 md:flex-none ${
-                          chatgptAuthType === 'bearer' ? 'segmented-item-active-emerald' : ''
-                        }`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full transition-colors ${chatgptAuthType === 'bearer' ? 'bg-emerald-500' : 'bg-transparent'}`} aria-hidden="true" />
-                        <span>🔑 API Key (Bearer)</span>
-                      </button>
+              <div className="space-y-3.5 pt-1">
+                <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                  <li className="flex gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
+                    <span>On <strong>chatgpt.com</strong>, open <strong>Plugins</strong> → <strong>Add</strong> → <strong>Add custom MCP server</strong>.</span>
+                  </li>
+                  <li className="flex gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <span>Name it <strong>PromptHold</strong>, paste this server URL, and keep <strong>Authentication: OAuth</strong>:</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
+                        <code className="min-w-0 break-all font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
+                          {mcpUrl}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => void copy(mcpUrl, 'chatgpt-url', 'Server URL copied')}
+                          className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
+                        >
+                          {copiedId === 'chatgpt-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                          <span>{copiedId === 'chatgpt-url' ? 'Copied' : 'Copy URL'}</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-
-                  <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
-                      <span>On <strong>chatgpt.com</strong>, click <strong>Create plugin</strong> (or open <strong>Explore</strong> → <strong>Plugins</strong>).</span>
-                    </li>
-                    <li className="flex gap-2.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span>Under <strong>Action Schema</strong>, import the PromptHold OpenAPI schema:</span>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
-                          <code className="min-w-0 break-all font-mono text-[11px] text-slate-700 dark:text-zinc-300">
-                            {openApiUrl}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(openApiUrl, 'gpt-schema', 'OpenAPI URL copied')}
-                            className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
-                          >
-                            {copiedId === 'gpt-schema' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                            <span>{copiedId === 'gpt-schema' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                    <li className="flex gap-2.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
-                      {chatgptAuthType === 'oauth' ? (
-                        <div className="min-w-0 flex-1 space-y-1.5">
-                          <span>Under <strong>Authentication</strong>, choose <strong>OAuth</strong> and paste:</span>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase">
-                                <span>Auth URL</span>
-                                <button type="button" onClick={() => void copy(oauthAuthorizeUrl, 'gpt-auth-url', 'Auth URL copied')} className="btn-ghost btn-xs text-[10px]">
-                                  {copiedId === 'gpt-auth-url' ? 'Copied' : 'Copy'}
-                                </button>
-                              </div>
-                              <code className="block truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">{oauthAuthorizeUrl}</code>
-                            </div>
-                            <div className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase">
-                                <span>Token URL</span>
-                                <button type="button" onClick={() => void copy(oauthTokenUrl, 'gpt-tok-url', 'Token URL copied')} className="btn-ghost btn-xs text-[10px]">
-                                  {copiedId === 'gpt-tok-url' ? 'Copied' : 'Copy'}
-                                </button>
-                              </div>
-                              <code className="block truncate font-mono text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">{oauthTokenUrl}</code>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <span>Under <strong>Authentication</strong>, select <strong>API Key</strong> (Auth Type: <strong>Bearer</strong>):</span>
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
-                            <code className="min-w-0 break-all font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
-                              {displaySnippetKey}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => void copy(copySnippetKey, 'gpt-key', 'API key copied')}
-                              className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
-                            >
-                              {copiedId === 'gpt-key' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                              <span>{copiedId === 'gpt-key' ? 'Copied' : 'Copy Key'}</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  </ol>
-                </div>
-              )}
-
-              {chatgptMode === 'desktop' && (
-                <div className="space-y-3 pt-1">
-                  <ol className="space-y-2 text-xs text-slate-700 dark:text-zinc-300">
-                    <li className="flex gap-2.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">1</span>
-                      <span>In ChatGPT Desktop, open <strong>Settings</strong> → toggle <strong>Developer Mode</strong> ON.</span>
-                    </li>
-                    <li className="flex gap-2.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span>Click <strong>MCP Servers</strong> → <strong>Add Server</strong> with URL:</span>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
-                          <code className="min-w-0 break-all font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
-                            {displayAuthMcpUrl}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => void copy(copyAuthMcpUrl, 'chatgpt-desktop-url', 'Server URL copied')}
-                            className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
-                          >
-                            {copiedId === 'chatgpt-desktop-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                            <span>{copiedId === 'chatgpt-desktop-url' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  </ol>
-                </div>
-              )}
+                  </li>
+                  <li className="flex gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
+                    <span>Tick <strong>I understand and want to continue</strong>, click <strong>Create as a plugin</strong>, then sign in with your <strong>PromptHold</strong> email and password. No API key is needed.</span>
+                  </li>
+                </ol>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400">Once added, PromptHold is available in ChatGPT on web, desktop and mobile. Mention <code>@PromptHold</code> in a chat to use it.</p>
+              </div>
 
               {/* Sample Prompt */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs dark:border-emerald-900/40 dark:bg-emerald-950/30">
@@ -1307,25 +1102,19 @@ for p in prompts:
                   <ol className="space-y-2.5 text-xs text-slate-700 dark:text-zinc-300">
                     <li className="flex gap-2.5">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">1</span>
-                      <span>
-                        Open <strong><a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="underline font-semibold text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-0.5">gemini.google.com <ExternalLink size={10} /></a></strong> on computer or phone.
-                      </span>
+                      <span>On <strong>gemini.google.com</strong>, open <strong>More</strong> → <strong>Customize</strong> → <strong>Connectors</strong> → click <strong>+ Custom</strong>.</span>
                     </li>
                     <li className="flex gap-2.5">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">2</span>
-                      <span>Click <strong>Settings ⚙️</strong> → <strong>Connected Apps</strong> → <strong>Add Connected App</strong>.</span>
-                    </li>
-                    <li className="flex gap-2.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">3</span>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <span>Set Name to <strong>PromptHold</strong> and enter your Server URL:</span>
+                        <span>Paste the server URL and click <strong>Next</strong>:</span>
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
                           <code className="min-w-0 break-all font-mono text-[11px] text-indigo-700 dark:text-indigo-400">
-                            {displayAuthMcpUrl}
+                            {mcpUrl}
                           </code>
                           <button
                             type="button"
-                            onClick={() => void copy(copyAuthMcpUrl, 'gemini-url', 'Server URL copied')}
+                            onClick={() => void copy(mcpUrl, 'gemini-url', 'Server URL copied')}
                             className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                           >
                             {copiedId === 'gemini-url' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -1333,6 +1122,10 @@ for p in prompts:
                           </button>
                         </div>
                       </div>
+                    </li>
+                    <li className="flex gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">3</span>
+                      <span>Review the consent screen and click <strong>Connect</strong>, then sign in with your <strong>PromptHold</strong> email and password and click <strong>Authorize</strong>. No API key is needed.</span>
                     </li>
                   </ol>
                 </div>
