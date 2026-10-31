@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=========================================================="
-echo " Running PromptHold Automated Test & Verification Suite"
+echo " Running PromptFolders Automated Test & Verification Suite"
 echo "=========================================================="
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

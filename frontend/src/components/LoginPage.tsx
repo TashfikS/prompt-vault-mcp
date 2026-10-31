@@ -33,6 +33,8 @@ import { Logo, PromptText } from './ui/Brand'
 import RoleBadge from './ui/RoleBadge'
 import type { AccessKind } from './ui/RoleBadge'
 import { ThemeToggleButton } from '../theme'
+import PasswordStrengthMeter from './ui/PasswordStrengthMeter'
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_RULE_TEXT } from '../lib/passwordStrength'
 
 type Mode = 'login' | 'register' | 'forgot'
 
@@ -144,6 +146,10 @@ export default function LoginPage({
     event.preventDefault()
     setError('')
     setNotice('')
+    if (mode === 'register' && password.length < PASSWORD_MIN_LENGTH) {
+      setError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters long.`)
+      return
+    }
     if (mode === 'register' && password !== confirm) {
       setError('Passwords do not match.')
       return
@@ -309,7 +315,7 @@ export default function LoginPage({
             <Logo />
           </div>
           <div className="hidden lg:block text-xs font-medium text-slate-500 dark:text-zinc-400">
-            PromptHold Workspace Access
+            PromptFolders Workspace Access
           </div>
           <div className="flex items-center gap-2 ml-auto">
             {onOpenPricing && (
@@ -344,7 +350,7 @@ export default function LoginPage({
 
             <div className="flex items-center justify-between gap-2">
               <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-zinc-50">
-                {mode === 'login' ? 'Sign in to PromptHold' : mode === 'forgot' ? 'Reset your password' : 'Create your account'}
+                {mode === 'login' ? 'Sign in to PromptFolders' : mode === 'forgot' ? 'Reset your password' : 'Create your account'}
               </h1>
             </div>
             <p className="mt-1.5 text-sm leading-6 text-slate-500 dark:text-zinc-400">
@@ -430,24 +436,27 @@ export default function LoginPage({
                   id="auth-password"
                   required
                   type="password"
-                  minLength={mode === 'register' ? 8 : undefined}
+                  minLength={mode === 'register' ? PASSWORD_MIN_LENGTH : undefined}
+                  maxLength={mode === 'register' ? PASSWORD_MAX_LENGTH : undefined}
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'}
+                  placeholder={mode === 'register' ? `At least ${PASSWORD_MIN_LENGTH} characters` : '••••••••'}
+                  aria-describedby={mode === 'register' ? 'auth-password-rule auth-password-strength' : undefined}
                   className="field"
                 />
                 {mode === 'register' && (
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">
-                    Must be at least 8 characters with both letters and numbers.
-                  </p>
+                  <>
+                    <p id="auth-password-rule" className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">{PASSWORD_RULE_TEXT}</p>
+                    <PasswordStrengthMeter id="auth-password-strength" password={password} userInputs={[name, email, 'promptfolders', 'promptvault']} />
+                  </>
                 )}
               </div>
               )}
               {mode === 'register' && (
                 <div>
                   <label className="field-label" htmlFor="auth-confirm">Confirm password</label>
-                  <input id="auth-confirm" required type="password" minLength={8} autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat password" className="field" />
+                  <input id="auth-confirm" required type="password" minLength={PASSWORD_MIN_LENGTH} autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat password" className="field" />
                 </div>
               )}
 
@@ -499,7 +508,7 @@ export default function LoginPage({
             </form>
 
             <p className="mt-5 text-center text-sm text-slate-500 dark:text-zinc-400">
-              {mode === 'login' ? 'New to PromptHold? ' : mode === 'forgot' ? 'Remembered it? ' : 'Already have an account? '}
+              {mode === 'login' ? 'New to PromptFolders? ' : mode === 'forgot' ? 'Remembered it? ' : 'Already have an account? '}
               <button
                 type="button"
                 onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
@@ -512,7 +521,7 @@ export default function LoginPage({
 
           {/* Dedicated Plans & Pricing Section in Auth Panel */}
           <section
-            aria-label="PromptHold Plans & Pricing"
+            aria-label="PromptFolders Plans & Pricing"
             className="mt-5 rounded-2xl border border-slate-200/90 bg-white p-4.5 shadow-2xs dark:border-zinc-800 dark:bg-zinc-900/90"
           >
             <div className="flex items-center justify-between gap-2">
@@ -601,7 +610,7 @@ export default function LoginPage({
 
         {/* Footer */}
         <footer className="mx-auto w-full max-w-md pt-4 text-center text-[11px] text-slate-400 dark:text-zinc-500">
-          PromptHold &middot; Granular Prompt Version Control &amp; RBAC &middot; FastMCP
+          PromptFolders &middot; Granular Prompt Version Control &amp; RBAC &middot; FastMCP
         </footer>
       </main>
     </div>

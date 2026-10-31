@@ -1,6 +1,6 @@
 import { Fragment, useId } from 'react'
 
-/** PromptHold mark: a secure stronghold tile holding prompt version threads and an active revision node. */
+/** PromptFolders mark: a secure stronghold tile holding prompt version threads and an active revision node. */
 export function LogoMark({ size = 32, className = '' }: { size?: number; className?: string }) {
   // Unique per instance: a duplicate id inside a display:none subtree leaves the visible mark unpainted.
   const uid = useId().replace(/:/g, '')
@@ -34,7 +34,7 @@ export function Logo({ subtitle }: { subtitle?: string }) {
     <span className="flex items-center gap-2.5">
       <LogoMark />
       <span className="leading-tight">
-        <span className="block text-[15px] font-semibold tracking-tight text-slate-900 dark:text-zinc-100">PromptHold</span>
+        <span className="block text-[15px] font-semibold tracking-tight text-slate-900 dark:text-zinc-100">PromptFolders</span>
         {subtitle && <span className="block text-xs text-slate-500 dark:text-zinc-400">{subtitle}</span>}
       </span>
     </span>

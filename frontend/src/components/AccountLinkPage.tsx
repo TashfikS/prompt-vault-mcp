@@ -4,6 +4,8 @@ import { CheckCircle2, KeyRound, Loader2, MailCheck, XCircle } from 'lucide-reac
 import { resetPassword, verifyEmail } from '../api'
 import { Logo } from './ui/Brand'
 import { ThemeToggleButton } from '../theme'
+import PasswordStrengthMeter from './ui/PasswordStrengthMeter'
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_RULE_TEXT } from '../lib/passwordStrength'
 
 /** Landing screen for the links in account emails: ?verify_token=… and ?reset_token=… */
 export default function AccountLinkPage({ kind, token, onDone }: { kind: 'verify' | 'reset'; token: string; onDone: () => void }) {
@@ -52,7 +54,7 @@ function VerifyEmail({ token, onDone }: { token: string; onDone: () => void }) {
       {message && <p className="mt-1.5 text-sm text-slate-600 dark:text-zinc-400">{message}</p>}
       {state !== 'working' && (
         <button type="button" onClick={onDone} className="btn-primary mt-5 h-10 w-full cursor-pointer">
-          Continue to PromptHold
+          Continue to PromptFolders
         </button>
       )}
     </div>
@@ -69,6 +71,10 @@ function ResetPassword({ token, onDone }: { token: string; onDone: () => void })
   async function submit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters long.`)
+      return
+    }
     if (password !== confirm) {
       setError('Passwords do not match.')
       return
@@ -105,15 +111,16 @@ function ResetPassword({ token, onDone }: { token: string; onDone: () => void })
         <h1 className="flex items-center gap-2 text-lg font-semibold">
           <KeyRound size={18} className="text-brand-600" /> Choose a new password
         </h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">At least 8 characters, with both letters and numbers.</p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">{PASSWORD_RULE_TEXT}</p>
       </div>
       <div>
         <label className="field-label" htmlFor="reset-password">New password</label>
-        <input id="reset-password" required type="password" minLength={8} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} className="field" />
+        <input id="reset-password" required type="password" minLength={PASSWORD_MIN_LENGTH} maxLength={PASSWORD_MAX_LENGTH} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} aria-describedby="reset-password-strength" className="field" />
+        <PasswordStrengthMeter id="reset-password-strength" password={password} userInputs={['promptfolders', 'promptvault']} />
       </div>
       <div>
         <label className="field-label" htmlFor="reset-confirm">Confirm new password</label>
-        <input id="reset-confirm" required type="password" minLength={8} autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} className="field" />
+        <input id="reset-confirm" required type="password" minLength={PASSWORD_MIN_LENGTH} autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} className="field" />
       </div>
       {error && (
         <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/60 dark:text-rose-300">

@@ -1,6 +1,6 @@
 """Transactional email (verification and password reset) via the Resend HTTP API.
 
-Configure ``RESEND_API_KEY`` and ``EMAIL_FROM`` (e.g. ``PromptHold <no-reply@prompthold.com>``).
+Configure ``RESEND_API_KEY`` and ``EMAIL_FROM`` (e.g. ``PromptFolders <no-reply@promptfolders.com>``).
 Without a key, development logs the message instead of sending it; production
 logs an error so a missing key is noticed rather than silently dropping mail.
 """
@@ -42,7 +42,7 @@ def link_base_url(fallback: str) -> str:
 def send_email(to: str, subject: str, text: str, html_body: str) -> bool:
     """Send one email. Returns True when handed to the provider; never raises."""
     api_key = os.getenv("RESEND_API_KEY", "").strip()
-    sender = os.getenv("EMAIL_FROM", "").strip() or "PromptHold <onboarding@resend.dev>"
+    sender = os.getenv("EMAIL_FROM", "").strip() or "PromptFolders <onboarding@resend.dev>"
     if not api_key:
         from security import IS_PRODUCTION
 
@@ -84,20 +84,20 @@ def _render(heading: str, intro: str, button: str, url: str, footer: str) -> tup
 def send_verification_email(to: str, name: str, url: str) -> bool:
     text, body = _render(
         "Confirm your email",
-        f"Hi {name}, confirm this address to finish setting up your PromptHold account.",
+        f"Hi {name}, confirm this address to finish setting up your PromptFolders account.",
         "Confirm email",
         url,
         "This link expires in 48 hours. If you didn't sign up, ignore this email.",
     )
-    return send_email(to, "Confirm your PromptHold email", text, body)
+    return send_email(to, "Confirm your PromptFolders email", text, body)
 
 
 def send_password_reset_email(to: str, name: str, url: str) -> bool:
     text, body = _render(
         "Reset your password",
-        f"Hi {name}, someone asked to reset the password for your PromptHold account.",
+        f"Hi {name}, someone asked to reset the password for your PromptFolders account.",
         "Choose a new password",
         url,
         "This link expires in 1 hour and works once. If you didn't ask for this, ignore this email.",
     )
-    return send_email(to, "Reset your PromptHold password", text, body)
+    return send_email(to, "Reset your PromptFolders password", text, body)

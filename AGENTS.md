@@ -1,12 +1,12 @@
-# AGENTS.md — PromptHold Architecture & Engineering Guide
+# AGENTS.md — PromptFolders Architecture & Engineering Guide
 
-This document defines the system architecture, access control model, API contracts, and implementation rules for **PromptHold RBAC & Version Control**. Any AI coding assistant or human engineer working on this codebase should use this document as the authoritative specification.
+This document defines the system architecture, access control model, API contracts, and implementation rules for **PromptFolders RBAC & Version Control**. Any AI coding assistant or human engineer working on this codebase should use this document as the authoritative specification.
 
 ---
 
 ## 1. System Vision & Core Capabilities
 
-**PromptHold** is a full-stack AI prompt management platform combining **granular version control** with **Role-Based Access Control (RBAC)**, designed for non-technical users as well as automated AI agents. It features live **Model Context Protocol (MCP)** server connectivity and interactive in-chat MCP Apps for AI chat clients and autonomous agents.
+**PromptFolders** is a full-stack AI prompt management platform combining **granular version control** with **Role-Based Access Control (RBAC)**, designed for non-technical users as well as automated AI agents. It features live **Model Context Protocol (MCP)** server connectivity and interactive in-chat MCP Apps for AI chat clients and autonomous agents.
 
 ### Key Capabilities
 1. **Dual-Mode Frontend (React):** A single codebase that functions both as a full standalone web workspace and as an embedded in-chat MCP App drawer (`@modelcontextprotocol/ext-apps`).

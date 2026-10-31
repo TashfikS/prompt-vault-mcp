@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from models import AuditLog
 
-ENV = (os.getenv("PROMPT_HOLD_ENV") or os.getenv("PROMPT_VAULT_ENV", "development")).strip().lower()
+ENV = (os.getenv("PROMPT_FOLDERS_ENV") or os.getenv("PROMPT_HOLD_ENV") or os.getenv("PROMPT_VAULT_ENV", "development")).strip().lower()
 IS_PRODUCTION = ENV == "production"
 TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").strip().lower() in {"1", "true", "yes"}
 

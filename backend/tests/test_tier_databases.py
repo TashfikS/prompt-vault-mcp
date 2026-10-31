@@ -1,4 +1,4 @@
-"""Unit and integration tests for PromptHold multi-tier database routing (Supabase for Free tier, Neon for Paid tiers)."""
+"""Unit and integration tests for PromptFolders multi-tier database routing (Supabase for Free tier, Neon for Paid tiers)."""
 
 import os
 from unittest.mock import patch

@@ -1,4 +1,4 @@
-# PromptHold: How to Make Changes Live (Release & Update Guide)
+# PromptFolders: How to Make Changes Live (Release & Update Guide)
 
 This guide explains how to make code changes, test them, and deploy them live to production across the **Frontend**, **Cloudflare Worker**, **Render Backend**, and **Neon Database**.
 
@@ -78,7 +78,7 @@ cd frontend
 npm run build
 
 # 2. Deploy directly to Cloudflare Pages CDN
-npx wrangler pages deploy dist --project-name prompthold --branch main
+npx wrangler pages deploy dist --project-name promptfolders --branch main
 ```
 *Your changes will be live worldwide across Cloudflare's edge in approximately **15 seconds**.*
 
@@ -168,7 +168,7 @@ curl -s https://prompthold-backend.onrender.com/api/health | jq .
 
 If a bad change reaches production:
 
-* **Cloudflare Pages:** Go to Cloudflare Dashboard $\rightarrow$ **Workers & Pages** $\rightarrow$ **prompthold** $\rightarrow$ **Deployments**. Click the three dots next to any previous deployment and select **Rollback to this deployment** (instant, 0 downtime).
+* **Cloudflare Pages:** Go to Cloudflare Dashboard $\rightarrow$ **Workers & Pages** $\rightarrow$ **promptfolders** $\rightarrow$ **Deployments**. Click the three dots next to any previous deployment and select **Rollback to this deployment** (instant, 0 downtime).
 * **Cloudflare Worker:** Run `cd cloudflare-worker && npx wrangler rollback` to revert to the previous version instantly.
 * **Render:** Go to Render Dashboard $\rightarrow$ **prompthold-backend** $\rightarrow$ **Events** $\rightarrow$ Click **Rollback** on the last known good deploy.
 * **Neon Database:** Go to Neon Console $\rightarrow$ **Branches** $\rightarrow$ Create a branch from a point-in-time timestamp before the error occurred.

@@ -1,4 +1,4 @@
-"""Pytest configuration and test fixtures for PromptHold backend."""
+"""Pytest configuration and test fixtures for PromptFolders backend."""
 
 from datetime import datetime
 
@@ -22,6 +22,10 @@ if str(backend_dir) not in sys.path:
 # Pin the environment before backend modules load .env (load_dotenv does not override existing vars),
 # so a local production .env cannot change test behavior.
 os.environ["PROMPT_HOLD_ENV"] = "development"
+# Tests register @example.com users and must never call the Have I Been Pwned API;
+# test_credential_policy.py covers both checks explicitly.
+os.environ["ALLOWED_TEST_EMAIL_DOMAINS"] = "example.com"
+os.environ["PWNED_PASSWORD_CHECK"] = "0"
 
 from auth import create_session, hash_password, upgrade_schema
 from database import Base, get_db
@@ -87,7 +91,7 @@ def db() -> Generator[Session, None, None]:
 @pytest.fixture
 def test_users_and_groups(db: Session):
     """Create test users and groups for RBAC permissions testing."""
-    pw_hash = hash_password("Password123")
+    pw_hash = hash_password("Password1234")
 
     admin = User(name="Admin User", email="admin@test.com", password_hash=pw_hash, is_workspace_admin=True)
     owner = User(name="Group Owner", email="owner@test.com", password_hash=pw_hash, is_workspace_admin=False)

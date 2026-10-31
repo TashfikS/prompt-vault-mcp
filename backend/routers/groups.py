@@ -100,7 +100,7 @@ def add_member(group_id: str, payload: AssignMemberRequest, request: Request, db
     else:
         target = db.query(User).filter(User.email == (payload.email or "").strip().lower()).first()
     if not target:
-        raise HTTPException(status_code=404, detail="No PromptHold account uses that email yet. Ask them to sign up first, then add them.")
+        raise HTTPException(status_code=404, detail="No PromptFolders account uses that email yet. Ask them to sign up first, then add them.")
     try:
         check_member_seat(db, user, group, target, payload.role)
     except PlanLimitError as exc:

@@ -90,7 +90,7 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(
-    title="PromptHold RBAC & Version Control",
+    title="PromptFolders RBAC & Version Control",
     version="2.0.0",
     lifespan=lifespan,
     docs_url=None if IS_PRODUCTION else "/docs",
@@ -101,10 +101,10 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
-    # Exact project hosts only (incl. Pages branch previews like dev.prompthold.pages.dev); never "prompthold-*",
+    # Exact project hosts only (incl. Pages branch previews like dev.prompthold.pages.dev); never "promptfolders-*",
     # since anyone can register such a Pages/Workers project name.
     allow_origin_regex=os.getenv("ALLOWED_ORIGIN_REGEX")
-    or r"https://(([a-z0-9-]+\.)?prompthold\.pages\.dev|prompt-vault-gateway\.tashfiks\.workers\.dev)",
+    or r"https://(([a-z0-9-]+\.)?prompthold\.pages\.dev|([a-z0-9-]+\.)?promptfolders\.(pages\.dev|com)|prompt-vault-gateway\.tashfiks\.workers\.dev)",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "If-None-Match"],
@@ -133,7 +133,7 @@ async def mcp_session_key_capture_middleware(request: Request, call_next):
     if is_mcp_path and request.method == "POST" and not api_key and not has_session_key(session_id):
         metadata_url = f"{_get_public_base_url(request)}/.well-known/oauth-protected-resource"
         return JSONResponse(
-            {"error": "invalid_token", "error_description": "Sign in to PromptHold to use this connector."},
+            {"error": "invalid_token", "error_description": "Sign in to PromptFolders to use this connector."},
             status_code=401,
             headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata_url}"'},
         )
@@ -171,7 +171,7 @@ def health_check(deep: bool = False) -> dict:
                 s.execute(text("SELECT 1"))
             return "connected"
         except Exception as exc:
-            logging.getLogger("prompthold.health").warning("Health ping failed: %s", exc)
+            logging.getLogger("promptfolders.health").warning("Health ping failed: %s", exc)
             return "unreachable"
 
     supa_status = _ping(SessionSupabase)

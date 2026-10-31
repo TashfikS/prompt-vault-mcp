@@ -80,7 +80,7 @@ def current_user(
     if not bearer and cookie_token and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         xrw = request.headers.get("x-requested-with", "")
         origin = request.headers.get("origin", "").rstrip("/")
-        if xrw not in {"PromptHold", "PromptVault"} and origin not in set(get_allowed_origins()):
+        if xrw not in {"PromptFolders", "PromptVault"} and origin not in set(get_allowed_origins()):
             raise HTTPException(status_code=403, detail="CSRF verification failed: missing X-Requested-With header or untrusted Origin.")
 
     session_user = user_for_session_token(db, token)

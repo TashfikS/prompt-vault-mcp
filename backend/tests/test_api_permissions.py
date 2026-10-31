@@ -1,4 +1,4 @@
-"""Integration tests for PromptHold REST API and RBAC permissions matrix."""
+"""Integration tests for PromptFolders REST API and RBAC permissions matrix."""
 
 import pytest
 from httpx import AsyncClient
@@ -402,7 +402,7 @@ async def test_profile_update_and_change_password(client: AsyncClient, test_user
     same_res = await client.post(
         "/api/me/change-password",
         headers=member_headers,
-        json={"current_password": "Password123", "new_password": "Password123"},
+        json={"current_password": "Password1234", "new_password": "Password1234"},
     )
     assert same_res.status_code == 400
     assert "must be different" in same_res.json()["detail"]
@@ -411,7 +411,7 @@ async def test_profile_update_and_change_password(client: AsyncClient, test_user
     success_res = await client.post(
         "/api/me/change-password",
         headers=member_headers,
-        json={"current_password": "Password123", "new_password": "NewSecretPassword99!"},
+        json={"current_password": "Password1234", "new_password": "NewSecretPassword99!"},
     )
     assert success_res.status_code == 200
     assert "Password changed successfully" in success_res.json()["message"]
@@ -464,7 +464,7 @@ async def test_register_cannot_self_assign_paid_plan(client: AsyncClient, test_u
     """Paid plans come only from verified billing webhooks, never from the sign-up payload."""
     reg = await client.post(
         "/api/auth/register",
-        json={"name": "Freeloader", "email": "freeloader@example.com", "password": "Password123", "plan": "enterprise", "accept_terms": True},
+        json={"name": "Freeloader", "email": "freeloader@example.com", "password": "Password1234", "plan": "enterprise", "accept_terms": True},
     )
     assert reg.status_code == 201
     assert db.query(User).filter_by(email="freeloader@example.com").one().plan == "community"

@@ -9,7 +9,7 @@ type Section = { heading: string; body: string[] }
 
 // DRAFT TEXT: have this reviewed by a lawyer before launch and fill in the bracketed details.
 const TERMS: Section[] = [
-  { heading: 'Who we are', body: ['PromptHold ("we", "us") is operated by [legal entity name, registered address]. Contact: [support email].'] },
+  { heading: 'Who we are', body: ['PromptFolders ("we", "us") is operated by [legal entity name, registered address]. Contact: [support email].'] },
   { heading: 'Your account', body: [
     'You must give accurate information and keep your password secure. You are responsible for activity under your account and API keys.',
     'You must be at least 16 years old, or the age of digital consent where you live.',
@@ -45,7 +45,7 @@ const PRIVACY: Section[] = [
     'To send product updates and tips only if you opted in (consent). You can withdraw consent any time from your profile.',
   ] },
   { heading: 'Who we share it with', body: [
-    'Service providers that host or run parts of PromptHold: [list, e.g. Supabase, Neon, Cloudflare, Google (Gemini embeddings, Firebase sign-in), Resend (email), Polar.sh (billing)].',
+    'Service providers that host or run parts of PromptFolders: [list, e.g. Supabase, Neon, Cloudflare, Google (Gemini embeddings, Firebase sign-in), Resend (email), Polar.sh (billing)].',
     'We do not sell personal data.',
   ] },
   { heading: 'Retention', body: ['We keep account data while your account is open and [period] after it closes, unless the law requires longer.'] },
@@ -60,7 +60,7 @@ export default function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
     <div className="min-h-screen bg-[#f6f7f9] px-4 py-8 text-slate-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="mx-auto max-w-2xl">
         <div className="flex items-center justify-between">
-          <a href="/" aria-label="PromptHold home"><Logo /></a>
+          <a href="/" aria-label="PromptFolders home"><Logo /></a>
           <ThemeToggleButton />
         </div>
         <article className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">
@@ -79,7 +79,7 @@ export default function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
           </p>
         </article>
         <a href="/" className="mt-6 inline-flex items-center gap-1.5 text-sm text-slate-600 hover:underline dark:text-zinc-400">
-          <ArrowLeft size={14} /> Back to PromptHold
+          <ArrowLeft size={14} /> Back to PromptFolders
         </a>
       </div>
     </div>

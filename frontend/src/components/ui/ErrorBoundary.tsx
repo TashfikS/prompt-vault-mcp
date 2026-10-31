@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Unhandled UI exception in PromptHold:', error, errorInfo)
+    console.error('Unhandled UI exception in PromptFolders:', error, errorInfo)
     this.setState({ errorInfo })
   }
 

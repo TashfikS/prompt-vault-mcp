@@ -35,7 +35,7 @@ async function run() {
     // 1. Initial Page Load
     await page.goto(`${BASE_URL}/?auth=login`, { waitUntil: 'networkidle2' });
     const title = await page.title();
-    record('Page Load', title.includes('PromptHold') ? 'PASS' : 'FAIL', `Loaded page with title: "${title}"`);
+    record('Page Load', title.includes('PromptFolders') ? 'PASS' : 'FAIL', `Loaded page with title: "${title}"`);
 
     // 2. Sign In with Demo Account
     await page.waitForSelector('input[type="email"]', { timeout: 10000 });

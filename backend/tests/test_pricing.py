@@ -1,4 +1,4 @@
-"""Integration tests for PromptHold pricing tiers and subscription plan updates."""
+"""Integration tests for PromptFolders pricing tiers and subscription plan updates."""
 
 import pytest
 from httpx import AsyncClient

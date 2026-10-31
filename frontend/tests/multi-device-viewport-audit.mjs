@@ -35,7 +35,7 @@ function record(device, component, checkName, passed, detail) {
 
 async function run() {
   console.log('================================================================');
-  console.log('   PROMPTHOLD MULTI-DEVICE & MULTI-VIEWPORT RESPONSIVE AUDIT   ');
+  console.log('   PROMPTFOLDERS MULTI-DEVICE & MULTI-VIEWPORT RESPONSIVE AUDIT   ');
   console.log('================================================================');
   console.log(`Target: ${BASE_URL}`);
   console.log(`Browser: ${CHROME_PATH}`);

@@ -329,7 +329,7 @@ jobs:
           cd frontend
           npm ci
           npm run build
-          npx wrangler pages deploy dist --project-name prompthold --branch dev
+          npx wrangler pages deploy dist --project-name promptfolders --branch dev
           echo "Successfully deployed to Dev Cloudflare Pages (*.pages.dev)!"
 
   # 2.4 Deploy Production to Cloudflare Pages & Gateway (Production Account - release branch)
@@ -369,7 +369,7 @@ jobs:
           cd frontend
           npm ci
           npm run build
-          npx wrangler pages deploy dist --project-name prompthold --branch release
+          npx wrangler pages deploy dist --project-name promptfolders --branch release
           echo "Successfully deployed frontend to Production Cloudflare Pages (release branch)!"
 
       - name: Deploy Gateway & Automated Cron Triggers to Cloudflare Worker

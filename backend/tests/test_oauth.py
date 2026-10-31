@@ -104,7 +104,7 @@ async def test_oauth_authorize_get_consent_screens(client: AsyncClient, test_use
     )
     assert resp_unauth.status_code == 200
     assert "text/html" in resp_unauth.headers["content-type"]
-    assert "Connect to PromptHold" in resp_unauth.text
+    assert "Connect to PromptFolders" in resp_unauth.text
     assert "Anthropic Claude" in resp_unauth.text
     assert "name=\"email\"" in resp_unauth.text
     assert "name=\"password\"" in resp_unauth.text
@@ -169,7 +169,7 @@ async def test_oauth_pkce_flow_and_token_exchange(client: AsyncClient, test_user
             "code_challenge_method": "S256",
             "scope": "prompts",
             "email": "owner@test.com",
-            "password": "Password123",
+            "password": "Password1234",
         },
     )
     assert resp_auth.status_code == 302
@@ -204,7 +204,7 @@ async def test_oauth_pkce_flow_and_token_exchange(client: AsyncClient, test_user
     issued_access_token = tokens["access_token"]
     assert issued_access_token.startswith("pv_live_") or issued_access_token.startswith("ph_")
 
-    # 3. Access authenticated PromptHold API using the OAuth Bearer token
+    # 3. Access authenticated PromptFolders API using the OAuth Bearer token
     me_resp = await client.get(
         "/api/me",
         headers={"Authorization": f"Bearer {issued_access_token}"},

@@ -1,5 +1,5 @@
 # Frontend Evaluation & Implementation Fix Plan
-**Target Application:** PromptHold (`https://dev.prompthold.pages.dev/`)  
+**Target Application:** PromptFolders (`https://dev.prompthold.pages.dev/`)  
 **Audience:** Both non-technical users and technical developers/agents  
 **Lead Evaluator:** Senior Frontend & UX Engineer  
 **Status:** In Progress — Step-by-Step Execution

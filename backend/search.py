@@ -1,4 +1,4 @@
-"""Hybrid Search engine for PromptHold combining lexical/fuzzy matching with Google Gemini semantic vector embeddings.
+"""Hybrid Search engine for PromptFolders combining lexical/fuzzy matching with Google Gemini semantic vector embeddings.
 
 Features:
 - Active-Version-Only indexing (deletes old revision vectors on publish to preserve storage).
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from models import Group, Prompt, PromptChunk, PromptVersion
 
-logger = logging.getLogger("prompthold.search")
+logger = logging.getLogger("promptfolders.search")
 
 # In-memory query embedding cache to save API quota and provide 0ms latency for repeated queries
 _QUERY_EMBEDDING_CACHE: dict[str, list[float]] = {}
@@ -422,7 +422,7 @@ def hybrid_search_prompts(
 
     fused_scores.sort(key=lambda x: x[1], reverse=True)
 
-    # 5. Build results preserving PromptHold schema contract
+    # 5. Build results preserving PromptFolders schema contract
     from permissions import group_display_name
 
     results: list[dict[str, Any]] = []

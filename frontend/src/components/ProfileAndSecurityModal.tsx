@@ -5,6 +5,8 @@ import RoleBadge from './ui/RoleBadge'
 import { Avatar } from './ui/Brand'
 import { changePassword, logoutAllSessions, updateMarketingPreference, updateProfile } from '../api'
 import type { User } from '../types'
+import PasswordStrengthMeter from './ui/PasswordStrengthMeter'
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_RULE_TEXT } from '../lib/passwordStrength'
 
 type Props = {
   activeUser: User | null
@@ -49,11 +51,8 @@ export default function ProfileAndSecurityModal({ activeUser, onClose, onUserUpd
   const [revokingSessions, setRevokingSessions] = useState(false)
   const [revokedMessage, setRevokedMessage] = useState('')
 
-  // Password Complexity Validation
-  const hasMinLength = newPassword.length >= 8
-  const hasLetters = /[A-Za-z]/.test(newPassword)
-  const hasDigits = /\d/.test(newPassword)
-  const isComplex = hasMinLength && hasLetters && hasDigits
+  // Length is the only hard rule; the server also rejects passwords found in data breaches.
+  const hasMinLength = newPassword.length >= PASSWORD_MIN_LENGTH
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault()
@@ -82,8 +81,8 @@ export default function ProfileAndSecurityModal({ activeUser, onClose, onUserUpd
     setPasswordError('')
     setPasswordSuccess('')
 
-    if (!isComplex) {
-      setPasswordError('New password must be at least 8 characters and include both letters and numbers.')
+    if (!hasMinLength) {
+      setPasswordError(`New password must be at least ${PASSWORD_MIN_LENGTH} characters long.`)
       return
     }
     if (newPassword !== confirmPassword) {
@@ -312,41 +311,22 @@ export default function ProfileAndSecurityModal({ activeUser, onClose, onUserUpd
                 id="new-pw"
                 required
                 type="password"
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
                 autoComplete="new-password"
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
-                placeholder="At least 8 characters with letters & numbers"
+                placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
+                aria-describedby="new-pw-strength"
                 className="field"
               />
 
-              {/* Live Password Rules Indicator */}
-              <div className="mt-2 space-y-1 rounded-lg bg-slate-50 p-2 text-[11px] dark:bg-zinc-900/60">
-                <div className="flex items-center gap-1.5">
-                  <span className={`grid h-3.5 w-3.5 place-items-center rounded-full text-[9px] ${hasMinLength ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-700 dark:bg-zinc-700 dark:text-zinc-300'}`}>
-                    {hasMinLength ? '✓' : '•'}
-                  </span>
-                  <span className={hasMinLength ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-slate-500 dark:text-zinc-400'}>
-                    At least 8 characters
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`grid h-3.5 w-3.5 place-items-center rounded-full text-[9px] ${hasLetters ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-700 dark:bg-zinc-700 dark:text-zinc-300'}`}>
-                    {hasLetters ? '✓' : '•'}
-                  </span>
-                  <span className={hasLetters ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-slate-500 dark:text-zinc-400'}>
-                    Contains letters (A-Z, a-z)
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`grid h-3.5 w-3.5 place-items-center rounded-full text-[9px] ${hasDigits ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-700 dark:bg-zinc-700 dark:text-zinc-300'}`}>
-                    {hasDigits ? '✓' : '•'}
-                  </span>
-                  <span className={hasDigits ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-slate-500 dark:text-zinc-400'}>
-                    Contains numbers (0-9)
-                  </span>
-                </div>
-              </div>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">{PASSWORD_RULE_TEXT}</p>
+              <PasswordStrengthMeter
+                id="new-pw-strength"
+                password={newPassword}
+                userInputs={[activeUser?.name ?? '', activeUser?.email ?? '', currentPassword, 'promptfolders', 'promptvault']}
+              />
             </div>
 
             <div>
@@ -357,7 +337,7 @@ export default function ProfileAndSecurityModal({ activeUser, onClose, onUserUpd
                 id="confirm-pw"
                 required
                 type="password"
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 autoComplete="new-password"
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
@@ -381,7 +361,7 @@ export default function ProfileAndSecurityModal({ activeUser, onClose, onUserUpd
             <div className="flex justify-end pt-1">
               <button
                 type="submit"
-                disabled={passwordSaving || !isComplex || !currentPassword}
+                disabled={passwordSaving || !hasMinLength || !currentPassword}
                 className="btn-primary"
               >
                 <KeyRound size={14} />

@@ -1,4 +1,4 @@
-"""Polar.sh Merchant of Record billing integration for PromptHold.
+"""Polar.sh Merchant of Record billing integration for PromptFolders.
 
 Provides checkout session generation, customer portal links, webhook signature
 verification, and automatic plan provisioning/tier migration.
@@ -115,7 +115,7 @@ def create_checkout_session(
                     "user_id": user.id,
                     "plan": plan,
                     "interval": interval,
-                    "platform": "prompthold",
+                    "platform": "promptfolders",
                 },
             )
             return {

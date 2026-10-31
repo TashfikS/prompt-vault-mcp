@@ -1,6 +1,6 @@
-# PromptHold Full-Stack Cloud Deployment Guide
+# PromptFolders Full-Stack Cloud Deployment Guide
 
-This guide provides end-to-end instructions for deploying the **PromptHold RBAC & Version Control** platform using a **100% Free / Zero-Dollar Tier ($0/month)** across:
+This guide provides end-to-end instructions for deploying the **PromptFolders RBAC & Version Control** platform using a **100% Free / Zero-Dollar Tier ($0/month)** across:
 
 * **Supabase** (PostgreSQL for free/community-plan users)
 * **Neon Database** (Serverless PostgreSQL for paid-plan users, scales to zero)
@@ -43,7 +43,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for routing and tier-migration details.
 Neon provides a serverless PostgreSQL database with branching and connection pooling.
 
 1. Sign up at [neon.tech](https://neon.tech).
-2. Create a new project (e.g. `prompthold`).
+2. Create a new project (e.g. `promptfolders`).
 3. Under **Dashboard** $\rightarrow$ **Connection Details**, ensure **Pooled connection** is checked.
 4. Copy the connection string. It looks like:
    ```text
@@ -69,7 +69,7 @@ Upstash provides free serverless Redis with both standard TCP and HTTP REST acce
 
 1. Sign up at [upstash.com](https://upstash.com).
 2. Click **Create Database**:
-   * Name: `prompthold-redis`
+   * Name: `promptfolders-redis`
    * Region: Choose the region closest to your Neon database (e.g., US-East / Ohio / Virginia).
    * Eviction: Enabled (volatile-lru or allkeys-lru).
 3. Under **Connect to your database**, copy the **Redis URL**:
@@ -165,7 +165,7 @@ Cloudflare Pages delivers the React SPA globally across Cloudflare's CDN.
    ```
 3. Deploy to Cloudflare Pages:
    ```bash
-   npx wrangler pages deploy dist --project-name prompthold --branch main
+   npx wrangler pages deploy dist --project-name promptfolders --branch main
    ```
 4. Verify the deployment:
    * Open `https://prompthold.pages.dev` in your browser.

@@ -1,4 +1,4 @@
-"""Multi-Tier SQLAlchemy database routing for PromptHold.
+"""Multi-Tier SQLAlchemy database routing for PromptFolders.
 
 Architecture:
 - Free / Community Tier: Stored in Supabase PostgreSQL (or local SQLite fallback when credentials pending).
@@ -21,7 +21,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-logger = logging.getLogger("prompthold.database")
+logger = logging.getLogger("promptfolders.database")
 
 # Ensure .env from root directory is loaded
 root_env = Path(__file__).resolve().parent.parent / ".env"
@@ -60,7 +60,15 @@ def is_supabase_configured() -> bool:
 # 1. Database URLs & Engines Setup
 # -----------------------------------------------------------------------------
 
-_default_sqlite = "sqlite:///./prompt_vault.db" if os.path.exists("./prompt_vault.db") else "sqlite:///./prompthold.db"
+def _legacy_sqlite(current: str, *legacy: str) -> str:
+    """Keep using an existing local DB file from before a rename."""
+    for name in legacy:
+        if os.path.exists(f"./{name}"):
+            return f"sqlite:///./{name}"
+    return f"sqlite:///./{current}"
+
+
+_default_sqlite = _legacy_sqlite("promptfolders.db", "prompthold.db", "prompt_vault.db")
 
 # Neon Database URL (Paid tiers: Pro, Team, Enterprise)
 _raw_neon_url = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL") or _default_sqlite
@@ -78,13 +86,13 @@ elif NEON_DATABASE_URL and not NEON_DATABASE_URL.startswith("sqlite"):
     # so data is never lost on ephemeral container restarts (e.g. Render / Hugging Face free tiers).
     SUPABASE_DATABASE_URL = NEON_DATABASE_URL
     logger.info(
-        "[PromptHold DB Router] SUPABASE_DATABASE_URL not set; using persistent PostgreSQL database for Community tier."
+        "[PromptFolders DB Router] SUPABASE_DATABASE_URL not set; using persistent PostgreSQL database for Community tier."
     )
 else:
     # Safe local fallback until user inputs Supabase credentials in .env
-    SUPABASE_DATABASE_URL = "sqlite:///./prompthold_community.db"
+    SUPABASE_DATABASE_URL = _legacy_sqlite("promptfolders_community.db", "prompthold_community.db")
     logger.warning(
-        "[PromptHold DB Router] SUPABASE_DATABASE_URL is not set yet in .env. "
+        "[PromptFolders DB Router] SUPABASE_DATABASE_URL is not set yet in .env. "
         "Free/Community tier data will use local SQLite (prompthold_community.db) until Supabase credentials are provided."
     )
 
@@ -129,7 +137,7 @@ def _warn_if_unpooled(label: str, url: str) -> None:
     Supabase "pooler.supabase.com" on 6543) are free and survive cold starts better."""
     if url.startswith("sqlite") or "pooler" in url:
         return
-    logger.warning("[PromptHold DB Router] %s URL is not a pooled endpoint; use the provider's pooled connection string.", label)
+    logger.warning("[PromptFolders DB Router] %s URL is not a pooled endpoint; use the provider's pooled connection string.", label)
 
 
 _warn_if_unpooled("Neon", NEON_DATABASE_URL)
@@ -335,7 +343,7 @@ def resolve_token_plan(token: str) -> str:
         try:
             found = _lookup_plan_in(factory, clean_token, default_plan)
         except Exception as exc:
-            logger.warning("[PromptHold DB Router] %s database lookup failed: %s", label, exc)
+            logger.warning("[PromptFolders DB Router] %s database lookup failed: %s", label, exc)
             continue
         if found is not None:
             plan, user_id = found

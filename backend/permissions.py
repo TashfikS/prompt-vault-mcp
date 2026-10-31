@@ -1,4 +1,4 @@
-"""Explicit helpers for PromptHold's Role-Based Access Control (RBAC) and group permissions."""
+"""Explicit helpers for PromptFolders's Role-Based Access Control (RBAC) and group permissions."""
 
 import re
 

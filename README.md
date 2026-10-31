@@ -1,5 +1,5 @@
 ---
-title: PromptHold MCP
+title: PromptFolders MCP
 emoji: 🔐
 colorFrom: indigo
 colorTo: blue
@@ -8,9 +8,9 @@ app_port: 7860
 pinned: false
 ---
 
-# PromptHold
+# PromptFolders
 
-PromptHold is a team prompt workspace and version control system built with FastAPI, SQLAlchemy, React, and FastMCP. It provides Role-Based Access Control (RBAC), immutable sequential prompt versions, drag-and-drop uploads, instant rollback, granular word and sentence comparisons, shareable comparison links, and an in-chat MCP drawer for connected AI assistants and agents.
+PromptFolders is a team prompt workspace and version control system built with FastAPI, SQLAlchemy, React, and FastMCP. It provides Role-Based Access Control (RBAC), immutable sequential prompt versions, drag-and-drop uploads, instant rollback, granular word and sentence comparisons, shareable comparison links, and an in-chat MCP drawer for connected AI assistants and agents.
 
 ## Documentation
 

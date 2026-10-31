@@ -13,7 +13,7 @@ export default function McpInChatDrawer() {
   const [editedContent, setEditedContent] = useState('')
   const [note, setNote] = useState('')
   const { app, isConnected, error } = useApp({
-    appInfo: { name: 'PromptHold', version: '2.0.0' },
+    appInfo: { name: 'PromptFolders', version: '2.0.0' },
     capabilities: {},
     onAppCreated: created => {
       created.ontoolresult = result => {
@@ -63,7 +63,7 @@ export default function McpInChatDrawer() {
         <header className="mb-5 flex items-center gap-3">
           <LogoMark size={36} />
           <div>
-            <h1 className="text-base font-semibold text-slate-900 dark:text-zinc-100">PromptHold</h1>
+            <h1 className="text-base font-semibold text-slate-900 dark:text-zinc-100">PromptFolders</h1>
             <p className="text-xs text-slate-500 dark:text-zinc-400">Your team prompts, ready for chat</p>
           </div>
           <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -79,7 +79,7 @@ export default function McpInChatDrawer() {
 
         {!selected ? (
           <>
-            <p className="mb-3 text-sm text-slate-500 dark:text-zinc-400">Enter your PromptHold API key to load only the prompts assigned to your spaces.</p>
+            <p className="mb-3 text-sm text-slate-500 dark:text-zinc-400">Enter your PromptFolders API key to load only the prompts assigned to your spaces.</p>
             <div className="mb-4 flex gap-2">
               <input value={apiKey} onChange={e => setApiKey(e.target.value)} type="password" placeholder="Personal API key" className="field flex-1" />
               <button onClick={() => void loadPrompts()} disabled={!app || !isConnected || !apiKey.trim()} className="btn-primary">

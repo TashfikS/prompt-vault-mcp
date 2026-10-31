@@ -121,7 +121,7 @@ export default function PricingPage({
             <button
               type="button"
               onClick={handleGoHome}
-              aria-label="PromptHold home"
+              aria-label="PromptFolders home"
               className="group -m-1 rounded-lg p-1 text-left transition hover:opacity-80 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
             >
               <Logo />
@@ -404,7 +404,7 @@ export default function PricingPage({
               <span>The "Only Editors Pay" Architecture</span>
             </div>
             <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-              Many tools charge for every team member, even people who only read prompts. With PromptHold Team you pay only for editors ($10/mo billed annually, or $12 month to month), and every paid editor includes <strong>2 free read-only guests</strong> who can view, test, and inspect diffs.
+              Many tools charge for every team member, even people who only read prompts. With PromptFolders Team you pay only for editors ($10/mo billed annually, or $12 month to month), and every paid editor includes <strong>2 free read-only guests</strong> who can view, test, and inspect diffs.
             </p>
           </div>
         </div>
@@ -431,7 +431,7 @@ export default function PricingPage({
                 <span>What happens when I reach my prompt quota?</span>
               </h3>
               <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-                When you hit a limit, PromptHold stops new prompts, versions, or API keys and tells you which limit you reached. Existing prompts and versions stay available. MCP calls are counted per calendar month (UTC); if you use them all, MCP tools pause until the 1st or until you upgrade.
+                When you hit a limit, PromptFolders stops new prompts, versions, or API keys and tells you which limit you reached. Existing prompts and versions stay available. MCP calls are counted per calendar month (UTC); if you use them all, MCP tools pause until the 1st or until you upgrade.
               </p>
             </div>
 

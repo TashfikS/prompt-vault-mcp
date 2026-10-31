@@ -37,12 +37,12 @@ import services.prompts as prompt_service
 from search import hybrid_search_prompts, sync_prompt_embeddings
 from security import escape_like, get_client_ip, rate_limiter, record_audit_log
 
-mcp = FastMCP("PromptHold-Server")
+mcp = FastMCP("PromptFolders-Server")
 BACKEND_DIR = Path(__file__).resolve().parent
 
 
 def _resolve_drawer_url() -> str:
-    app_url = (os.getenv("PROMPT_HOLD_APP_URL") or os.getenv("PROMPT_VAULT_APP_URL", "")).strip()
+    app_url = (os.getenv("PROMPT_FOLDERS_APP_URL") or os.getenv("PROMPT_HOLD_APP_URL") or os.getenv("PROMPT_VAULT_APP_URL", "")).strip()
     if app_url:
         return app_url.rstrip("/") + "/?mcp_mode=1"
     space_host = os.getenv("SPACE_HOST", "").strip()
@@ -56,13 +56,14 @@ def _resolve_drawer_url() -> str:
     return "http://localhost:5173/?mcp_mode=1"
 
 
-@mcp.resource("ui://prompt-hold/drawer")
+@mcp.resource("ui://prompt-folders/drawer")
+@mcp.resource("ui://prompt-hold/drawer")  # legacy alias for clients that cached it
 @mcp.resource("ui://prompt-vault/drawer")
-def prompt_hold_drawer() -> str:
+def prompt_folders_drawer() -> str:
     """Return an HTML shell that opens the built React app in MCP drawer mode."""
     url = _resolve_drawer_url()
     return ("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<title>PromptHold</title></head><body style=\"margin:0\"><iframe title=\"PromptHold\" "
+            "<title>PromptFolders</title></head><body style=\"margin:0\"><iframe title=\"PromptFolders\" "
             f"src=\"{url}\" style=\"width:100%;height:100vh;border:0\" allow=\"clipboard-read; clipboard-write\"></iframe>"
             "</body></html>")
 
@@ -101,7 +102,7 @@ _session_api_keys: dict[str, str] = {}
 
 
 def register_session_key(session_id: str, api_key: str):
-    """Associate an MCP session ID with an authenticated PromptHold API key."""
+    """Associate an MCP session ID with an authenticated PromptFolders API key."""
     if session_id and api_key:
         if len(_session_api_keys) >= 10_000:  # bound memory; oldest sessions simply re-send their key
             _session_api_keys.pop(next(iter(_session_api_keys)))
@@ -146,7 +147,7 @@ def resolve_effective_api_key(explicit_key: str = "") -> str:
             return _session_api_keys[sess]
 
     raise ValueError(
-        "Missing API key. Please configure your personal PromptHold connector URL (with your API key) or pass an Authorization header."
+        "Missing API key. Please configure your personal PromptFolders connector URL (with your API key) or pass an Authorization header."
     )
 
 
@@ -158,7 +159,7 @@ def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
     resolved = resolve_api_key(db, api_key.strip()[:256])
     if resolved is None:
         rate_limiter.record_hit(bucket)
-        raise ValueError("The supplied PromptHold API key is invalid or has been revoked.")
+        raise ValueError("The supplied PromptFolders API key is invalid or has been revoked.")
     try:
         record_mcp_call(db, resolved[0])
     except PlanLimitError as exc:
@@ -168,7 +169,7 @@ def _auth_key(db, api_key: str) -> tuple[User, ApiKey | None]:
 
 @mcp.tool()
 def list_my_accessible_prompts(api_key: str = "", search_query: str = "", group_name: str = "") -> dict[str, Any]:
-    """List prompts from spaces authorized for your PromptHold API key in a single SQL JOIN query."""
+    """List prompts from spaces authorized for your PromptFolders API key in a single SQL JOIN query."""
     effective_key = resolve_effective_api_key(api_key)
     with _get_mcp_session(effective_key) as db:
         user, key_record = _auth_key(db, effective_key)

@@ -3,12 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: prompthold-app
+    container_name: promptfolders-app
     ports:
       - "${PORT:-7860}:7860"
     environment:
       PORT: "7860"
-      DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://prompthold:prompthold_secret@postgres:5432/prompthold}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://promptfolders:promptfolders_secret@postgres:5432/promptfolders}"
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
       SEED_DEMO_DATA: "${SEED_DEMO_DATA:-true}"
       CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-http://localhost:7860,http://localhost:5173}"
@@ -31,17 +31,17 @@ services:
 
   postgres:
     image: postgres:18-alpine
-    container_name: prompthold-postgres
+    container_name: promptfolders-postgres
     environment:
-      POSTGRES_USER: prompthold
-      POSTGRES_PASSWORD: prompthold_secret
-      POSTGRES_DB: prompthold
+      POSTGRES_USER: promptfolders
+      POSTGRES_PASSWORD: promptfolders_secret
+      POSTGRES_DB: promptfolders
     ports:
       - "5432:5432"
     volumes:
       - ph_postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U prompthold -d prompthold"]
+      test: ["CMD-SHELL", "pg_isready -U promptfolders -d promptfolders"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,7 +49,7 @@ services:
 
   redis:
     image: redis:8-alpine
-    container_name: prompthold-redis
+    container_name: promptfolders-redis
     ports:
       - "6379:6379"
     volumes:

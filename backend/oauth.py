@@ -1,4 +1,4 @@
-"""Native OAuth 2.0 / 2.1 Authorization Server implementation for PromptHold.
+"""Native OAuth 2.0 / 2.1 Authorization Server implementation for PromptFolders.
 
 Conforms to:
 - RFC 8414 (OAuth 2.0 Authorization Server Metadata)
@@ -209,7 +209,7 @@ def exchange_authorization_code(
     if user is None:
         raise ValueError("User associated with authorization code not found.")
 
-    # Issue a scoped PromptHold API key dedicated to this OAuth client
+    # Issue a scoped PromptFolders API key dedicated to this OAuth client
     effective_client_id = client_id.strip() if client_id else auth_code.client_id
     client = db.query(OAuthClient).filter_by(id=effective_client_id).first()
     client_display = client.client_name if client else "OAuth Client"
@@ -271,7 +271,7 @@ def render_oauth_authorize_html(
     else:
         user_card_html = """
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:16px;">
-            <div style="font-size:12px;color:#475569;margin-bottom:12px;font-weight:500;">Please sign in with your PromptHold account to grant access:</div>
+            <div style="font-size:12px;color:#475569;margin-bottom:12px;font-weight:500;">Please sign in with your PromptFolders account to grant access:</div>
             <div style="margin-bottom:10px;">
                 <label style="display:block;font-size:11px;font-weight:600;color:#475569;margin-bottom:4px;">Email Address</label>
                 <input type="email" name="email" required style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;outline:none;" placeholder="you@example.com" />
@@ -302,7 +302,7 @@ def render_oauth_authorize_html(
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Authorize {safe_client_name} — PromptHold</title>
+    <title>Authorize {safe_client_name} — PromptFolders</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -351,7 +351,7 @@ def render_oauth_authorize_html(
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                 </svg>
             </div>
-            <h1 style="font-size:18px;font-weight:700;margin:0 0 6px 0;color:#0f172a;">Connect to PromptHold</h1>
+            <h1 style="font-size:18px;font-weight:700;margin:0 0 6px 0;color:#0f172a;">Connect to PromptFolders</h1>
             <p style="font-size:13px;color:#64748b;margin:0;">
                 <strong>{safe_client_name}</strong> wants permission to use your saved prompts.
             </p>
@@ -384,7 +384,7 @@ def render_oauth_authorize_html(
         </form>
 
         <div style="text-align:center;margin-top:18px;font-size:11px;color:#94a3b8;">
-            PromptHold RBAC &amp; Version Control &bull; Secure OAuth 2.1 Connection
+            PromptFolders RBAC &amp; Version Control &bull; Secure OAuth 2.1 Connection
         </div>
     </div>
 </body>

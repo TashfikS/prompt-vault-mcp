@@ -37,7 +37,7 @@ function buildSteps(user: User): Step[] {
       title: 'Create a prompt',
       body: (
         <>
-          Write it once, reuse it everywhere. Add fill-in fields like <code className="rounded-sm bg-brand-50 px-1 font-mono text-[12px] text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">{'{{customer_name}}'}</code> and PromptHold turns them into a simple form.
+          Write it once, reuse it everywhere. Add fill-in fields like <code className="rounded-sm bg-brand-50 px-1 font-mono text-[12px] text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">{'{{customer_name}}'}</code> and PromptFolders turns them into a simple form.
         </>
       ),
     },
@@ -158,7 +158,7 @@ export default function OnboardingTour({ user, onFinish }: { user: User; onFinis
         {isWelcome ? (
           <div className="p-7">
             <LogoMark size={40} />
-            <h2 id="tour-title" className="mt-5 text-xl font-semibold tracking-tight text-slate-900 dark:text-zinc-100">Welcome to PromptHold, {firstName}</h2>
+            <h2 id="tour-title" className="mt-5 text-xl font-semibold tracking-tight text-slate-900 dark:text-zinc-100">Welcome to PromptFolders, {firstName}</h2>
             <p className="mt-1.5 text-sm leading-6 text-slate-500 dark:text-zinc-400">A shared home for the prompts your team relies on. Here’s the idea in three parts:</p>
             <ul className="mt-5 space-y-3.5">
               {[

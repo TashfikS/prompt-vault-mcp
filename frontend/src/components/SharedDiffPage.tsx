@@ -29,7 +29,7 @@ export default function SharedDiffPage({ shareId }: { shareId: string }) {
           <div className="flex items-center gap-3">
             <a
               href="/"
-              aria-label="PromptHold home"
+              aria-label="PromptFolders home"
               className="group -m-1 rounded-lg p-1 text-left transition hover:opacity-80 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
             >
               <Logo />

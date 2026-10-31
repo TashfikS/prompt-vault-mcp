@@ -1,4 +1,4 @@
-"""Security and API key authorization tests for PromptHold."""
+"""Security and API key authorization tests for PromptFolders."""
 
 import pytest
 from httpx import AsyncClient

@@ -1,7 +1,7 @@
 {
   "name": "cloudflare-worker",
   "version": "1.0.0",
-  "description": "PromptHold edge gateway (thin proxy to the Render backend)",
+  "description": "PromptFolders edge gateway (thin proxy to the Render backend)",
   "main": "worker.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

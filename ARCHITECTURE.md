@@ -1,6 +1,6 @@
-# PromptHold: System Architecture
+# PromptFolders: System Architecture
 
-How PromptHold is put together: the hosted services, how a request reaches the right database, how the backend code is layered, the data model, and the operating rules that keep everything on free tiers.
+How PromptFolders is put together: the hosted services, how a request reaches the right database, how the backend code is layered, the data model, and the operating rules that keep everything on free tiers.
 
 For rules an agent or contributor must follow when changing behaviour, see [`AGENTS.md`](AGENTS.md). For deploy steps, see [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) and [`MAKING_CHANGES_LIVE.md`](MAKING_CHANGES_LIVE.md).
 

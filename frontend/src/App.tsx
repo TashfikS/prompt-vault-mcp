@@ -168,7 +168,7 @@ export default function App() {
         resetWorkspace()
         setAuthState('signed-out')
       } else {
-        setError(e instanceof Error ? e.message : 'Could not connect to PromptHold.')
+        setError(e instanceof Error ? e.message : 'Could not connect to PromptFolders.')
         setAuthState('signed-in')
         setLoading(false)
       }
@@ -267,7 +267,7 @@ export default function App() {
             }
           }}
           onContactSales={() => {
-            window.location.href = 'mailto:sales@prompthold.com?subject=PromptHold%20Enterprise%20Inquiry'
+            window.location.href = 'mailto:sales@promptfolders.com?subject=PromptFolders%20Enterprise%20Inquiry'
           }}
         />
       ) : authState === 'checking' ? (
@@ -317,7 +317,7 @@ export default function App() {
               }
             }}
             onContactSales={() => {
-              window.location.href = 'mailto:sales@prompthold.com?subject=PromptHold%20Enterprise%20Inquiry'
+              window.location.href = 'mailto:sales@promptfolders.com?subject=PromptFolders%20Enterprise%20Inquiry'
             }}
           />
         ) : (

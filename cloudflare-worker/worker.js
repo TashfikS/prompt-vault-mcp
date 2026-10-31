@@ -1,4 +1,4 @@
-// PromptHold edge gateway: a thin proxy in front of the Render backend.
+// PromptFolders edge gateway: a thin proxy in front of the Render backend.
 //
 // All auth, RBAC, rate limiting and CORS decisions live in the FastAPI backend. The gateway only forwards
 // backend routes (passing the public host so OAuth metadata advertises this origin), serves the SPA assets,
@@ -33,7 +33,7 @@ async function proxyToBackend(request, env, url) {
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch {
-    return new Response(JSON.stringify({ detail: "PromptHold is starting up. Please retry in a few seconds." }), {
+    return new Response(JSON.stringify({ detail: "PromptFolders is starting up. Please retry in a few seconds." }), {
       status: 503,
       headers: { "Content-Type": "application/json", "Retry-After": "10" },
     });
@@ -49,13 +49,13 @@ export default {
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
     }
-    return new Response("PromptHold Gateway Active", { status: 200 });
+    return new Response("PromptFolders Gateway Active", { status: 200 });
   },
 
   async scheduled(event, env) {
     try {
       await fetch(`${env.RENDER_ORIGIN}/api/health`, {
-        headers: { "User-Agent": "PromptHold-KeepAlive-Cron/1.0" },
+        headers: { "User-Agent": "PromptFolders-KeepAlive-Cron/1.0" },
         signal: AbortSignal.timeout(60_000),
       });
     } catch (err) {

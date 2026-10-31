@@ -320,7 +320,7 @@ export default function ConnectAiModal({
   const claudeConfigJson = JSON.stringify(
     {
       mcpServers: {
-        prompthold: {
+        promptfolders: {
           command: 'npx',
           args: ['-y', 'mcp-remote', copyAuthMcpUrl],
         },
@@ -333,7 +333,7 @@ export default function ConnectAiModal({
   const cursorMcpConfigJson = JSON.stringify(
     {
       mcpServers: {
-        prompthold: {
+        promptfolders: {
           command: 'npx',
           args: ['-y', 'mcp-remote', copyAuthMcpUrl],
         },
@@ -346,7 +346,7 @@ export default function ConnectAiModal({
   const clineConfigJson = JSON.stringify(
     {
       mcpServers: {
-        prompthold: {
+        promptfolders: {
           command: 'npx',
           args: ['-y', 'mcp-remote', copyAuthMcpUrl],
         },
@@ -361,7 +361,7 @@ export default function ConnectAiModal({
   const geminiPythonSnippet = `import requests
 from google import genai
 
-# 1. Fetch prompts from PromptHold Backend API
+# 1. Fetch prompts from PromptFolders Backend API
 headers = {"Authorization": "Bearer ${copySnippetKey}"}
 response = requests.get("${restUrl}/prompts", headers=headers)
 prompts = response.json()
@@ -379,7 +379,7 @@ print(result.text)`
 
   const pythonSnippet = `import requests
 
-# Query prompts using live PromptHold Backend API
+# Query prompts using live PromptFolders Backend API
 headers = {"Authorization": "Bearer ${copySnippetKey}"}
 response = requests.get("${restUrl}/prompts", headers=headers)
 
@@ -394,7 +394,7 @@ for p in prompts:
 
   return (
     <Modal
-      title="Connect PromptHold to Your AI"
+      title="Connect PromptFolders to Your AI"
       description="Use your saved prompts directly inside Claude, ChatGPT, Gemini, Cursor, or custom workflows."
       icon={<PlugZap size={18} className="text-brand-600 dark:text-brand-400" />}
       size="xl"
@@ -424,7 +424,7 @@ for p in prompts:
                 Step 1: Your Security Key
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Gives your assistants secure access to your prompts. Claude.ai, ChatGPT and Gemini connect with your PromptHold sign-in (OAuth), so they don't need an API key. Keys are only for desktop configs, IDEs and scripts.
+                Gives your assistants secure access to your prompts. Claude.ai, ChatGPT and Gemini connect with your PromptFolders sign-in (OAuth), so they don't need an API key. Keys are only for desktop configs, IDEs and scripts.
               </p>
             </div>
 
@@ -893,7 +893,7 @@ for p in prompts:
 
                     <li className="flex gap-2.5">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                      <span className="font-medium text-slate-900 dark:text-zinc-100">Restart Claude Desktop. Your PromptHold prompt tools are live!</span>
+                      <span className="font-medium text-slate-900 dark:text-zinc-100">Restart Claude Desktop. Your PromptFolders prompt tools are live!</span>
                     </li>
                   </ol>
                 </div>
@@ -910,7 +910,7 @@ for p in prompts:
                       <li className="flex gap-2.5">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">2</span>
                         <div className="min-w-0 flex-1 space-y-1">
-                          <span>Name it <strong>PromptHold</strong> and paste the server URL:</span>
+                          <span>Name it <strong>PromptFolders</strong> and paste the server URL:</span>
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
                             <code className="min-w-0 break-all font-mono text-[11px] text-amber-700 dark:text-amber-400">
                               {mcpUrl}
@@ -928,7 +928,7 @@ for p in prompts:
                       </li>
                       <li className="flex gap-2.5">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-950 dark:bg-amber-900/60 dark:text-amber-200">3</span>
-                        <span>Under <strong>Authentication</strong>, keep <strong>Sign in now</strong> and click <strong>Add</strong>. Then click <strong>Connect</strong> and sign in with your <strong>PromptHold</strong> email and password. No API key is needed.</span>
+                        <span>Under <strong>Authentication</strong>, keep <strong>Sign in now</strong> and click <strong>Add</strong>. Then click <strong>Connect</strong> and sign in with your <strong>PromptFolders</strong> email and password. No API key is needed.</span>
                       </li>
                   </ol>
                 </div>
@@ -941,11 +941,11 @@ for p in prompts:
                     <span className="text-xs font-semibold text-slate-800 dark:text-zinc-200">Run this single terminal command:</span>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-slate-900 p-2.5 border border-slate-800 dark:bg-black dark:border-zinc-800 min-w-0">
                       <code className="min-w-0 break-all font-mono text-xs text-emerald-300 dark:text-emerald-400">
-                        claude mcp add --transport http prompthold "{displayAuthMcpUrl}"
+                        claude mcp add --transport http promptfolders "{displayAuthMcpUrl}"
                       </code>
                       <button
                         type="button"
-                        onClick={() => void copy(`claude mcp add --transport http prompthold "${copyAuthMcpUrl}"`, 'claude-cli', 'Command copied')}
+                        onClick={() => void copy(`claude mcp add --transport http promptfolders "${copyAuthMcpUrl}"`, 'claude-cli', 'Command copied')}
                         className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs text-white bg-slate-800 border-slate-700 hover:bg-slate-700"
                       >
                         {copiedId === 'claude-cli' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
@@ -966,13 +966,13 @@ for p in prompts:
                   <div className="min-w-0">
                     <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in Claude Chat:</span>
                     <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
-                      “Show my available prompt templates in PromptHold”
+                      “Show my available prompt templates in PromptFolders”
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void copy('Show my available prompt templates in PromptHold', 'claude-sample', 'Prompt copied')}
+                  onClick={() => void copy('Show my available prompt templates in PromptFolders', 'claude-sample', 'Prompt copied')}
                   className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                 >
                   {copiedId === 'claude-sample' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -1008,7 +1008,7 @@ for p in prompts:
                   <li className="flex gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">2</span>
                     <div className="min-w-0 flex-1 space-y-1">
-                      <span>Name it <strong>PromptHold</strong>, paste this server URL, and keep <strong>Authentication: OAuth</strong>:</span>
+                      <span>Name it <strong>PromptFolders</strong>, paste this server URL, and keep <strong>Authentication: OAuth</strong>:</span>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-white p-2.5 border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 min-w-0">
                         <code className="min-w-0 break-all font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
                           {mcpUrl}
@@ -1026,10 +1026,10 @@ for p in prompts:
                   </li>
                   <li className="flex gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-[11px] font-bold text-emerald-950 dark:bg-emerald-900/60 dark:text-emerald-200">3</span>
-                    <span>Tick <strong>I understand and want to continue</strong>, click <strong>Create as a plugin</strong>, then sign in with your <strong>PromptHold</strong> email and password. No API key is needed.</span>
+                    <span>Tick <strong>I understand and want to continue</strong>, click <strong>Create as a plugin</strong>, then sign in with your <strong>PromptFolders</strong> email and password. No API key is needed.</span>
                   </li>
                 </ol>
-                <p className="text-[11px] text-slate-500 dark:text-zinc-400">Once added, PromptHold is available in ChatGPT on web, desktop and mobile. Mention <code>@PromptHold</code> in a chat to use it.</p>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400">Once added, PromptFolders is available in ChatGPT on web, desktop and mobile. Mention <code>@PromptFolders</code> in a chat to use it.</p>
               </div>
 
               {/* Sample Prompt */}
@@ -1039,13 +1039,13 @@ for p in prompts:
                   <div className="min-w-0">
                     <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in ChatGPT:</span>
                     <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
-                      “Search PromptHold for the 'Customer Onboarding' prompt and fill client_name='Acme'”
+                      “Search PromptFolders for the 'Customer Onboarding' prompt and fill client_name='Acme'”
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void copy("Search PromptHold for the 'Customer Onboarding' prompt and fill client_name='Acme'", 'gpt-sample', 'Prompt copied')}
+                  onClick={() => void copy("Search PromptFolders for the 'Customer Onboarding' prompt and fill client_name='Acme'", 'gpt-sample', 'Prompt copied')}
                   className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                 >
                   {copiedId === 'gpt-sample' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -1126,7 +1126,7 @@ for p in prompts:
                     </li>
                     <li className="flex gap-2.5">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-[11px] font-bold text-indigo-950 dark:bg-indigo-900/60 dark:text-indigo-200">3</span>
-                      <span>Review the consent screen and click <strong>Connect</strong>, then sign in with your <strong>PromptHold</strong> email and password and click <strong>Authorize</strong>. No API key is needed.</span>
+                      <span>Review the consent screen and click <strong>Connect</strong>, then sign in with your <strong>PromptFolders</strong> email and password and click <strong>Authorize</strong>. No API key is needed.</span>
                     </li>
                   </ol>
                 </div>
@@ -1160,13 +1160,13 @@ for p in prompts:
                   <div className="min-w-0">
                     <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in Gemini:</span>
                     <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
-                      “@PromptHold show my active Marketing templates”
+                      “@PromptFolders show my active Marketing templates”
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void copy('@PromptHold show my active Marketing templates', 'gemini-sample', 'Prompt copied')}
+                  onClick={() => void copy('@PromptFolders show my active Marketing templates', 'gemini-sample', 'Prompt copied')}
                   className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                 >
                   {copiedId === 'gemini-sample' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -1299,13 +1299,13 @@ for p in prompts:
                   <div className="min-w-0">
                     <span className="font-semibold text-slate-900 dark:text-zinc-100">Try in Cursor Chat (Cmd+L / Composer):</span>
                     <div className="text-slate-700 dark:text-zinc-300 font-mono text-[11px] truncate mt-0.5">
-                      “Use PromptHold to load my 'Code Review' prompt and review this file”
+                      “Use PromptFolders to load my 'Code Review' prompt and review this file”
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void copy("Use PromptHold to load my 'Code Review' prompt and review this file", 'cursor-sample', 'Prompt copied')}
+                  onClick={() => void copy("Use PromptFolders to load my 'Code Review' prompt and review this file", 'cursor-sample', 'Prompt copied')}
                   className="btn-secondary btn-sm shrink-0 self-start sm:self-auto text-xs"
                 >
                   {copiedId === 'cursor-sample' ? <Check size={12} className="text-cyan-600" /> : <Copy size={12} />}

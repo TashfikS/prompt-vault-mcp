@@ -305,7 +305,7 @@ def _upgrade_postgres_extensions(engine: Engine) -> None:
     """
     import logging
 
-    log = logging.getLogger("prompthold.schema")
+    log = logging.getLogger("promptfolders.schema")
     steps = [
         "CREATE EXTENSION IF NOT EXISTS pg_trgm",
         "CREATE EXTENSION IF NOT EXISTS vector",

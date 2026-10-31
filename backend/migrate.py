@@ -1,4 +1,4 @@
-"""PromptHold Standalone Database Migration & Schema Runner.
+"""PromptFolders Standalone Database Migration & Schema Runner.
 
 Executes schema creation, table upgrades, and initial space provisioning
 under admin database credentials (DDL privileges).
@@ -20,7 +20,7 @@ from seed import seed_initial_data
 
 def run_migrations() -> None:
     print("=" * 60)
-    print("PromptHold: Running standalone database migrations")
+    print("PromptFolders: Running standalone database migrations")
     print("=" * 60)
 
     # 1. Neon Database (Paid Tiers)
@@ -58,7 +58,7 @@ def run_migrations() -> None:
         raise
 
     print("\n" + "=" * 60)
-    print("✓ All PromptHold database migrations completed successfully.")
+    print("✓ All PromptFolders database migrations completed successfully.")
     print("=" * 60)
 
 

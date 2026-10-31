@@ -282,5 +282,5 @@ def export_audit_logs(days: int = 90, db: Session = Depends(get_db), user: User 
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="prompthold-audit-{datetime.utcnow():%Y%m%d}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="promptfolders-audit-{datetime.utcnow():%Y%m%d}.csv"'},
     )

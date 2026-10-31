@@ -48,7 +48,7 @@ ci: lint test build ## Run the complete local CI pipeline (lint + guardrails + t
 	@echo "✔ Full CI pipeline completed with 0 errors!"
 
 docker-build: ## Build multi-stage production Docker image
-	docker build -t prompthold-mcp:latest .
+	docker build -t promptfolders-mcp:latest .
 
 docker-up: ## Start full production stack (App + PostgreSQL 16 + Redis 7) via Docker Compose
 	docker compose up --build -d

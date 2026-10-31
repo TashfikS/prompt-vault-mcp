@@ -96,7 +96,7 @@ function SidebarContent(props: Props & { onAfterNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 shrink-0 items-center px-5">
-        <button type="button" onClick={() => { onNavigate('prompts'); onSelectSpace(null); after() }} aria-label="PromptHold home" className="rounded-lg">
+        <button type="button" onClick={() => { onNavigate('prompts'); onSelectSpace(null); after() }} aria-label="PromptFolders home" className="rounded-lg">
           <Logo />
         </button>
       </div>
@@ -358,7 +358,7 @@ export default function Navbar(props: Props) {
         <button
           type="button"
           onClick={() => { props.onNavigate('prompts'); props.onSelectSpace(null) }}
-          aria-label="PromptHold home"
+          aria-label="PromptFolders home"
           className="rounded-lg text-left transition hover:opacity-80 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 cursor-pointer"
         >
           <Logo />

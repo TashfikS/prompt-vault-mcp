@@ -621,7 +621,7 @@ export default function ReviewRequestsDashboard({
                           <span>Review discussion & comments</span>
                         </div>
                         <span className="text-[11px] text-slate-400 dark:text-zinc-500">
-                          Live across PromptHold, Claude, and ChatGPT
+                          Live across PromptFolders, Claude, and ChatGPT
                         </span>
                       </div>
 
