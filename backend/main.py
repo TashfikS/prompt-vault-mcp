@@ -164,10 +164,11 @@ async def mcp_session_key_capture_middleware(request: Request, call_next):
         if match:
             api_key = match.group(1).strip()
 
-    # RFC 9728 challenge: anonymous MCP requests get 401 + resource metadata so clients (Claude, ChatGPT)
-    # discover the OAuth sign-in instead of treating the server as open.
+    # RFC 9728 challenge: anonymous MCP POSTs (initialize / tool calls) get 401 + resource metadata so clients
+    # (Claude, ChatGPT) discover the OAuth sign-in. Only POST is challenged: Gemini health-probes with an
+    # anonymous HEAD and stops calling the server if that probe returns 401.
     is_mcp_path = request.url.path.startswith(("/mcp", "/sse"))
-    if is_mcp_path and request.method != "OPTIONS" and not api_key and not has_session_key(session_id):
+    if is_mcp_path and request.method == "POST" and not api_key and not has_session_key(session_id):
         metadata_url = f"{_get_public_base_url(request)}/.well-known/oauth-protected-resource"
         return JSONResponse(
             {"error": "invalid_token", "error_description": "Sign in to PromptHold to use this connector."},
