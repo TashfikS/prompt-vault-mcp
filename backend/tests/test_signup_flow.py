@@ -27,6 +27,16 @@ def _token(url: str, param: str) -> str:
     return url.split(f"{param}=", 1)[1]
 
 
+async def _register_verify_and_sign_in(client: AsyncClient, captured_emails, body=SIGNUP) -> str:
+    """Register, click the emailed link, then sign in; returns the session token."""
+    assert (await client.post("/api/auth/register", json=body)).status_code == 201
+    verify_url = [e for e in captured_emails if e["kind"] == "verify"][-1]["url"]
+    assert (await client.post("/api/auth/verify-email", json={"token": _token(verify_url, "verify_token")})).status_code == 200
+    res = await client.post("/api/auth/login", json={"email": body["email"], "password": body["password"]})
+    assert res.status_code == 200
+    return res.json()["token"]
+
+
 @pytest.mark.asyncio
 async def test_register_requires_terms(client: AsyncClient, db: Session):
     body = {k: v for k, v in SIGNUP.items() if k != "accept_terms"}
@@ -46,8 +56,8 @@ async def test_register_records_consent_and_sends_verification(client: AsyncClie
     assert [e["kind"] for e in captured_emails] == ["verify"]
     assert user.verify_token_hash and user.verify_token_hash not in captured_emails[0]["url"]  # only the hash is stored
 
-    me = await client.get("/api/me", headers={"Authorization": f"Bearer {res.json()['token']}"})
-    assert me.json()["email_verified"] is False
+    # No session is handed out until the email is confirmed.
+    assert res.json() == {"verification_required": True, "email": "new@example.com"}
 
 
 @pytest.mark.asyncio
@@ -78,13 +88,44 @@ async def test_expired_verify_token_rejected(client: AsyncClient, db: Session, c
 
 
 @pytest.mark.asyncio
-async def test_checkout_blocked_until_verified(client: AsyncClient, db: Session, captured_emails):
-    reg = await client.post("/api/auth/register", json=SIGNUP)
-    headers = {"Authorization": f"Bearer {reg.json()['token']}"}
-    blocked = await client.post("/api/billing/checkout", headers=headers, json={"plan": "pro"})
+async def test_sign_in_blocked_until_verified(client: AsyncClient, db: Session, captured_emails):
+    await client.post("/api/auth/register", json=SIGNUP)
+    creds = {"email": SIGNUP["email"], "password": SIGNUP["password"]}
+    blocked = await client.post("/api/auth/login", json=creds)
     assert blocked.status_code == 403 and "Confirm your email" in blocked.json()["detail"]
+    assert "token" not in blocked.json()
+    # A wrong password still answers 401, so the 403 never confirms an account to someone without the password.
+    assert (await client.post("/api/auth/login", json={**creds, "password": "WrongPass9999"})).status_code == 401
     await client.post("/api/auth/verify-email", json={"token": _token(captured_emails[0]["url"], "verify_token")})
+    ok = await client.post("/api/auth/login", json=creds)
+    assert ok.status_code == 200
+    headers = {"Authorization": f"Bearer {ok.json()['token']}"}
     assert (await client.post("/api/billing/checkout", headers=headers, json={"plan": "pro"})).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_auto_verify_signups_flag_for_local_stacks(client: AsyncClient, db: Session, captured_emails, monkeypatch):
+    monkeypatch.setenv("AUTO_VERIFY_SIGNUPS", "1")
+    res = await client.post("/api/auth/register", json=SIGNUP)
+    assert res.status_code == 201 and res.json()["token"]
+    assert db.query(User).filter_by(email="new@example.com").one().email_verified_at is not None
+    assert captured_emails == []
+
+
+@pytest.mark.asyncio
+async def test_signed_out_resend_verification(client: AsyncClient, db: Session, captured_emails):
+    await client.post("/api/auth/register", json=SIGNUP)
+    known = await client.post("/api/auth/resend-verification-email", json={"email": "new@example.com"})
+    unknown = await client.post("/api/auth/resend-verification-email", json={"email": "nobody@example.com"})
+    assert known.status_code == unknown.status_code == 200 and known.json() == unknown.json()
+    assert [e["kind"] for e in captured_emails] == ["verify", "verify"]
+    # The newest link works; the first one was replaced.
+    old, new = (_token(e["url"], "verify_token") for e in captured_emails)
+    assert (await client.post("/api/auth/verify-email", json={"token": old})).status_code == 400
+    assert (await client.post("/api/auth/verify-email", json={"token": new})).status_code == 200
+    # Already confirmed: nothing more is sent.
+    await client.post("/api/auth/resend-verification-email", json={"email": "new@example.com"})
+    assert len(captured_emails) == 2
 
 
 @pytest.mark.asyncio
@@ -99,8 +140,7 @@ async def test_forgot_password_does_not_reveal_accounts(client: AsyncClient, db:
 
 @pytest.mark.asyncio
 async def test_reset_password_flow(client: AsyncClient, db: Session, captured_emails):
-    reg = await client.post("/api/auth/register", json=SIGNUP)
-    old_token = reg.json()["token"]
+    old_token = await _register_verify_and_sign_in(client, captured_emails)
     await client.post("/api/auth/forgot-password", json={"email": "new@example.com"})
     raw = _token(captured_emails[-1]["url"], "reset_token")
 
@@ -114,8 +154,17 @@ async def test_reset_password_flow(client: AsyncClient, db: Session, captured_em
     assert (await client.post("/api/auth/login", json={"email": "new@example.com", "password": "BrandNew4567"})).status_code == 200
     assert (await client.post("/api/auth/login", json={"email": "new@example.com", "password": "Password1234"})).status_code == 401
     assert (await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "Another78901"})).status_code == 400
-    # Proving inbox access via the reset link also verifies the email.
     assert db.query(User).filter_by(email="new@example.com").one().email_verified_at is not None
+
+
+@pytest.mark.asyncio
+async def test_reset_link_also_confirms_email(client: AsyncClient, db: Session, captured_emails):
+    """Proving inbox access via the reset link verifies the email, so the user can then sign in."""
+    await client.post("/api/auth/register", json=SIGNUP)
+    await client.post("/api/auth/forgot-password", json={"email": "new@example.com"})
+    raw = _token(captured_emails[-1]["url"], "reset_token")
+    assert (await client.post("/api/auth/reset-password", json={"token": raw, "new_password": "BrandNew4567"})).status_code == 200
+    assert (await client.post("/api/auth/login", json={"email": "new@example.com", "password": "BrandNew4567"})).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -132,8 +181,7 @@ async def test_expired_reset_token_rejected(client: AsyncClient, db: Session, ca
 @pytest.mark.asyncio
 async def test_sso_claims_unverified_squatted_account(client: AsyncClient, db: Session, captured_emails, monkeypatch):
     """Someone registered the address without owning it; the real owner signs in with Google."""
-    squat = await client.post("/api/auth/register", json={**SIGNUP, "email": "owner@corp.com"})
-    squat_token = squat.json()["token"]
+    assert (await client.post("/api/auth/register", json={**SIGNUP, "email": "owner@corp.com"})).status_code == 201
     import routers.auth_routes as routes
 
     monkeypatch.setattr(routes, "verify_firebase_id_token", lambda _t: {"email": "owner@corp.com", "name": "Real Owner"})
@@ -141,14 +189,12 @@ async def test_sso_claims_unverified_squatted_account(client: AsyncClient, db: S
     assert sso.status_code == 200
     user = db.query(User).filter_by(email="owner@corp.com").one()
     assert user.email_verified_at is not None and user.password_hash is None
-    assert (await client.get("/api/me", headers={"Authorization": f"Bearer {squat_token}"})).status_code == 401
     assert (await client.post("/api/auth/login", json={"email": "owner@corp.com", "password": "Password1234"})).status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_marketing_preference_toggle(client: AsyncClient, db: Session, captured_emails):
-    reg = await client.post("/api/auth/register", json=SIGNUP)
-    headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+    headers = {"Authorization": f"Bearer {await _register_verify_and_sign_in(client, captured_emails)}"}
     on = await client.put("/api/me/marketing", headers=headers, json={"marketing_opt_in": True})
     assert on.json()["marketing_opt_in"] is True
     user = db.query(User).filter_by(email="new@example.com").one()

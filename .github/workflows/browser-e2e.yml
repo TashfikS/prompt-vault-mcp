@@ -106,6 +106,8 @@ jobs:
           ALLOWED_TEST_EMAIL_DOMAINS: example.com
           # Keep the run independent of the Have I Been Pwned API (unit tests cover the check).
           PWNED_PASSWORD_CHECK: "0"
+          # No mailbox in CI, so sign-ups are confirmed instantly (ignored when ENVIRONMENT=production).
+          AUTO_VERIFY_SIGNUPS: "1"
         run: |
           nohup uvicorn main:app --host 127.0.0.1 --port 7860 > "$RUNNER_TEMP/backend.log" 2>&1 &
           for i in $(seq 1 60); do

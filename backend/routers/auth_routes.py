@@ -88,8 +88,13 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
         ensure_personal_group(target_db, user)
         record_audit_log(target_db, "AUTH_REGISTER", user_id=user.id, ip_address=client_ip,
                          details=f"Registered {email} (terms {TERMS_VERSION}, marketing={payload.marketing_opt_in})")
+        if _auto_verify_signups():
+            mark_email_verified(user)
+            target_db.commit()
+            return _auth_response(target_db, user, response)
         _send_verification(request, user, raw_verify)
-        return _auth_response(target_db, user, response)
+        # No session until the inbox is proven: the user signs in after clicking the emailed link.
+        return {"verification_required": True, "email": email}
     finally:
         if close_target:
             target_db.close()
@@ -177,6 +182,10 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
             raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
         rate_limiter.clear_bucket(lockout_bucket)
+        if _awaiting_email_verification(user):
+            record_audit_log(target_db, "AUTH_LOGIN_BLOCKED_UNVERIFIED", user_id=user.id, ip_address=client_ip,
+                             details=f"Sign-in before email confirmation for {email}")
+            raise HTTPException(status_code=403, detail=EMAIL_UNVERIFIED_DETAIL)
         user.failed_login_attempts = 0
         user.locked_until = None
         user.last_login_at = now_utc
@@ -312,6 +321,45 @@ def verify_email(payload: TokenRequest, request: Request, db: Session = Depends(
         target_db.commit()
         record_audit_log(target_db, "AUTH_EMAIL_VERIFIED", user_id=user.id, ip_address=client_ip, details=f"Verified {user.email}")
         return {"verified": True, "email": user.email}
+    finally:
+        if close:
+            target_db.close()
+
+
+def _auto_verify_signups() -> bool:
+    """Local/CI stacks without a mailbox (AUTO_VERIFY_SIGNUPS=1) confirm sign-ups instantly. Never in production."""
+    return not IS_PRODUCTION and os.getenv("AUTO_VERIFY_SIGNUPS", "").strip().lower() in {"1", "true", "yes"}
+
+
+EMAIL_UNVERIFIED_DETAIL = "Confirm your email to sign in. Use the link we emailed you, or send a new one."
+
+
+def _awaiting_email_verification(user: User) -> bool:
+    """Password sign-ups with a pending confirmation link can't sign in yet.
+
+    Accounts that never had a link issued (seeded/legacy rows) are left alone so they aren't locked out.
+    """
+    return user.email_verified_at is None and user.verify_token_hash is not None
+
+
+@router.post("/api/auth/resend-verification-email")
+def resend_verification_by_email(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    """Signed-out resend for the sign-in screen. Same answer either way so it can't reveal which emails exist."""
+    client_ip = get_client_ip(request)
+    rate_limiter.check(f"resend_verify_ip:{client_ip}", limit=5, window_seconds=600,
+                       detail="We've sent a few confirmation emails already. Check your inbox and spam, or try again in 10 minutes.")
+    email = payload.email.strip().lower()
+    generic = {"sent": True, "message": "If that account still needs confirming, we've sent a new link."}
+    user, target_db, close = _find_user_any_tier(db, lambda s: s.query(User).filter(User.email == email).first())
+    try:
+        if user is None or not _awaiting_email_verification(user):
+            return generic
+        rate_limiter.check(f"resend_verify:{user.id}", limit=3, window_seconds=600,
+                           detail="We've sent a few confirmation emails already. Check your inbox and spam, or try again in 10 minutes.")
+        raw = issue_verify_token(user)
+        target_db.commit()
+        _send_verification(request, user, raw)
+        return generic
     finally:
         if close:
             target_db.close()

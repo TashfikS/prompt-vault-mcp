@@ -66,15 +66,25 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       else if (Array.isArray(body.detail) && body.detail[0]?.msg) message = body.detail[0].msg.replace(/^Value error, /, '')
     } catch { /* response was not JSON */ }
     if (response.status === 401 && token && !path.startsWith('/api/auth/')) { clearSessionToken(); window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT)) }
-    throw new Error(message)
+    throw new ApiError(message, response.status)
   }
   return response.json() as Promise<T>
 }
 
+/** An HTTP error from the API; `status` lets callers react to specific answers (e.g. 403 unconfirmed email). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 export type AuthResponse = { token: string; user: User }
+// Local/CI stacks with AUTO_VERIFY_SIGNUPS answer with a session instead.
+export type RegisterResponse = { verification_required: true; email: string } | AuthResponse
 export const login = (email: string, password: string) => api<AuthResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
 export const register = (name: string, email: string, password: string, acceptTerms: boolean, marketingOptIn: boolean) =>
-  api<AuthResponse>('/api/auth/register', {
+  api<RegisterResponse>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify({ name, email, password, accept_terms: acceptTerms, marketing_opt_in: marketingOptIn }),
   })
@@ -82,6 +92,8 @@ export const verifyEmail = (token: string) =>
   api<{ verified: boolean; email: string }>('/api/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) })
 export const resendVerification = () =>
   api<{ sent: boolean; already_verified?: boolean }>('/api/auth/resend-verification', { method: 'POST' })
+export const resendVerificationByEmail = (email: string) =>
+  api<{ sent: boolean; message: string }>('/api/auth/resend-verification-email', { method: 'POST', body: JSON.stringify({ email }) })
 export const forgotPassword = (email: string) =>
   api<{ sent: boolean; message: string }>('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) })
 export const resetPassword = (token: string, newPassword: string) =>

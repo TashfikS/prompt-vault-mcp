@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { CheckCircle2, KeyRound, Loader2, MailCheck, XCircle } from 'lucide-react'
+import { CheckCircle2, KeyRound, Loader2, MailCheck, WifiOff, XCircle } from 'lucide-react'
 import { resetPassword, verifyEmail } from '../api'
 import { Logo } from './ui/Brand'
 import { ThemeToggleButton } from '../theme'
@@ -24,36 +24,75 @@ export default function AccountLinkPage({ kind, token, onDone }: { kind: 'verify
   )
 }
 
+/** fetch() rejects with a TypeError only when the request never got a response (offline, DNS, server restarting). */
+const isNetworkError = (e: unknown) => e instanceof TypeError
+
+async function verifyWithRetry(token: string, attempts = 3) {
+  for (let i = 0; ; i++) {
+    try {
+      return await verifyEmail(token)
+    } catch (e) {
+      if (!isNetworkError(e) || i >= attempts - 1) throw e
+      await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)))
+    }
+  }
+}
+
 function VerifyEmail({ token, onDone }: { token: string; onDone: () => void }) {
-  const [state, setState] = useState<'working' | 'ok' | 'error'>('working')
+  const [state, setState] = useState<'working' | 'ok' | 'error' | 'offline'>('working')
   const [message, setMessage] = useState('')
   const started = useRef(false)
 
-  useEffect(() => {
-    if (started.current) return // StrictMode runs effects twice; the token is single-use
-    started.current = true
-    verifyEmail(token)
+  const run = useCallback(() => {
+    setState('working')
+    setMessage('')
+    verifyWithRetry(token)
       .then(res => {
         setState('ok')
         setMessage(`${res.email} is confirmed.`)
       })
       .catch(e => {
+        if (isNetworkError(e)) {
+          setState('offline')
+          setMessage("We couldn't reach PromptFolders. Check your connection and try again; your link is still valid.")
+          return
+        }
         setState('error')
         setMessage(e instanceof Error ? e.message : 'This confirmation link is invalid or has expired.')
       })
   }, [token])
+
+  useEffect(() => {
+    if (started.current) return // StrictMode runs effects twice; the token is single-use
+    started.current = true
+    run()
+  }, [run])
+
+  const title =
+    state === 'working' ? 'Confirming your email…'
+    : state === 'ok' ? 'Email confirmed'
+    : state === 'offline' ? 'Connection problem'
+    : 'Link not valid'
 
   return (
     <div className="text-center">
       {state === 'working' && <Loader2 className="mx-auto animate-spin text-brand-600" size={28} />}
       {state === 'ok' && <MailCheck className="mx-auto text-emerald-600" size={28} />}
       {state === 'error' && <XCircle className="mx-auto text-rose-600" size={28} />}
-      <h1 className="mt-3 text-lg font-semibold">
-        {state === 'working' ? 'Confirming your email…' : state === 'ok' ? 'Email confirmed' : 'Link not valid'}
-      </h1>
+      {state === 'offline' && <WifiOff className="mx-auto text-amber-600" size={28} />}
+      <h1 className="mt-3 text-lg font-semibold">{title}</h1>
       {message && <p className="mt-1.5 text-sm text-slate-600 dark:text-zinc-400">{message}</p>}
+      {state === 'offline' && (
+        <button type="button" onClick={run} className="btn-primary mt-5 h-10 w-full cursor-pointer">
+          Try again
+        </button>
+      )}
       {state !== 'working' && (
-        <button type="button" onClick={onDone} className="btn-primary mt-5 h-10 w-full cursor-pointer">
+        <button
+          type="button"
+          onClick={onDone}
+          className={state === 'offline' ? 'btn-secondary mt-2 h-10 w-full cursor-pointer' : 'btn-primary mt-5 h-10 w-full cursor-pointer'}
+        >
           Continue to PromptFolders
         </button>
       )}

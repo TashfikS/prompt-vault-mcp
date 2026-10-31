@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { signInWithPopup } from 'firebase/auth'
 import { ArrowLeft, ArrowRight, Braces, CreditCard, GitBranch, LogIn, PlugZap, ShieldCheck, UserPlus } from 'lucide-react'
-import { firebaseLogin, forgotPassword, getPricing, login, register, setSessionToken } from '../api'
+import { ApiError, firebaseLogin, forgotPassword, getPricing, login, register, resendVerificationByEmail, setSessionToken } from '../api'
 import { auth, googleProvider, isFirebaseConfigured } from '../firebase'
 import type { PricingPlanId, PricingTier } from '../types'
 import { describePrice } from '../lib/pricing'
@@ -114,6 +114,7 @@ export default function LoginPage({
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
+  const [needsConfirmation, setNeedsConfirmation] = useState(false)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -138,6 +139,7 @@ export default function LoginPage({
     setMode(next)
     setError('')
     setNotice('')
+    setNeedsConfirmation(false)
     setPassword('')
     setConfirm('')
   }
@@ -168,13 +170,36 @@ export default function LoginPage({
       if (mode === 'login') {
         const res = await login(email, password)
         setSessionToken(res.token)
-      } else {
-        const res = await register(name, email, password, acceptTerms, marketingOptIn)
-        setSessionToken(res.token)
+        onAuthenticated()
+        return
       }
-      onAuthenticated()
+      const res = await register(name, email, password, acceptTerms, marketingOptIn)
+      if ('token' in res) {
+        setSessionToken(res.token)
+        onAuthenticated()
+        return
+      }
+      setMode('login')
+      setPassword('')
+      setConfirm('')
+      setNeedsConfirmation(true)
+      setNotice(`Almost done! We sent a confirmation link to ${res.email}. Open it, then sign in here.`)
     } catch (e) {
+      if (e instanceof ApiError && e.status === 403) setNeedsConfirmation(true)
       setError(e instanceof Error ? e.message : 'Authentication failed. Please check your details.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resendConfirmation() {
+    setError('')
+    setBusy(true)
+    try {
+      const res = await resendVerificationByEmail(email)
+      setNotice(res.message)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send a new link. Try again in a minute.')
     } finally {
       setBusy(false)
     }
@@ -499,6 +524,17 @@ export default function LoginPage({
                 <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/60 dark:text-rose-300">
                   {error}
                 </p>
+              )}
+
+              {needsConfirmation && mode === 'login' && (
+                <button
+                  type="button"
+                  disabled={busy || !email}
+                  onClick={() => void resendConfirmation()}
+                  className="w-full cursor-pointer text-center text-sm font-medium text-brand-700 underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-60 dark:text-brand-300"
+                >
+                  Resend confirmation email
+                </button>
               )}
 
               <button disabled={busy} className="btn-primary mt-2 h-10 w-full cursor-pointer">
