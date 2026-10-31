@@ -2,12 +2,15 @@ import type { ApiKeyAccessLevel, ApiKeyItem, ApiKeyScopeType, BillingConfigRespo
 
 const TOKEN_KEY = 'prompt-vault-session'
 
+// Public API gateway (Cloudflare Worker on the promptfolders.com zone).
+export const GATEWAY_URL = 'https://api.promptfolders.com'
+
 export function getBackendBaseUrl(): string {
   if (import.meta.env.VITE_API_BASE) return import.meta.env.VITE_API_BASE
   if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL
   if (typeof window !== 'undefined') {
     if (window.location.hostname.includes('pages.dev')) {
-      return 'https://prompt-vault-gateway.tashfiks.workers.dev'
+      return GATEWAY_URL
     }
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     if (isLocalhost) {
@@ -15,11 +18,11 @@ export function getBackendBaseUrl(): string {
       return `${window.location.protocol}//${window.location.hostname}:${port}`
     }
     if (!window.location.hostname.includes('onrender.com') && !window.location.hostname.includes('workers.dev')) {
-      return 'https://prompt-vault-gateway.tashfiks.workers.dev'
+      return GATEWAY_URL
     }
     return window.location.origin
   }
-  return 'https://prompt-vault-gateway.tashfiks.workers.dev'
+  return GATEWAY_URL
 }
 
 export function getMcpUrl(): string {
@@ -34,7 +37,7 @@ const API_BASE =
   import.meta.env.VITE_API_BASE ||
   import.meta.env.VITE_API_BASE_URL ||
   (typeof window !== 'undefined' && window.location.hostname.includes('pages.dev')
-    ? 'https://prompt-vault-gateway.tashfiks.workers.dev'
+    ? GATEWAY_URL
     : '')
 export const AUTH_EXPIRED_EVENT = 'prompt-vault-auth-expired'
 

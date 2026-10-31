@@ -13,11 +13,11 @@ on:
       base_url:
         description: 'Frontend base URL to test'
         required: false
-        default: 'https://prompthold.pages.dev'
+        default: 'https://promptfolders.com'
       api_base:
         description: 'API gateway base URL to test'
         required: false
-        default: 'https://prompt-vault-gateway.tashfiks.workers.dev'
+        default: 'https://api.promptfolders.com'
 
 concurrency:
   group: browser-e2e-${{ github.ref }}
@@ -53,8 +53,8 @@ jobs:
       - name: Run 21-Feature Browser E2E Live QA Suite
         working-directory: frontend
         env:
-          E2E_BASE_URL: ${{ inputs.base_url || 'https://prompthold.pages.dev' }}
-          E2E_API_BASE: ${{ inputs.api_base || 'https://prompt-vault-gateway.tashfiks.workers.dev' }}
+          E2E_BASE_URL: ${{ inputs.base_url || 'https://promptfolders.com' }}
+          E2E_API_BASE: ${{ inputs.api_base || 'https://api.promptfolders.com' }}
           CHROME_BIN: /usr/bin/google-chrome
         run: npm run test:e2e
 

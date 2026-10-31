@@ -8,7 +8,7 @@ This guide explains how to make code changes, test them, and deploy them live to
 
 | Component | Code Directory | Hosted On | Deployment Trigger | Live In |
 |---|---|---|---|---|
-| **Frontend UI** | `frontend/src/` | **Cloudflare Pages** (`prompthold.pages.dev`) | `wrangler pages deploy` or CI | ~15 sec |
+| **Frontend UI** | `frontend/src/` | **Cloudflare Pages** (`promptfolders.com`) | `wrangler pages deploy` or CI | ~15 sec |
 | **Edge Gateway & Failover** | `cloudflare-worker/` | **Cloudflare Worker** (`prompt-vault-gateway...`) | `wrangler deploy` or CI | ~5 sec |
 | **Backend & MCP Server** | `backend/`, `Dockerfile` | **Render Web Service** (`prompthold-backend...`) | `git push origin main` | 2–3 min |
 | **Database Models** | `backend/models.py` | **Neon PostgreSQL** | Migration script / `seed.py` | Immediate |
@@ -56,7 +56,7 @@ The unified GitHub Actions pipeline (`.github/workflows/pipeline.yml`) executes 
 #### **Stage 2: Automatic Deployment (Only Executes if 100% of Stage 1 Passes)**
 * **GitHub Container Registry (GHCR):** Automatically builds and pushes production multi-platform images (`ghcr.io/tashfiks/prompt-vault-mcp:latest` and tagged with the commit SHA).
 * **Render Web Service:** Automatically triggers the Render deploy hook to redeploy the live backend container.
-* **Cloudflare Pages & Worker:** Automatically deploys the production frontend bundle to **Cloudflare Pages** (`prompthold.pages.dev`) and the edge gateway to **Cloudflare Worker**.
+* **Cloudflare Pages & Worker:** Automatically deploys the production frontend bundle to **Cloudflare Pages** (`promptfolders.com`) and the edge gateway to **Cloudflare Worker**.
 * **Hugging Face Spaces:** Pushes repository updates to Hugging Face Spaces (if configured).
 
 > [!IMPORTANT]
@@ -100,7 +100,7 @@ npx wrangler deploy
 ### C. Updating the Backend Container (Render)
 Use this whenever you edit anything in `backend/` (routers, services, models, migrations, `mcp_server.py`…) or the `Dockerfile`.
 
-> **Note:** the CI pipeline redeploys the single Render backend on pushes to `dev` **as well as** `release` and tags. `dev.prompthold.pages.dev` and production share that backend and its databases, so a `dev` push is a production backend deploy.
+> **Note:** the CI pipeline redeploys the single Render backend on pushes to `dev` **as well as** `release` and tags. `dev.promptfolders.pages.dev` and production share that backend and its databases, so a `dev` push is a production backend deploy.
 
 > **Schema changes:** add an Alembic revision (`backend/alembic/versions/`). It is applied automatically to both the Supabase and Neon databases when the new container starts.
 
@@ -156,7 +156,7 @@ render logs -s srv-dbeqls7avr4c73bq6c0g --follow
 ### 3. Check Live Health Endpoints
 ```bash
 # Gateway Health
-curl -s https://prompt-vault-gateway.tashfiks.workers.dev/api/health | jq .
+curl -s https://api.promptfolders.com/api/health | jq .
 
 # Render Health
 curl -s https://prompthold-backend.onrender.com/api/health | jq .

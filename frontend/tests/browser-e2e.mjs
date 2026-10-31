@@ -9,8 +9,8 @@ const CHROME_PATH = process.env.CHROME_BIN || (
   '/usr/bin/google-chrome'
 );
 
-const BASE_URL = process.env.E2E_BASE_URL || 'https://prompthold.pages.dev';
-const API_BASE = process.env.E2E_API_BASE || 'https://prompt-vault-gateway.tashfiks.workers.dev';
+const BASE_URL = process.env.E2E_BASE_URL || 'https://promptfolders.com';
+const API_BASE = process.env.E2E_API_BASE || 'https://api.promptfolders.com';
 // Sign-up rejects reserved domains like example.com unless the target backend lists the domain in
 // ALLOWED_TEST_EMAIL_DOMAINS, so the domain is configurable per environment.
 const E2E_EMAIL_DOMAIN = process.env.E2E_EMAIL_DOMAIN || 'example.com';

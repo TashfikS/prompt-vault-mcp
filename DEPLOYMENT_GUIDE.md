@@ -18,10 +18,10 @@ This guide provides end-to-end instructions for deploying the **PromptFolders RB
 User Browser / AI Chat Client
               │
               ▼
-Cloudflare Pages (React SPA: prompthold.pages.dev, dev.prompthold.pages.dev)
+Cloudflare Pages (React SPA: promptfolders.com, dev.promptfolders.pages.dev)
               │  /api, /oauth, /mcp, /sse, /.well-known, /share
               ▼
-Cloudflare Worker (prompt-vault-gateway.tashfiks.workers.dev)
+Cloudflare Worker (api.promptfolders.com)
   • forwards to Render, 90s timeout → 503 "starting up"
   • cron */14 → GET /api/health (keeps Render warm, touches Supabase only)
               │
@@ -96,8 +96,8 @@ Firebase Auth provides free user authentication and Google Sign-In.
    * Copy the **Web API Key** (this is `FIREBASE_WEB_API_KEY`).
 5. Under **Authentication** $\rightarrow$ **Settings** $\rightarrow$ **Authorized domains**, add:
    * `localhost`
-   * `prompthold.pages.dev`
-   * `prompt-vault-gateway.tashfiks.workers.dev`
+   * `promptfolders.com`
+   * `api.promptfolders.com`
    * Any custom domains you intend to use.
 
 ---
@@ -132,7 +132,7 @@ Render hosts the Docker container running FastAPI, FastMCP server, and backgroun
    | `GITHUB_ISSUE_REPO`, `GITHUB_ISSUE_TOKEN` | | Optional: feedback → GitHub Issues |
    | `REDIS_URL` | `<upstash-redis-url>` | Upstash TCP Redis URL (`rediss://...:6379`) |
    | `FIREBASE_WEB_API_KEY` | `<firebase-api-key>` | Firebase Web API Key for SSO verification |
-   | `ALLOWED_ORIGINS` | `https://prompthold.pages.dev,https://prompt-vault-gateway.tashfiks.workers.dev` | Allowed CORS origins |
+   | `ALLOWED_ORIGINS` | `https://promptfolders.com,https://api.promptfolders.com` | Allowed CORS origins |
 6. Click **Deploy Web Service**.
 7. Once deployed, note your service URL (e.g., `https://prompthold-backend.onrender.com`).
 8. Under **Settings**, copy the **Deploy Hook URL** (useful for automated CI/CD redeployments).
@@ -168,7 +168,7 @@ Cloudflare Pages delivers the React SPA globally across Cloudflare's CDN.
    npx wrangler pages deploy dist --project-name promptfolders --branch main
    ```
 4. Verify the deployment:
-   * Open `https://prompthold.pages.dev` in your browser.
+   * Open `https://promptfolders.com` in your browser.
    * Sign in using any demo account (e.g., `alice@example.com` / `demo1234`).
 
 ---
@@ -179,21 +179,21 @@ Test each layer from your terminal:
 
 ```bash
 # 1. Test Cloudflare Worker gateway health (expect tiers.paid.status = "not_checked")
-curl -i https://prompt-vault-gateway.tashfiks.workers.dev/api/health
+curl -i https://api.promptfolders.com/api/health
 
 # 2. Test Render Backend Health directly
 curl -i https://prompthold-backend.onrender.com/api/health
 
 # 3. Test MCP Server SSE Endpoint
-curl -i https://prompt-vault-gateway.tashfiks.workers.dev/mcp/
+curl -i https://api.promptfolders.com/mcp/
 
 # 4. Test Demo Account Authentication
-curl -i -X POST https://prompt-vault-gateway.tashfiks.workers.dev/api/auth/login \
+curl -i -X POST https://api.promptfolders.com/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"alice@example.com","password":"demo1234"}'
 
 # 5. Test Frontend Asset Delivery
-curl -I https://prompthold.pages.dev/
+curl -I https://promptfolders.com/
 ```
 
 All 5 requests should return HTTP 200 OK.

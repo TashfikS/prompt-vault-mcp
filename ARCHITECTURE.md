@@ -16,8 +16,8 @@ flowchart TD
     end
 
     subgraph Cloudflare["Cloudflare (free)"]
-        Pages["Pages: React SPA<br/>prompthold.pages.dev · dev.prompthold.pages.dev"]
-        Worker["Worker gateway<br/>prompt-vault-gateway.tashfiks.workers.dev<br/>• thin proxy, 90s upstream timeout<br/>• cron every 14 min → GET /api/health"]
+        Pages["Pages: React SPA<br/>promptfolders.com · dev.promptfolders.pages.dev"]
+        Worker["Worker gateway<br/>api.promptfolders.com<br/>• thin proxy, 90s upstream timeout<br/>• cron every 14 min → GET /api/health"]
     end
 
     subgraph Render["Render web service (free, Docker)"]
@@ -55,7 +55,7 @@ Key facts:
 - **One deployable.** The Render container serves the REST API, the OAuth 2.1 authorization server, the FastMCP server and (when built) the SPA. The same React bundle also runs as the in-chat MCP drawer with `?mcp_mode=1` (`ui://prompt-hold/drawer`).
 - **The Worker is only a proxy.** It forwards backend routes, sets `X-Forwarded-Host` so OAuth metadata advertises the public origin, passes the real client IP behind a shared `GATEWAY_SECRET`, and returns a 503 "starting up" if Render does not answer within 90s. It holds no database credentials and does no failover.
 - **Two databases by plan.** Free users live in Supabase and paid users in Neon. Neon's free tier is metered by compute time, so community traffic never touches it and Neon can scale to zero. See section 3.
-- **One backend for both environments.** `dev.prompthold.pages.dev` and `prompthold.pages.dev` talk to the same Worker and the same Render service and databases. Pushing to `dev` redeploys that shared backend (pipeline job 6), so treat `dev` pushes as production backend deploys.
+- **One backend for both environments.** `dev.promptfolders.pages.dev` and `promptfolders.com` talk to the same Worker and the same Render service and databases. Pushing to `dev` redeploys that shared backend (pipeline job 6), so treat `dev` pushes as production backend deploys.
 
 ---
 

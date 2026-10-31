@@ -1,7 +1,14 @@
 name = "prompt-vault-gateway"
 main = "worker.js"
 compatibility_date = "2024-11-01"
+# promptfolders Cloudflare account (CI may override with CLOUDFLARE_ACCOUNT_ID).
+account_id = "02e0a5cc51ca5d4d0ebdc9420add8095"
 workers_dev = true
+
+# Public API address. Cloudflare creates the DNS record and certificate on first deploy.
+[[routes]]
+pattern = "api.promptfolders.com"
+custom_domain = true
 
 [vars]
 RENDER_ORIGIN = "https://prompthold-backend.onrender.com"

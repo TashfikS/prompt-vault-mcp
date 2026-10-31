@@ -101,7 +101,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
-    # Exact project hosts only (incl. Pages branch previews like dev.prompthold.pages.dev); never "promptfolders-*",
+    # Exact project hosts only (incl. Pages branch previews like dev.promptfolders.pages.dev); never "promptfolders-*",
     # since anyone can register such a Pages/Workers project name.
     allow_origin_regex=os.getenv("ALLOWED_ORIGIN_REGEX")
     or r"https://(([a-z0-9-]+\.)?prompthold\.pages\.dev|([a-z0-9-]+\.)?promptfolders\.(pages\.dev|com)|prompt-vault-gateway\.tashfiks\.workers\.dev)",
