@@ -195,8 +195,13 @@ def test_checkout_passes_interval_product_and_seats(monkeypatch, test_users_and_
     monkeypatch.setenv("POLAR_TEAM_ANNUAL_PRODUCT_ID", "prod_team_year")
     monkeypatch.delenv("POLAR_PRO_ANNUAL_PRODUCT_ID", raising=False)
     user = test_users_and_groups["owner"]
+    monkeypatch.delenv("POLAR_CHECKOUT_SUCCESS_URL", raising=False)
+    monkeypatch.delenv("POLAR_SANDBOX_CHECKOUT_SUCCESS_URL", raising=False)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://promptfolders.com/")
     out = polar_billing.create_checkout_session(user, "team", interval="year", seats=3)
     assert out["mode"] == "live" and calls["products"] == ["prod_team_year"] and calls["seats"] == 3
+    # Without an explicit success URL, buyers return to the public site, never a local dev server.
+    assert calls["success_url"] == "https://promptfolders.com/?billing=success&tier=team"
 
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc:

@@ -141,7 +141,10 @@ def create_checkout_session(
     product_id = get_product_id_for_plan(plan, interval)
     if client and not product_id:
         raise HTTPException(status_code=503, detail=f"{'Annual' if interval == 'year' else 'Monthly'} billing for {plan.title()} is not available yet.")
-    fallback_success = success_url or polar_setting("CHECKOUT_SUCCESS_URL") or "http://localhost:5173/?billing=success&tier=" + plan
+    # After paying, Polar sends the buyer here. Without an explicit setting, use the site's public address
+    # (the one email links use) rather than the local dev server.
+    app_url = (os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_URL") or "http://localhost:5173").strip().rstrip("/")
+    fallback_success = success_url or polar_setting("CHECKOUT_SUCCESS_URL") or f"{app_url}/?billing=success&tier={plan}"
 
     # 1. Real Polar SDK flow when credentials and product ID exist
     if client and product_id:
