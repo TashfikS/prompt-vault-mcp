@@ -271,15 +271,29 @@ def test_client_uses_active_environment(clean_polar_env):
     m = clean_polar_env
     m.setenv("POLAR_ENVIRONMENT", "production")
     m.setenv("POLAR_PRODUCTION_ACCESS_TOKEN", "live-token")
-    seen = {}
+    client = pb.get_polar_client()
+    assert (client.access_token, client.environment, client.base_url) == ("live-token", "production", "https://api.polar.sh")
+    m.setenv("POLAR_ENVIRONMENT", "sandbox")
+    m.setenv("POLAR_SANDBOX_ACCESS_TOKEN", "sandbox-token")
+    assert pb.get_polar_client().base_url == "https://sandbox-api.polar.sh"
 
-    class FakePolar:
-        def __init__(self, access_token, environment):
-            seen.update(token=access_token, environment=environment)
 
-    import types, sys
-    fake_mod = types.ModuleType("polar.v2026_10")
-    fake_mod.Polar = FakePolar
-    m.setitem(sys.modules, "polar.v2026_10", fake_mod)
-    assert pb.get_polar_client() is not None
-    assert seen == {"token": "live-token", "environment": "production"}
+def test_rest_client_posts_checkout_and_reads_url(clean_polar_env, monkeypatch):
+    """Checkout goes straight to Polar's REST API (the SDK cannot parse its own Checkout response)."""
+    import httpx
+    import polar_billing as pb
+    clean_polar_env.setenv("POLAR_SANDBOX_ACCESS_TOKEN", "tok")
+    sent = {}
+
+    def fake_post(url, json, timeout, headers):
+        sent.update(url=url, json=json, auth=headers["Authorization"])
+        return httpx.Response(201, json={"id": "chk_9", "url": "https://sandbox.polar.sh/checkout/x", "status": "open"})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    checkout = pb.get_polar_client().checkouts.create(products=["p1"], seats=2, metadata={"user_id": "u"})
+    assert (checkout.id, checkout.url) == ("chk_9", "https://sandbox.polar.sh/checkout/x")
+    assert sent == {"url": "https://sandbox-api.polar.sh/v1/checkouts/", "json": {"products": ["p1"], "seats": 2, "metadata": {"user_id": "u"}}, "auth": "Bearer tok"}
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(422, json={"detail": "bad product"}))
+    with pytest.raises(RuntimeError, match="422"):
+        pb.get_polar_client().checkouts.create(products=["nope"])

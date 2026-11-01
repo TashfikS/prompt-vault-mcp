@@ -73,17 +73,53 @@ def plan_for_product_id(product_id: str | None) -> tuple[str, str] | None:
     return None
 
 
-def get_polar_client():
-    """Instantiate a Polar SDK client using environment settings."""
+_POLAR_API_BASE = {"sandbox": "https://sandbox-api.polar.sh", "production": "https://api.polar.sh"}
+
+
+class _SimpleResult:
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.__dict__.update(data)
+
+
+class PolarRestClient:
+    """The two Polar API calls we make, over plain HTTPS.
+
+    polar-sdk 1.0.2 cannot read any response object: its pinned adaptix 3.0.0b12 fails while building the
+    loader ("Key sentinel is duplicated"), so every checkout failed after Polar had created it. We only need
+    a URL and an id back, so these calls skip the SDK's model layer entirely.
+    """
+
+    def __init__(self, access_token: str, environment: str) -> None:
+        self.access_token = access_token
+        self.environment = environment
+        self.base_url = _POLAR_API_BASE.get(environment, _POLAR_API_BASE["sandbox"])
+        self.checkouts = _Endpoint(self, "/v1/checkouts/")
+        self.customer_sessions = _Endpoint(self, "/v1/customer-sessions/")
+
+    def post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        import httpx
+
+        res = httpx.post(self.base_url + path, json=body, timeout=20,
+                         headers={"Authorization": f"Bearer {self.access_token}", "Accept": "application/json"})
+        if res.is_error:
+            raise RuntimeError(f"Polar API returned {res.status_code}: {res.text[:300]}")
+        return res.json()
+
+
+class _Endpoint:
+    def __init__(self, client: PolarRestClient, path: str) -> None:
+        self._client, self._path = client, path
+
+    def create(self, **body: Any) -> _SimpleResult:
+        return _SimpleResult(self._client.post(self._path, body))
+
+
+def get_polar_client() -> PolarRestClient | None:
+    """Polar API client for the active environment (None when no access token is configured)."""
     token = polar_setting("ACCESS_TOKEN")
     if not token:
         return None
-    try:
-        from polar.v2026_10 import Polar
-        return Polar(access_token=token, environment=polar_environment())
-    except Exception as exc:
-        logger.warning("Failed to initialize Polar SDK client: %s", exc)
-        return None
+    return PolarRestClient(access_token=token, environment=polar_environment())
 
 
 def create_checkout_session(
