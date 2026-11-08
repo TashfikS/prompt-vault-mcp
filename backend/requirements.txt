@@ -5,7 +5,7 @@ pydantic==2.14.2
 python-multipart==0.0.32
 python-dotenv==1.2.4
 fastmcp==4.1.4
-psycopg[binary]==3.3.6
+psycopg[binary]==3.3.8
 redis==8.1.0
 httpx==0.28.1
 argon2-cffi==25.1.0
