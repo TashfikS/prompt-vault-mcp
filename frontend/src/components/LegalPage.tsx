@@ -7,9 +7,8 @@ export const TERMS_VERSION = '2026-10-31'
 
 type Section = { heading: string; body: string[] }
 
-// DRAFT TEXT: have this reviewed by a lawyer before launch and fill in the bracketed details.
 const TERMS: Section[] = [
-  { heading: 'Who we are', body: ['PromptFolders ("we", "us") is operated by [legal entity name, registered address]. Contact: [support email].'] },
+  { heading: 'Who we are', body: ['PromptFolders ("we", "us") provides the PromptFolders prompt library service. Contact: support@promptfolders.com.'] },
   { heading: 'Your account', body: [
     'You must give accurate information and keep your password secure. You are responsible for activity under your account and API keys.',
     'You must be at least 16 years old, or the age of digital consent where you live.',
@@ -20,7 +19,7 @@ const TERMS: Section[] = [
   ] },
   { heading: 'Plans and billing', body: [
     'Paid plans are billed in advance, monthly or yearly, through our payment partner Polar.sh, which acts as merchant of record. Team plans are billed per editor seat.',
-    'You can cancel at any time from the billing portal; access to paid features continues until the end of the paid period. Refunds follow [refund policy].',
+    'You can cancel at any time from the billing portal; access to paid features continues until the end of the paid period. You can request a full refund within 7 days of a payment by contacting support@promptfolders.com or through Polar.',
     'Usage limits (prompts, versions, API keys, MCP calls) are listed on the pricing page and enforced automatically.',
   ] },
   { heading: 'Acceptable use', body: ['No attempts to break, overload, or gain unauthorised access to the service, other accounts, or other people\'s data.'] },
@@ -28,8 +27,8 @@ const TERMS: Section[] = [
     'We work to keep the service available but provide it "as is" without guarantees of uninterrupted operation, except where an Enterprise agreement says otherwise.',
     'To the extent permitted by law, our liability is limited to the amount you paid us in the 12 months before the claim.',
   ] },
-  { heading: 'Ending the agreement', body: ['You can delete your account at any time. We may suspend accounts that break these terms. [Data retention period after closure.]'] },
-  { heading: 'Changes', body: ['We will tell you by email before material changes take effect. Governing law: [jurisdiction].'] },
+  { heading: 'Ending the agreement', body: ['You can delete your account at any time. We may suspend accounts that break these terms. We delete your account data within 30 days after closure, unless the law requires us to keep it longer.'] },
+  { heading: 'Changes', body: ['We will tell you by email before material changes take effect.'] },
 ]
 
 const PRIVACY: Section[] = [
@@ -45,12 +44,12 @@ const PRIVACY: Section[] = [
     'To send product updates and tips only if you opted in (consent). You can withdraw consent any time from your profile.',
   ] },
   { heading: 'Who we share it with', body: [
-    'Service providers that host or run parts of PromptFolders: [list, e.g. Supabase, Neon, Cloudflare, Google (Gemini embeddings, Firebase sign-in), Resend (email), Polar.sh (billing)].',
+    'Service providers that host or run parts of PromptFolders: Supabase and Neon (databases), Cloudflare (network and hosting), Google (Gemini embeddings for search, Firebase sign-in), Resend (email), and Polar.sh (billing).',
     'We do not sell personal data.',
   ] },
-  { heading: 'Retention', body: ['We keep account data while your account is open and [period] after it closes, unless the law requires longer.'] },
-  { heading: 'Your rights', body: ['You can access, correct, export, or delete your data, and object to or restrict processing. Contact [privacy email]. You can also complain to your local data-protection authority.'] },
-  { heading: 'International transfers', body: ['[Describe where data is stored and the safeguards used, e.g. Standard Contractual Clauses.]'] },
+  { heading: 'Retention', body: ['We keep account data while your account is open and up to 30 days after it closes, unless the law requires longer.'] },
+  { heading: 'Your rights', body: ['You can access, correct, export, or delete your data, and object to or restrict processing. Contact support@promptfolders.com. You can also complain to your local data-protection authority.'] },
+  { heading: 'International transfers', body: ['Your data is stored in the United States (AWS us-east-2, through Supabase and Neon). Where data moves across borders, we rely on our providers\' standard safeguards, such as Standard Contractual Clauses.'] },
 ]
 
 export default function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
