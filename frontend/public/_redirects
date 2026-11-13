@@ -1,0 +1,7 @@
+# Client-side routes (see src/App.tsx). Anything else falls through to 404.html with a 404 status.
+/terms          /index.html 200
+/privacy        /index.html 200
+/pricing        /index.html 200
+/login          /index.html 200
+/register       /index.html 200
+/share/diff/*   /index.html 200

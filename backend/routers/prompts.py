@@ -324,6 +324,8 @@ def update_prompt(prompt_id: str, payload: PromptUpdateRequest, db: Session = De
     role = get_user_group_role(db, user, prompt.group_id)
     if role == "GUEST":
         raise HTTPException(status_code=403, detail="Guests have view-only access and cannot edit prompts.")
+    if prompt_service.is_noop_edit(db, prompt, payload.content, payload.title, payload.description):
+        raise HTTPException(status_code=400, detail="No changes to save. Edit the prompt before saving a new version.")
 
     if not can_user_direct_write_prompt(db, user, prompt.group_id):
         proposal = PromptProposal(

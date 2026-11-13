@@ -177,3 +177,16 @@ def duplicate(db: Session, user: User, prompt: Prompt, target_group: Group, new_
     db.commit()
     db.refresh(new_prompt)
     return new_prompt
+
+
+def is_noop_edit(db: Session, prompt: Prompt, content: str, title: str | None = None,
+                 description: str | None = None) -> bool:
+    """True when an edit would not change the active content, title or description."""
+    current = active_version(db, prompt)
+    if current is None or current.content != content:
+        return False
+    if title is not None and title.strip() != (prompt.title or ""):
+        return False
+    if description is not None and description != (prompt.description or ""):
+        return False
+    return True

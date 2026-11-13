@@ -1,0 +1,14 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.promptfolders/promptfolders",
+  "title": "PromptFolders",
+  "description": "Team prompt library with version control and reviews. Save, search and reuse prompts via MCP.",
+  "websiteUrl": "https://promptfolders.com",
+  "version": "2.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.promptfolders.com/mcp"
+    }
+  ]
+}

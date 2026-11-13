@@ -20,6 +20,12 @@ from models import AuditLog
 
 ENV = (os.getenv("PROMPT_FOLDERS_ENV") or os.getenv("PROMPT_HOLD_ENV") or os.getenv("PROMPT_VAULT_ENV", "development")).strip().lower()
 IS_PRODUCTION = ENV == "production"
+# Production pages only talk to their own origin and Firebase Auth; dev also needs local servers.
+_CONNECT_SRC = (
+    "'self' https://*.googleapis.com https://*.firebaseapp.com"
+    if IS_PRODUCTION
+    else "'self' http://localhost:* http://127.0.0.1:* https://*"
+)
 TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").strip().lower() in {"1", "true", "yes"}
 
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "10"))
@@ -257,7 +263,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "font-src 'self' https://fonts.gstatic.com data:; "
             "img-src 'self' data: blob: https://lh3.googleusercontent.com; "
             "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; "
-            "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*; "
+            f"connect-src {_CONNECT_SRC}; "
             f"frame-ancestors {frame_ancestors}; "
             "base-uri 'self'; "
             "form-action 'self' https: http://localhost:* http://127.0.0.1:*"

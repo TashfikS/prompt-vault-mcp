@@ -32,6 +32,7 @@ flowchart TD
 
     subgraph External
         Firebase["Firebase Auth<br/>(Google SSO)"]
+        Resend["Resend<br/>(verification & reset email)"]
         Gemini["Gemini embeddings<br/>(semantic search)"]
         Polar["Polar.sh<br/>(billing webhooks)"]
         GH["GitHub Issues<br/>(feedback)"]
@@ -45,6 +46,7 @@ flowchart TD
     API -->|paid tokens| Neon
     API --> Redis
     API --> Firebase
+    API --> Resend
     API --> Gemini
     Polar -->|webhook| API
     API --> GH
@@ -52,7 +54,7 @@ flowchart TD
 
 Key facts:
 
-- **One deployable.** The Render container serves the REST API, the OAuth 2.1 authorization server, the FastMCP server and (when built) the SPA. The same React bundle also runs as the in-chat MCP drawer with `?mcp_mode=1` (`ui://prompt-hold/drawer`).
+- **One deployable.** The Render container serves the REST API, the OAuth 2.1 authorization server, the FastMCP server and (when built) the SPA. The same React bundle also runs as the in-chat MCP drawer with `?mcp_mode=1` (`ui://prompt-folders/drawer`).
 - **The Worker is only a proxy.** It forwards backend routes, sets `X-Forwarded-Host` so OAuth metadata advertises the public origin, passes the real client IP behind a shared `GATEWAY_SECRET`, and returns a 503 "starting up" if Render does not answer within 90s. It holds no database credentials and does no failover.
 - **Two databases by plan.** Free users live in Supabase and paid users in Neon. Neon's free tier is metered by compute time, so community traffic never touches it and Neon can scale to zero. See section 3.
 - **One backend for both environments.** `dev.promptfolders.pages.dev` and `promptfolders.com` talk to the same Worker and the same Render service and databases. Pushing to `dev` redeploys that shared backend (pipeline job 6), so treat `dev` pushes as production backend deploys.
@@ -71,7 +73,7 @@ flowchart LR
     subgraph Shared["Shared layers"]
         Deps["deps.py<br/>current_user, cookies,<br/>permission guards"]
         Domain["domain.py<br/>read-model helpers,<br/>HTTP quota wrappers"]
-        Services["services/<br/>prompts.py · proposals.py"]
+        Services["services/<br/>prompts · proposals · limits<br/>account_tokens · credential_policy · email"]
         Plans["plans.py<br/>plan catalogue & limits"]
         Perms["permissions.py<br/>RBAC"]
     end
@@ -105,6 +107,7 @@ flowchart LR
 | `services/prompts.py` | Plan quota, create-or-propose, duplicate, move | Import FastAPI or raise HTTP errors (raises `PromptError` with a `status_code`) |
 | `services/proposals.py` | Pending-only rule, self-approval rule, one vote per reviewer, merge into a new version | Same as above (`ProposalError`) |
 | `permissions.py` | Who may see or write a group | — |
+| `services/account_tokens.py`, `credential_policy.py`, `email.py`, `limits.py` | Email-verify/reset tokens (stored as SHA-256), sign-up email and password rules (NIST 800-63B, breached-password and disposable-domain checks), Resend email delivery, plan-limit checks (`PlanLimitError`) | Same as above |
 | `plans.py` | `PLAN_TIERS`, `PLAN_LIMITS_MAP`, `plan_info_for(user)` | Import anything web-related (services depend on it) |
 
 REST and MCP are thin adapters over the same services, so a prompt created from chat follows exactly the same quota and review rules as one created in the web UI.
@@ -190,10 +193,14 @@ erDiagram
     User {
         string id PK
         string email UK
-        string password_hash "PBKDF2-SHA256"
+        string password_hash "Argon2 (PBKDF2 fallback)"
         bool is_workspace_admin
         string plan "community|pro|team|enterprise"
         string polar_customer_id
+        string verify_token_hash "SHA-256, email verification"
+        string reset_token_hash "SHA-256, password reset"
+        datetime terms_accepted_at
+        string terms_version
     }
     Group {
         string id PK
@@ -317,7 +324,7 @@ prompt-vault-mcp/
 ├── backend/
 │   ├── main.py            # App assembly: lifespan, middleware, /api/health, MCP + SPA mounts
 │   ├── routers/           # REST routes by domain (auth, oauth, account, groups, prompts, proposals, sharing)
-│   ├── services/          # Business rules shared by REST and MCP (prompts.py, proposals.py)
+│   ├── services/          # Business rules shared by REST and MCP (prompts, proposals, limits, account_tokens, credential_policy, email)
 │   ├── deps.py            # current_user / maybe_user, session cookies, permission guards
 │   ├── domain.py          # Read-model helpers, HTTP wrappers around service quotas
 │   ├── plans.py           # Plan catalogue and limits

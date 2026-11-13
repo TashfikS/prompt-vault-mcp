@@ -10,6 +10,25 @@ workers_dev = true
 pattern = "api.promptfolders.com"
 custom_domain = true
 
+# Let MCP clients use the brand domain too (https://promptfolders.com/mcp). Only these paths go to the
+# gateway; everything else on promptfolders.com stays on Cloudflare Pages. Worker routes run before Pages.
+# The Worker forwards X-Forwarded-Host, so OAuth metadata on this host advertises promptfolders.com URLs.
+[[routes]]
+pattern = "promptfolders.com/mcp*"
+zone_name = "promptfolders.com"
+
+[[routes]]
+pattern = "promptfolders.com/sse*"
+zone_name = "promptfolders.com"
+
+[[routes]]
+pattern = "promptfolders.com/oauth/*"
+zone_name = "promptfolders.com"
+
+[[routes]]
+pattern = "promptfolders.com/.well-known/oauth-*"
+zone_name = "promptfolders.com"
+
 [vars]
 RENDER_ORIGIN = "https://prompthold-backend.onrender.com"
 # Non-API paths redirect here (the web app is served by Cloudflare Pages).

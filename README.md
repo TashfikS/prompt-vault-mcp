@@ -1,13 +1,3 @@
----
-title: PromptFolders MCP
-emoji: 🔐
-colorFrom: indigo
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # PromptFolders
 
 PromptFolders is a team prompt workspace and version control system built with FastAPI, SQLAlchemy, React, and FastMCP. It provides Role-Based Access Control (RBAC), immutable sequential prompt versions, drag-and-drop uploads, instant rollback, granular word and sentence comparisons, shareable comparison links, and an in-chat MCP drawer for connected AI assistants and agents.
@@ -47,15 +37,15 @@ pip install -r backend/requirements.txt
 cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-With no database URLs set, the backend uses local SQLite: `prompthold.db` for paid tiers and `prompthold_community.db` for the community tier. On startup it creates tables, applies Alembic migrations and seeds the demo data (when seeding is enabled, see `security.should_seed_demo_data`).
+With no database URLs set, the backend uses local SQLite: `promptfolders.db` for paid tiers and `promptfolders_community.db` for the community tier (existing `prompthold*.db` files are still picked up). On startup it creates tables, applies Alembic migrations and seeds the demo data (when seeding is enabled, see `security.should_seed_demo_data`).
 
 > **Careful with `.env`:** if it contains `DATABASE_URL` / `NEON_DATABASE_URL` / `SUPABASE_DATABASE_URL`, the local backend (and anything that imports `database.py`) talks to those real databases.
 
 ## Accounts and sign-in
 
-The web app requires signing in. Anyone can create an account from the sign-up page; new accounts receive an isolated, private Personal space right away, and can create or join team groups. The seeded demo accounts (`alice@example.com`, `bob@example.com`, `charlie@example.com`, `diana@example.com`) use the password `demo1234`.
+The web app requires signing in. Anyone can create an account from the sign-up page (email and password, or Continue with Google). Password accounts confirm their email through a verification link, and forgotten passwords are reset by emailed link (sent through Resend: set `RESEND_API_KEY` and `EMAIL_FROM`). New accounts receive an isolated, private Personal space right away, and can create or join team groups. The seeded demo accounts (`alice@example.com`, `bob@example.com`, `charlie@example.com`, `diana@example.com`) use the password `demo1234`.
 
-Passwords are stored as salted PBKDF2-SHA256 hashes. Signing in returns a session token (valid 14 days) that the browser sends as `Authorization: Bearer <token>` or an HttpOnly cookie. MCP clients either sign in through the built-in OAuth 2.1 flow or send a personal API key as the bearer token. Tokens and keys are stored only as SHA-256 hashes. New ones carry a tier prefix (`phc_`/`php_` for sessions, `pv_live_c_`/`pv_live_p_` for keys), so each request queries only the right database.
+Passwords are hashed with Argon2 (`argon2-cffi`); salted PBKDF2-SHA256 is the fallback and older hashes still verify. Signing in returns a session token (valid 14 days) that the browser sends as `Authorization: Bearer <token>` or an HttpOnly cookie. MCP clients either sign in through the built-in OAuth 2.1 flow or send a personal API key as the bearer token. Tokens and keys are stored only as SHA-256 hashes. New ones carry a tier prefix (`phc_`/`php_` for sessions, `pv_live_c_`/`pv_live_p_` for keys), so each request queries only the right database.
 
 ## Start the frontend
 
@@ -81,6 +71,6 @@ The pgvector search test only runs when `PGVECTOR_TEST_DATABASE_URL` points at a
 
 ## Demo API keys
 
-The seeded API keys are `key_admin_alice`, `key_manager_bob`, `key_member_charlie`, and `key_manager_diana`. MCP tools enforce the same group membership boundaries and business rules as the web API. The MCP endpoint is `/mcp` and the UI resource is `ui://prompt-hold/drawer`.
+The seeded API keys are `key_admin_alice`, `key_manager_bob`, `key_member_charlie`, and `key_manager_diana`. MCP tools enforce the same group membership boundaries and business rules as the web API. The MCP endpoint is `/mcp` and the UI resource is `ui://prompt-folders/drawer` (`ui://prompt-hold/drawer` and `ui://prompt-vault/drawer` remain as aliases).
 
-Set `PROMPT_HOLD_APP_URL` to the externally reachable app origin for MCP drawer use outside local development.
+Set `PROMPT_FOLDERS_APP_URL` (legacy: `PROMPT_HOLD_APP_URL`) to the externally reachable app origin for MCP drawer use outside local development.

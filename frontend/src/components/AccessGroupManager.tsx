@@ -571,6 +571,10 @@ export default function AccessGroupManager({
                       disabled={!emailChoice[group.id]?.trim()}
                       onClick={() => {
                         const targetEmail = emailChoice[group.id]?.trim()
+                        if (!targetEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(targetEmail)) {
+                          notify('Enter a valid email address, like name@company.com.', { tone: 'error' })
+                          return
+                        }
                         void run(
                           () =>
                             api(`/api/groups/${group.id}/members`, {

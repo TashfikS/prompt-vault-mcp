@@ -468,3 +468,31 @@ async def test_register_cannot_self_assign_paid_plan(client: AsyncClient, test_u
     )
     assert reg.status_code == 201
     assert db.query(User).filter_by(email="freeloader@example.com").one().plan == "community"
+
+
+@pytest.mark.asyncio
+async def test_unchanged_edit_does_not_create_version(client: AsyncClient, db: Session, test_users_and_groups):
+    """Saving without changes must not publish a duplicate version."""
+    fixtures = test_users_and_groups
+    owner = fixtures["owner"]
+    headers = {"Authorization": f"Bearer {fixtures['tokens']['owner']}"}
+    personal = ensure_personal_group(db, owner)
+
+    created = await client.post(
+        "/api/prompts",
+        headers=headers,
+        json={"group_id": personal.id, "title": "Noop", "content": "Hello {{name}}"},
+    )
+    assert created.status_code == 201
+    prompt_id = created.json()["id"]
+
+    same = await client.put(f"/api/prompts/{prompt_id}", headers=headers,
+                            json={"title": "Noop", "content": "Hello {{name}}"})
+    assert same.status_code == 400
+    assert "No changes" in same.json()["detail"]
+
+    changed = await client.put(f"/api/prompts/{prompt_id}", headers=headers,
+                               json={"title": "Noop", "content": "Hello {{name}}!"})
+    assert changed.status_code == 200
+    versions = await client.get(f"/api/prompts/{prompt_id}/versions", headers=headers)
+    assert len(versions.json()) == 2

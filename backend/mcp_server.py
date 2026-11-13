@@ -302,6 +302,9 @@ def save_prompt_version_from_chat(prompt_id: str, new_content: str,
         role = get_user_group_role(db, user, prompt.group_id)
         if role == "GUEST":
             raise ValueError("Guests have view-only access and cannot modify prompts.")
+        from services.prompts import is_noop_edit
+        if is_noop_edit(db, prompt, new_content):
+            raise ValueError("No changes to save: the new content matches the active version.")
         if not can_user_direct_write_prompt(db, user, prompt.group_id):
             proposal = PromptProposal(
                 prompt_id=prompt.id,

@@ -22,6 +22,14 @@ if str(backend_dir) not in sys.path:
 # Pin the environment before backend modules load .env (load_dotenv does not override existing vars),
 # so a local production .env cannot change test behavior.
 os.environ["PROMPT_HOLD_ENV"] = "development"
+# Blank every other key from the local .env (live DB URLs, Polar keys, PUBLIC_BASE_URL, ...) so tests never
+# reach production services and behave the same on every machine. Vars already set in the shell win.
+for _env_file in (backend_dir.parent / ".env", backend_dir / ".env"):
+    if _env_file.is_file():
+        for _line in _env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            _key = _line.split("=", 1)[0].strip().removeprefix("export ").strip()
+            if "=" in _line and _key and not _key.startswith("#"):
+                os.environ.setdefault(_key, "")
 # Tests register @example.com users and must never call the Have I Been Pwned API;
 # test_credential_policy.py covers both checks explicitly.
 os.environ["ALLOWED_TEST_EMAIL_DOMAINS"] = "example.com"

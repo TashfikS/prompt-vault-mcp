@@ -55,7 +55,7 @@ Users can belong to multiple groups with distinct roles per group:
 ### Pillar 4: Authentication & Session Security
 - **Sign-up:** name, email, password, and a required Terms/Privacy checkbox (`terms_accepted_at` + `terms_version` stored); marketing email is a separate, unchecked-by-default opt-in. Password accounts must confirm their email before they can sign in: `register` returns `{verification_required, email}` with no session, and `login` answers 403 until the emailed link is used (accounts that never had a link issued, e.g. seeded rows, are exempt). `AUTO_VERIFY_SIGNUPS=1` confirms sign-ups instantly on local/CI stacks and is ignored in production. Verify/reset tokens are stored only as SHA-256 hashes on `users`. Signing in with Google/GitHub on an unverified password account clears that password and its sessions, so whoever registered an address they don't own loses access.
 - **Plan limits (`backend/plans.py`, `backend/services/limits.py`):** every limit shown on the pricing page is enforced in REST and MCP: prompts, versions, groups, API keys, monthly MCP calls (counted in `_auth_key`), share links and multi-file upload (Pro+), and Team editor seats (`billed_seats` from Polar) plus free guests per seat. Unbuilt features go in a tier's `coming_soon`, never in `features`.
-- **Authentication:** Token-based session authentication (`auth_sessions` table) with PBKDF2 password hashing (`hashlib.pbkdf2_hmac` with SHA-256 and salt).
+- **Authentication:** Token-based session authentication (`auth_sessions` table) with Argon2 password hashing (`argon2-cffi`), falling back to salted PBKDF2-SHA256 (`hashlib.pbkdf2_hmac`); legacy PBKDF2 hashes still verify.
 - **Dual Credential Support:**
   - Web UI: Authenticates via `Authorization: Bearer <session_token>` header.
   - MCP Clients: Authenticates via personal `api_key` (`Authorization: Bearer <api_key>` or MCP tool argument).
@@ -305,7 +305,7 @@ Tools authenticate and check roles, then call the same `services/` functions as 
 
 
 Mounted at `/mcp` using SSE/Streamable HTTP:
-- **UI Resource `ui://prompt-hold/drawer` (and `ui://prompt-vault/drawer` alias):** HTML shell embedding the React frontend with `?mcp_mode=1`.
+- **UI Resource `ui://prompt-folders/drawer` (with `ui://prompt-hold/drawer` and `ui://prompt-vault/drawer` aliases):** HTML shell embedding the React frontend with `?mcp_mode=1`.
 - **Tool `list_my_accessible_prompts(api_key, search_query, group_name)`:** Strictly filters prompts by the caller's RBAC memberships.
 - **Tool `get_and_fill_prompt(api_key, prompt_id, variables)`:** Compiles the latest prompt version by interpolating `{{variables}}`.
 - **Tool `save_prompt_version_from_chat(api_key, prompt_id, new_content, change_note)`:** Saves an updated prompt version directly from AI chat clients.

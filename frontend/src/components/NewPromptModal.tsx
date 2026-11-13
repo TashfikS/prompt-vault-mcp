@@ -99,6 +99,11 @@ export default function NewPromptModal({
       onClose={onClose}
       footer={
         <>
+          {!busy && !canSubmit && (
+            <span className="mr-auto text-xs text-slate-500 dark:text-zinc-400">
+              {!title.trim() ? 'Add a title to continue.' : !content.trim() ? 'Add the prompt text to continue.' : isNewGroup ? 'Name the new group to continue.' : 'Choose a space to continue.'}
+            </span>
+          )}
           <button type="button" onClick={onClose} className="btn-secondary" disabled={busy}>Cancel</button>
           <button type="submit" disabled={!canSubmit} className="btn-primary">{busy ? (isNewGroup ? 'Creating group & prompt…' : 'Creating…') : 'Create prompt'}</button>
         </>

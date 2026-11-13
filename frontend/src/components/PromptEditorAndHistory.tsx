@@ -118,6 +118,8 @@ export default function PromptEditorAndHistory({
     void reloadProposals()
   }, [prompt.id, prompt.current_version_number])
 
+  const hasChanges = content !== prompt.content || title.trim() !== prompt.title
+
   async function save() {
     try {
       const res = await api<{ proposal_created?: boolean; proposal_id?: string; message?: string }>(
@@ -369,6 +371,8 @@ export default function PromptEditorAndHistory({
                         <button
                           type="button"
                           onClick={() => void save()}
+                          disabled={!hasChanges}
+                          title={hasChanges ? undefined : 'Edit the title or prompt text to save a new version'}
                           className="btn-primary"
                         >
                           {isProposalWorkflow ? <Send size={15} /> : <Save size={15} />}
